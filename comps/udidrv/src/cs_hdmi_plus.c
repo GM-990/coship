@@ -1,0 +1,21 @@
+/****************************************************************************/
+/*                   Entropic (Shanghai) Co, LTD                            */
+/*                        SOFTWARE FILE/MODULE HEADER                       */
+/*                 Copyright Entropic Co, LTD                               */
+/*                            All Rights Reserved                           */
+/****************************************************************************/
+/*
+ * Filename:        cs_hdmi_plus.c
+ *
+ *
+ * Description:     API implementation for COSHIP interface layer .
+ *
+ *
+ *-------------------------------------------------------------------------------
+ *ENTROPIC COMMENTS ON COSHIP HEADER FILE:
+	 2013/11/06
+		 The APIs in this header file are required for Android DVB-S2 plus OTT project. 
+		 This module is used for the production test application. 
+ *-------------------------------------------------------------------------------
+ ****************************************************************************/
+
