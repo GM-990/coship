@@ -17,8 +17,7 @@
 		 The APIs in this header file are required for Android DVB-S2 plus OTT project.
 		 Because there is no EEPROM device in the STB system.
  *-------------------------------------------------------------------------------
- ****************************************************************************/
-#if 0
+ ****************************************************************************/ 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,8 +34,15 @@
 #include <time.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
+
+#if 0
+#include <sys/msg.h>
+#include <sys/sem.h>
+#else
 #include <linux/msg.h>
 #include <linux/sem.h>
+#endif
+
 #include <sys/timeb.h>
 #include <sys/time.h>
 
@@ -74,6 +80,13 @@ typedef struct timeval cs_time_t;
 
 /*for print module name*/
 #define  MODULE_NAME   "CS_OS"
+
+
+#define PTHREAD_CANCEL_ENABLE           0x00
+#define PTHREAD_CANCEL_DISABLE          0x01
+
+#define PTHREAD_CANCEL_DEFERRED			0x00
+#define PTHREAD_CANCEL_ASYNCHRONOUS			0x01
 
 int sem_timedwait(sem_t *men, const struct timespec * abs_timeout);
 
@@ -1116,12 +1129,11 @@ ENTROPIC COMMENTS ON COSHIP API
 -------------------------------------------------------------------------------
 
 */
-void * CSUDIOSMalloc( unsigned int uSize )
+void * CSUDIOSMalloc( unsigned int nMemorySize )
 {
-		PVOID pvMem =  NULL;
-	
-		UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-	
+	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	PVOID pvMem =  NULL;
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
     CSASSERT(nMemorySize > 0);
 
     if(nMemorySize > 0)
@@ -1132,13 +1144,11 @@ void * CSUDIOSMalloc( unsigned int uSize )
     CSASSERT(pvMem != NULL);
     if(NULL == pvMem)
     {
-
         CSDEBUG(MODULE_NAME,ERROR_LEVEL, "[CSMalloc]ERROR[errno=%d]: malloc %x fail\r\n", errno,nMemorySize);
     }
     
     UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);  
     return pvMem;
-
 }
 
 /**
@@ -1163,20 +1173,19 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 void* CSUDIOSRealloc( void * pvAddr,unsigned int uSize )
 {
-		PVOID pvMem =  NULL;
-		
-		UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);	
+	PVOID pvMem =  NULL;
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
 
-    if(uSize > 0)
-    {
-        pvMem =  realloc(pvAddr,uSize);
-    }
+	if(uSize > 0)
+	{
+		pvMem =  realloc(pvAddr,uSize);
+	}
 
-    CSASSERT(pvMem != NULL);
-    
-    UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);
-    return pvMem;
-    
+	CSASSERT(pvMem != NULL);
+
+	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);
+	return pvMem;    
 }
 
 /**
@@ -1197,28 +1206,23 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 void* CSUDIOSCalloc(unsigned int uElements, unsigned int uElementSize)
 {
-	PVOID pvMem =  NULL;
-	
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	PVOID pvMem =  NULL;
+    CSASSERT(uElements > 0);
+    CSASSERT(uElementSize > 0);
 
-    CSASSERT(nElements > 0);
-    CSASSERT(nElementSize > 0);
-
-    if((nElements>0) && (nElementSize>0))
+    if((uElements>0) && (uElementSize>0))
     {
-        pvMem =  calloc(nElements,nElementSize);
+        pvMem =  calloc(uElements,uElementSize);
     }
-
     CSASSERT(pvMem != NULL);
     if(NULL == pvMem)
     {
-        CSDEBUG(MODULE_NAME,ERROR_LEVEL, "[CSCalloc]ERROR[errno=%d]: calloc %x %x fail\r\n", errno,nElements,nElementSize);
+        CSDEBUG(MODULE_NAME,ERROR_LEVEL, "[CSCalloc]ERROR[errno=%d]: calloc %x %x fail\r\n", errno,uElements,uElementSize);
     }
-
-		UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);  
-		
+	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	
     return pvMem;
-
 }
 
 /**
@@ -1398,5 +1402,4 @@ CSUDI_Error_Code CSUDIOSGetThreadCPUUsage(CSUDI_HANDLE hThread, unsigned int * p
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
-
-#endif
+ 

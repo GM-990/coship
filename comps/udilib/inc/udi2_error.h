@@ -73,6 +73,16 @@ enum
 	CSUDI_MAX_ERROR_BASE							///< ±ß½çÖµ
 };
 
+ 
+#if 0
+#define CSASSERT(expression)  \
+		do{ \
+			if(!(expression)) \
+			printf("Assertion: \"%s\" failed, in file %s, line %d\n", \
+					#expression, __FILE__, __LINE__); \
+		}while(0) 
+#endif
+
 #ifdef __cplusplus
 }
 #endif

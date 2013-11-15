@@ -25,14 +25,14 @@
 #include "stbcfg.h"
 #include "kal.h"
 #include "presentation.h"
-//#include "presentation_internal.h"
+//#include "presentation_internal.h" //commented by frank.zhou
 #include "pr_audio.h"
 #include "graphics_gen.h"
 #include "image.h"
 #include "demux.h"
 #include "drm.h"
 #include "tvenc.h"
-
+// 2011-01-17 TerenceZhang add for real standby feature.
 #include "tmscsScd.h"
 
 /*Middleware includes*/
@@ -57,6 +57,10 @@
 #include "udi2_section.h"
 #include "udi2_public.h"
 #include "udiplus_typedef.h"
+
+
+
+
 //2011-01-30 TerenceZhang begin: added for dual video surface support,it could fix the freeze frame issue. 
 #define DUAL_VIDEO_SURFACE
 #ifdef DUAL_VIDEO_SURFACE

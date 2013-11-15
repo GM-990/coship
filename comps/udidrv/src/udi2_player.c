@@ -75,6 +75,7 @@ extern bool bPlayerStatus ;
 extern CNXT_QUEUE_ID injectDataQueue;
 extern CSUDI_Error_Code TM_AOUTSetMute(CSUDIAOUTDevices_E eAudioDevice,CSUDI_BOOL bMute);
 
+u_int8 *pRecordData;
 
 CNXT_STATUS CS_TM_Player_Init(void)
 {	

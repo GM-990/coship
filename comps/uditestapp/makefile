@@ -4,6 +4,7 @@ DIR_LOCAL	= udidrv
 # Do not change the following include
 #***********************************************************************
 include $(_TMROOT)/sde/environment.mk
+
 #-----------------------------------------------------------------------
 # Source environment variables
 #-----------------------------------------------------------------------
@@ -19,7 +20,7 @@ REQUIRES = tmplatHandle  tmplatDma tmplatVsmDma tmplatIic tmplatEeprom tmplatGpi
 	   lnxnotifyqUsr lnxnotifyqDrv lnxcbdb lnxplatDrv lnxplatIO \
 	   tmpvrPipeline tmpvrPipeTuner tmfssDemod  tmpvrPipeDemux tmcssDemux \
 	   tmcssCbuf  tmpvrPipeAudio tmpvrAudioPres tmpvrPipeVideo tmvssDDVideo  tmpvrVideoPres  tmpvrRecord  tmpvrDataManager tmpvrPlayback\
-	   tmvssDDImage tmvssDDGraphicsHelper tmasDDAudio tmasDDPCM tmvssDDVPP tmvssDDGraphics tmvssDDTVEnc tmvssDDRFMod tmvssDDVBI tmcssSmartcard tmavcontrol \
+	   tmvssDDImage tmvssDDGraphicsHelper tmasDDAudio   tmvssDDVPP tmvssDDGraphics tmvssDDTVEnc tmvssDDRFMod tmvssDDVBI tmcssSmartcard tmavcontrol \
 	   tmscsScd tmvssDDGraphics vpmfbDrv tmplatIsa
 
 LIBS  = 
@@ -27,8 +28,7 @@ LIBS  =
 #-----------------------------------------------------------------------
 # Directory where the 3rdparty includes are stored
 #-----------------------------------------------------------------------
-DIR_INCLUDE +=
-DIR_INCLUDE += $(_TMROOT)/sd/apps/coship/comps/udidrv/inc
+DIR_INCLUDE = $(_TMROOT)/sd/apps/coship/comps/udidrv/inc
 DIR_INCLUDE += $(_TMROOT)/sd/apps/coship/comps/udilib/inc
 
 #-----------------------------------------------------------------------
@@ -41,10 +41,9 @@ DIR_INCLUDE += $(_TMROOT)/sd/apps/coship/comps/udilib/inc
 #ifeq ($(CSBoard),YiGouYu)
 #LOCAL_CFLAGS += -DUSE_OTHER_SCHED
 #endif
-LOCAL_CFLAGS = -fPIC 
-
+LOCAL_CFLAGS = -fPIC
 EXPORTS=yes
-LOCAL_DLLFLAGS = --sysroot=$(_TMSYSROOT) -lpthread -lrt
+LOCAL_DLLFLAGS = --sysroot=$(_TMSYSROOT)
 
 #-----------------------------------------------------------------------
 # local CPPFLAGS

@@ -59,3 +59,4 @@ int CSEEPROMGetVersion(PCHAR pchVer, int nSize)
 	return Retcode;
 }
 
+

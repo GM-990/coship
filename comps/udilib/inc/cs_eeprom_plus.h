@@ -12,7 +12,7 @@ ENTROPIC COMMENTS ON COSHIP HEADER FILE:
 #ifndef _CS_EEPROM_PLUS_H_
 #define _CS_EEPROM_PLUS_H_
 
-#include  "udiplus_typedef.h"
+#include "udiplus_typedef.h"
 #include "cs_hdicommon_plus.h"
 
 #ifdef __cplusplus
