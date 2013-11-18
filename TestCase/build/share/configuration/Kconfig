@@ -1,0 +1,58 @@
+#
+# COSHIP_MMCP_MACRO configuration
+#
+comment "Configuration of Dtvmx"
+menu "Dtvmx Configuration"
+source dtvmx/Kconfig
+endmenu
+
+comment "Configuration of GuiTool"
+menu "GuiTool Configuration"
+source guitool/Kconfig
+endmenu
+
+comment "Configuration of JSExt"
+menu "JSExt Configuration"
+source jsext/Kconfig
+endmenu
+
+comment "Configuration of MediaPlayer"
+menu "MediaPlayer Configuration"
+source mediaplayer/Kconfig
+endmenu
+
+comment "Configuration of Shell"
+menu "Shell Configuration"
+source shell/Kconfig
+endmenu
+
+comment "Configuration of Graph"
+menu "Graph Configuration"
+source graph/Kconfig
+endmenu
+
+comment "Configuration of Midp"
+menu "Midp Configuration"
+source midp/Kconfig
+endmenu
+
+comment "Configuration of PROTOCOL"
+menu "Protocol Configuration"
+source protocol/Kconfig
+endmenu
+
+comment "Configuration of KERNEL"
+menu "Kernel Configuration"
+source kernel/Kconfig
+endmenu
+
+comment "Configuration of Public"
+menu "Public Configuration"
+source public/Kconfig
+endmenu
+
+comment "Configuration of Deprecated"
+menu "Deprecated Configuration"
+source deprecated/Kconfig
+endmenu
+

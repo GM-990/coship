@@ -1,0 +1,44 @@
+BODY
+{
+}
+A:link
+{
+    COLOR: #333333;
+    TEXT-DECORATION: none
+}
+A:active
+{
+    COLOR: #333333;
+    TEXT-DECORATION: none
+}
+A:visited
+{
+    COLOR: #333333;
+    TEXT-DECORATION: none
+}
+A:hover
+{
+    COLOR: #1b80a1;
+    BORDER-BOTTOM: #1b80a1 1px solid
+}
+
+td { font-size : 9pt; color : #333333 ;font-family :gulim;line-height:160%;}
+td.title-td { font-size : 13pt; font-weight : bold; }
+tr.title-tr {height : 2px;  }
+td.title-left-td {background-color : #345678;  }
+td.title-right-td {background-color : #CCCCCC;line-height:   2 }
+td.title-path-td {text-align : right; padding : 4px;}
+td.subtitle-left-td { background-color : #96B2C5 ; width : 120}
+td.subtitle-right-td {background-color : #CCCCCC;  }
+table.header-table {border : 1px solid #DDDDDD; width : 98%}
+table.testid-table {background-color : #91AAB1;  border-top : 1px solid #CCCCCC; border-bottom : 1px solid #CCCCCC }
+td.testid-td { font-weight : bold; color : #FFFFFF }
+td.left-td {width : 100; background-color : #DDE7E7; font-weight : bold; border : 1px solid #CCCCCC; padding : 3px; color : #444444; text-align : center}
+td.right-td { background-color : #FEFEFE; border : 1px solid #FFFFFF;;font-family :ËÎÌו;}
+td.right-td-over { background-color : #F4F6F9; border : 1px solid #DDDDDD;;font-family :ËÎÌו;}
+td.content-td {font-weight : bold; font-size : 12pt}
+table.bottom-table {border-top : 2px solid #345678; }
+.exec-font { font-family: Tahoma; font-size : 10pt; padding-top : 5px}
+.result-font {font-family:terminal; color : #555555 }
+.func { font-size: 9pt;  }
+.menu { font-weight : bold; font-size: 12pt;  }

@@ -1,0 +1,129 @@
+#!/bin/sh
+
+getversion()
+{
+  if [ "x$1" = "x-n" ]; then
+    echo "`cat $MMCP_HOME/VERSION`"
+  elif [ "x$1" = "x-v" ]; then
+    echo "MMCP_HOME = $MMCP_HOME"
+    echo "Current Version = `cat $MMCP_HOME/VERSION`"
+  else
+    echo "getversion() argument error !!"
+  fi
+}
+
+upversion()
+{
+  OV=`getversion -n`
+  echo "Old Version : $OV"
+
+  OLD_MAIN_V=`echo $OV | gawk '{n=split($1, a, "."); print a[1]}'`
+  OLD_MINOR_V=`echo $OV | gawk '{n=split($1, a, "."); print a[2]}'`
+
+  NEW_MAIN_V=
+  NEW_MINOR_V=
+  if [ $UPMAIN -eq 0 ]; then
+    NEW_MAIN_V=$OLD_MAIN_V
+    NEW_MINOR_V=`echo $OLD_MINOR_V + 1 | bc -l`
+  else
+    NEW_MAIN_V=`echo $OLD_MAIN_V + 1 | bc -l`
+    NEW_MINOR_V=0
+  fi
+
+  echo "New Version : $NEW_MAIN_V.$NEW_MINOR_V" 
+  echo "$NEW_MAIN_V.$NEW_MINOR_V" > $MMCP_HOME/VERSION
+}
+
+showtag()
+{
+  FILE=`basename $0`
+  FULL=`find $MMCP_HOME/bin -name $FILE`
+  DIRS=`echo $FULL $FILE | gawk '{ n=match($1, $2); if (n!= 0) { name = substr($1, 0, n-2); print name} }'`
+
+  cd $DIRS
+  VERS=`cvs st -v $FILE | grep MMCP_VERSION | egrep -v 'Sticky Tag'`
+  for v in $VERS
+  do
+    if [ "x`echo $v | grep MMCP_VERSION`" != "x" ]; then
+      echo "  $v  "
+    fi
+  done
+}
+
+tagall()
+{
+  VERSION=`getversion -n | sed -e 's/\./_/g'`
+  TAGCOMMAND="cvs tag MMCP_VERSION-$VERSION"
+  
+  echo "$TAGCOMMAND"
+  echo "(y/n)y"
+  
+  A=y
+  read A
+  if [ "x$A" = "x" -o "x$A" = "xy" -o "x$A" = "xY" ]; then
+    cvs tag MMCP_VERSION-$VERSION 
+  fi
+}
+
+untagall()
+{
+  VERSION=`echo $UNTAGVER | sed -e 's/\./_/g'`
+  TAGCOMMAND="cvs tag -d MMCP_VERSION-$VERSION"
+  
+  echo "$TAGCOMMAND"
+  echo "(y/n)y"
+  
+  A=y
+  read A
+  if [ "x$A" = "x" -o "x$A" = "xy" -o "x$A" = "xY" ]; then
+    cvs tag -d MMCP_VERSION-$VERSION 
+  fi
+}
+
+
+# Main Program
+if [ ! -d $MMCP_HOME ]; then
+  echo "the directory specified by MMCP_HOME not exist !!"
+  exit 1
+fi
+
+O=Z
+UPMAIN=0
+UNTAGVER=0
+while ([ "x$O" != "x?" ])
+do
+  OPTARG=Z
+  getopts "nvVuUtT:" O
+
+  if [ "x$O" = "xn" ]; then
+    echo "`getversion -n`"
+    exit 1
+  elif [ "x$O" = "xv" ]; then
+    echo "`getversion -v`"
+    exit 1
+  elif [ "x$O" = "xV" ]; then
+    echo "`getversion -v`"
+    showtag
+    exit 1
+  elif [ "x$O" = "xu" ]; then
+    upversion
+    exit 1
+  elif [ "x$O" = "xU" ]; then
+    UPMAIN=1
+    upversion
+    exit 1
+  elif [ "x$O" = "xt" ]; then
+    tagall
+    exit 1
+  elif [ "x$O" = "xT" ]; then
+    if [ "x$OPTARG" = "xZ" -o "x$OPTARG" = "x" ]; then
+      echo "too less argument !! please input a version number as argument !"
+    else
+      UNTAGVER=$OPTARG
+      untagall
+    fi
+    exit 1
+  fi
+done
+
+

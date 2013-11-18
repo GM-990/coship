@@ -1,0 +1,145 @@
+#!/bin/sh
+#yezhenhong 904305
+
+echo mmcp_test_p start !
+echo $1
+echo $2
+    
+bufInput=$1
+parameters=(${bufInput// / })
+stbip=${parameters[0]}
+svnupCopyFlag=${parameters[1]}
+copyLibraryFlag=${parameters[2]}
+makeCleanFlag=${parameters[3]}
+makeFlag=${parameters[4]}
+mmcpPath=${parameters[5]}
+argv_debugLevel=${parameters[6]}
+
+mountTrunkPath=${parameters[7]}
+mountPortingPath=${parameters[8]}
+mountCAPath=${parameters[9]}
+srcIncludePath=${parameters[10]}
+srcJarPath=${parameters[11]}
+srcAPath=${parameters[12]}
+bFixDateFlag=${parameters[13]}
+srcPortingADate=${parameters[14]}
+srcCaADate=${parameters[15]}
+srcPortingAPath=${parameters[16]}
+srcCaAPath=${parameters[17]}
+
+mmcpEnvCmd=${parameters[18]}
+mmcpIncludePath=${mmcpPath}/${parameters[19]}
+mmcpJarPath=${mmcpPath}/${parameters[20]}
+mmcpAPath=${mmcpPath}/${parameters[21]}
+testModulePath=${parameters[22]}
+    
+testmodel_list=$2
+    
+echo stbip $stbip
+echo svnupCopyFlag $svnupCopyFlag
+echo copyLibraryFlag $copyLibraryFlag
+echo makeCleanFlag $makeCleanFlag
+echo makeFlag $makeFlag
+echo mmcpPath $mmcpPath
+echo argv_debugLevel $argv_debugLevel
+echo testmodel_list $testmodel_list
+
+echo mountTrunkPath=${mountTrunkPath}
+echo mountPortingPath=${mountPortingPath}
+echo mountCAPath=${mountCAPath}
+echo srcIncludePath=${srcIncludePath}
+echo srcJarPath=${srcJarPath}
+echo srcAPath=${srcAPath}
+echo poolIncludePath=${mmcpIncludePath}
+echo poolJarPath=${mmcpJarPath}
+echo poolAPath=${mmcpAPath}
+
+ipvalue=${stbip}
+ip_split=(${ipvalue//./ })
+ipmatch=${ip_split[0]}.${ip_split[1]}.${ip_split[2]}
+
+testmodel="${testmodel_list}";
+
+echo test modules: ${testmodel} ;
+#----------携带参数判断，不能为空-----
+if [ "$2" = "" ]; then
+	input parameters error
+	exit 0
+fi
+
+if [ "${svnupCopyFlag}" == "true" ]; then
+    cd ${mmcpPath}
+    rm bin build include -Rf
+    svn up bin build include mediaplayer tplib test/main test/testkit --accept 'postpone'
+fi
+
+pwd
+cd ${mmcpPath}
+echo ${mmcpEnvCmd}
+. bin/setupenv --ia ${mmcpPath}/${mmcpEnvCmd}
+if [ "${svnupCopyFlag}" == "true" ]; then
+   echo temp mask!!!!!!!!
+fi
+if [ "$MMCP_HOME" = "" ]; then
+	 echo Not setup evn, exit!
+	 exit
+fi
+if [ "${copyLibraryFlag}" == "true" ]; then
+    echo copy library!                                            
+    cd ${mmcpPath}/test
+    ./copyfile "${mountTrunkPath} ${srcIncludePath} ${srcJarPath} ${srcAPath} ${mmcpIncludePath} ${mmcpJarPath} ${mmcpAPath} ${mmcpPath} ${mountPortingPath} ${mountCAPath} ${bFixDateFlag} ${srcPortingADate} ${srcCaADate}  ${srcPortingAPath}  ${srcCaAPath}"
+fi
+
+
+compileModule()
+{
+       cd ${mmcpPath}/test;
+       rm ${mmcpPath}/test/exe_file.tmp -Rf;
+       rm ${mmcpPath}/test/testdata/testReport_$MMCP_PLATFORM.txt -Rf;
+       for tmdl in ${testmodel}
+          do
+               cd ${mmcpPath}
+#               rm ${testModulePath}/$tmdl -Rf
+               svn up ${testModulePath}/$tmdl --accept 'postpone'
+               cd ${mmcpPath}/${testModulePath}/$tmdl 
+               echo ${mmcpPath}/${testModulePath}/$tmdl 
+               if [ "$makeCleanFlag" = "true" ]; then
+                  make clean;
+               fi
+               if [ "$makeFlag" = "true" ]; then
+	                make >> testcompile_${MMCP_PLATFORM}_$tmdl.log
+	                mv *.log  ${mmcpPath}/test/testdata/
+	             fi
+	             report_cmd="mv ${mmcpPath}/${testModulePath}/testdata/testReport_$MMCP_PLATFORM.txt ${mmcpPath}/test/testdata/testReport_${MMCP_PLATFORM}_$(date "+%Y%m%d_%H%M")_$tmdl.txt ; "
+	             if [ -f ${mmcpPath}/${testModulePath}/$tmdl/exe_file.tmp ]; then
+                    sed "s/$/ ${argv_debugLevel}; /" ${mmcpPath}/${testModulePath}/$tmdl/exe_file.tmp >>${mmcpPath}/test/exe_file.tmp;
+                    echo ${report_cmd} >>${mmcpPath}/test/exe_file.tmp;
+               fi
+          done 
+       echo "pwd;" >>${mmcpPath}/test/exe_file.tmp
+       echo "mkdir modelEndTmp;" >>${mmcpPath}/test/exe_file.tmp
+      cd ${mmcpPath}/test
+     
+      
+      export MmcpTestExeFile=$(cat exe_file.tmp)
+}
+
+export MmcpTestExeFile=""
+    
+if [ "${mmcpPath}" != "" ]; then      
+	export AUTO_RUN_TEST=1;
+	compileModule;
+	export AUTO_RUN_TEST=0;
+fi
+
+	
+#--------------开始自动测试---------------
+if [ "$MmcpTestExeFile" = "" ]; then
+      echo MmcpTestExeFile is null!!!!!!
+      exit 0
+fi
+
+echo Run $MmcpTestExeFile
+
+mount_stb_test_p ${ipmatch} ${stbip} ${mmcpPath}
+

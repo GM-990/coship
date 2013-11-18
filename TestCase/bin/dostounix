@@ -1,0 +1,17 @@
+#! /bin/bash
+
+do_in_sub_dir() {
+  files=`ls`
+  for i in $files; do
+	if [ -d $i ]; then
+	   cd $i
+ 	   do_in_sub_dir
+	   cd ..
+	elif [ -f $i ]; then
+          #cat $i
+	   dos2unix $i
+	fi
+  done
+}
+
+do_in_sub_dir

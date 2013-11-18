@@ -1,0 +1,120 @@
+#!/bin/sh
+
+ShowUsage()
+{
+  echo ""
+  echo "`basename $0` [ -h | -a | -b | -m App ]"
+  echo "	-a     : copy all of applications to default directory";
+  echo "	-d     : copy default applications to default directory";
+  echo "	-b     : only copy basic applications to default directory";
+  echo "	-m App : copy specified application to default directory";
+  echo "	-h     : show this message"
+  echo ""
+}
+
+DEFULT_SOURCE_PATH=`pwd`
+if [ "x$3" = "x" ]; then
+DEFULT_DESTIN_PATH=$MMCP_HOME/javaresources
+else
+DEFULT_DESTIN_PATH=$3
+fi
+DEFULT_APP_NAME=
+DEFAULT_APPS_FLAG=TRUE
+
+S_PATH=$DEFULT_SOURCE_PATH
+D_PATH=$DEFULT_DESTIN_PATH
+
+if [ ! -d $D_PATH ]; then
+  mkdir -p $D_PATH
+fi
+
+
+OPTION=
+OPTARG=NONE
+getopts "hadbm:" OPTION
+
+if [ "x$OPTION" = "x?" ]; then
+  ShowUsage && exit 1
+else
+
+  [ "x$OPTION" = "xh" ] && ShowUsage && exit 1
+
+  if [ "x$OPTION" = "xa" ]; then
+    [ ! -d $S_PATH ] && echo "$S_PATH not exist !!" && exit 1
+    DEFAULT_APPS_FLAG=FALSE
+  fi
+
+  if [ "x$OPTION" = "xd" ]; then
+    [ ! -d $S_PATH ] && echo "$S_PATH not exist !!" && exit 1
+    DEFAULT_APPS_FLAG=TRUE
+  fi
+
+  if [ "x$OPTION" = "xb" ]; then
+    [ ! -d $S_PATH ] && echo "$S_PATH not exist !!" && exit 1
+    S_PATH=$S_PATH/basic
+    D_PATH=$D_PATH/basic
+    DEFAULT_APPS_FLAG=FALSE
+  fi
+
+  if [ "x$OPTION" = "xm" ]; then
+    [ ! -d $S_PATH/$OPTARG ] && echo "$S_PATH/$OPTARG not exist !!\n" && exit 1
+    S_PATH=$S_PATH/$OPTARG
+    D_PATH=$D_PATH/$OPTARG
+    DEFAULT_APPS_FLAG=FALSE
+  fi
+
+#### begin to install applications
+  if [ -d $D_PATH ]; then
+    rm -rf $D_PATH/*
+  else
+    mkdir -p $D_PATH
+  fi
+
+  if [ "x$DEFAULT_APPS_FLAG" = "xFALSE" ]; then
+
+    echo "Java Source Location : $S_PATH"
+    echo "Copy Destination Location : $D_PATH"
+
+    cp -R $S_PATH/* $D_PATH
+
+  else
+
+    echo "Install the following default applications: "
+    echo "      basic, syssetup, caInfo, ui, epg, news, stock, weather, infosky"
+    echo ""
+    echo "Source Location : $S_PATH"
+    echo "Destination Location : $D_PATH"
+
+   ## cp -R $S_PATH/basic $D_PATH
+   ## cp -R $S_PATH/syssetup $D_PATH
+   ## cp -R $S_PATH/caInfo $D_PATH
+   ## cp -R $S_PATH/ui $D_PATH
+    ##cp -R $S_PATH/epg $D_PATH
+    ##cp -R $S_PATH/news $D_PATH
+    ##cp -R $S_PATH/stock $D_PATH
+    ##cp -R $S_PATH/weather $D_PATH
+    ##cp -R $S_PATH/infosky $D_PATH
+
+  fi
+
+#### remove unusful files and directories
+echo "Removing unusful files and directories in $D_PATH"
+  find $D_PATH -name "*.java*" | xargs rm -rf
+  find $D_PATH -name "*.h" | xargs rm -rf
+  find $D_PATH -name "CVS" | xargs rm -rf
+  find $D_PATH -name ".svn" | xargs rm -rf
+  find $D_PATH -name "Makefile" | xargs rm -rf
+  find $D_PATH -name "*.sh" | xargs rm -rf
+  find $D_PATH -name "cvmtest" | xargs rm -rf
+  find $D_PATH -name "*.local" | xargs rm -rf
+  find $D_PATH -name "*.dtvm" | xargs rm -rf
+  find $D_PATH -name "*.mhp" | xargs rm -rf
+  find $D_PATH -name "*.zh" | xargs rm -rf
+  find $D_PATH -name "*.en" | xargs rm -rf
+  find $D_PATH -name "makefile" | xargs rm -rf
+  find $D_PATH -name "objs" | xargs rm -rf
+  find $D_PATH -name "obj" | xargs rm -rf
+
+fi
+
+##

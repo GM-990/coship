@@ -1,0 +1,14 @@
+# Kconfig options for Midp
+
+
+#######################################
+# 	Fileconnection
+########################################	  	
+
+config MMCP_MIDP_SUPPORT_FILECONNECTION
+	bool "Midp Support Fileconnection"
+	default y
+	help
+		if Midp support fileconnection,
+		please select yes,else select no! 		
+########################################

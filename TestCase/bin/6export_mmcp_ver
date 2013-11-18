@@ -1,0 +1,5 @@
+#!/bin/sh
+export MMCP_VERSION=$(svn info ../ | grep "^最后修改的修订版\| grep ^最后修改的版本: \|^Last Changed Rev: "|grep -Eo '[0-9]+');
+echo "current module source code svn MMCP_VERSION";
+echo "#define MMCP_VERSION \"$MMCP_VERSION\"" >mmcp_version.h
+echo "" >>mmcp_version.h

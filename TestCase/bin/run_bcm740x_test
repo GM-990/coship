@@ -1,0 +1,78 @@
+
+#方案：通过后台运行的telnet连接到STB，将标准输入重定向到输入管道
+#通过将命令导入到管道完成于STB的交互
+#################################################################
+
+echo -----------------------------------------------------
+echo Run bcm740x test...
+if [ "$MMCP_PLATFORM" != "bcm740x" ]; then
+	echo Not bcm740x platform!
+	exit 0
+fi
+
+#get ip addr of stb eth
+ips=$(/sbin/ifconfig | sed -n '/inet addr/p' | awk -F'[: ]+' '{print $4}')
+for ip in $ips
+do
+	ip_match=$(echo $ip | grep 172.30.50.234)
+	if [ "$ip_match" != "" ]; then
+		break;
+	fi
+done
+
+
+
+if [ "$ip_match" = "" ]; then
+	echo Can not find ip matched 172.30.50.*, exit!
+	exit 0
+fi
+
+#get exec file name
+echo Find local ip: $ip
+echo Run file: $MmcpTestExeFile
+
+tmptty='tty'
+tmptty='basename $tmptty'
+tmpname='whoami'
+#stbip="192.168.1.228"
+stbip="172.30.50.234"
+inp1="root"
+inp2="mount -t nfs ${ip}:/home/ /home"
+inp3="rmmod bcmdriver.ko;insmod ${MMCP_HOME}/lib/bcm740x/${MMCP_COMPILING_MODE}/bcmdriver.ko"
+inp4="cd ${MMCP_HOME}/test/"
+inp5="${MmcpTestExeFile};reboot"
+#--------------------------
+
+inputfile=in
+outputfile=bcm740x_test_$(date "+%Y%m%d_%H%M").log
+rm -fr $inputfile
+rm -fr $outputfile
+mknod $inputfile p
+touch $outputfile
+
+exec 7<>$outputfile 
+exec 8<>$inputfile
+
+tail -f $outputfile &
+
+telnet $stbip <&8 >&7 & 
+#telnet $stbip <&8 &
+
+sleep 2; echo $inp1 >> $inputfile
+sleep 2; echo $inp2 >> $inputfile  
+sleep 5; echo $inp3 >> $inputfile 
+sleep 5; echo $inp4 >> $inputfile
+sleep 2; echo $inp5 >> $inputfile
+
+#while true 
+#do 
+#  read str 
+#  if [ $str = "q" ];then 
+#    break
+#  fi 
+#done
+
+#kill all tread when exit
+#ps -ef | grep telnet | grep -v grep | grep -v telnetd | awk '{print " kill -9", $2}' | sh
+#ps -ef | grep tail | grep -v grep | grep -v telnetd | awk '{print " kill -9", $2}' | sh
+

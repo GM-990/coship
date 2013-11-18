@@ -1,0 +1,166 @@
+#! /bin/bash
+#yezhenhong 904305
+#----------------------edit record---------------------------------
+
+bufInput=$1
+parameters=(${bufInput// / })
+testCmd=${parameters[0]}
+stbip=${parameters[1]}
+svnupCopyFlag=${parameters[2]}
+copyLibraryFlag=${parameters[3]}
+makeCleanFlag=${parameters[4]}
+makeFlag=${parameters[5]}
+mmcpPath=${parameters[6]}
+
+mountpath=${parameters[7]}
+mountPortingPath=${parameters[8]}
+mountCAPath=${parameters[9]}
+srcIncludePath=${parameters[10]}
+srcJarPath=${parameters[11]}
+srcAPath=${parameters[12]}
+bFixDateFlag=${parameters[13]}
+srcPortingADate=${parameters[14]}
+srcCaADate=${parameters[15]}
+srcPortingAPath=${parameters[16]}
+srcCaAPath=${parameters[17]}
+hmcIncludePathName=${parameters[18]}
+hmcJarPathName=${parameters[19]}
+hmcAPathName=${parameters[20]}
+
+bufHmcInput=$2
+parametersHmc=(${bufHmcInput// / })
+hmcPath=${parametersHmc[0]}
+hmcApplicationPath=${parametersHmc[1]}
+hmcProductPath=${parametersHmc[2]}
+hmcBinExeDefineFile=${hmcPath}/${parametersHmc[3]}
+hmcExecutepath=${parametersHmc[4]}
+hmcExecuteCmd="$3"
+hmcIncludePath=${hmcPath}/${hmcIncludePathName}
+hmcJarPath=${hmcPath}/${hmcJarPathName}
+hmcAPath=${hmcPath}/${hmcAPathName}
+
+echo --------------hmctest_p------------------------
+echo line1=$1
+echo line2=$2
+echo line3=$3
+echo $testCmd
+echo $stbip
+echo $svnupCopyFlag
+echo $copyLibraryFlag
+echo $makeCleanFlag
+echo $makeCleanFlag
+echo $makeFlag
+echo $mmcpPath
+echo $hmcPath
+echo hmcApplicationPath $hmcApplicationPath
+echo hmcProductPath= $hmcProductPath
+echo hmcBinExeDefineFile= $hmcBinExeDefineFile
+echo hmcExecutepath= $hmcExecutepath
+echo $hmcExecuteCmd
+
+echo hmcIncludePath ${hmcIncludePath}
+echo hmcJarPath ${hmcJarPath}
+echo hmcAPath ${hmcAPath}
+echo -----------------------------------------------
+pwd
+echo ${hmcPath}/${hmcProductPath}
+
+
+if [ "${svnupCopyFlag}" == "true" ]; then 
+    echo test complile java module !
+    cd ${hmcPath}
+    rm application platform/lib/bcm740x $hmcProductPath -Rf
+    svn cleanup
+    svn up application platform/lib/bcm740x $hmcProductPath --accept 'postpone'
+    svn up platform/bin platform/include platform/build platform/integration --accept 'postpone'
+    sed -i 's/\#define BIN_EXE/\/\/#define BIN_EXE /' $hmcBinExeDefineFile
+fi
+
+if [ "${copyLibraryFlag}" == "true" ]; then 
+    echo copy the libraries = ${copyLibraryFlag}  
+    cd ${mmcpPath}/test
+     ./copyfile "${mountpath} ${srcIncludePath} ${srcJarPath} ${srcAPath} ${hmcIncludePath} ${hmcJarPath} ${hmcAPath} ${mmcpPath} ${mountPortingPath} ${mountCAPath} ${bFixDateFlag} ${srcPortingADate} ${srcCaADate} ${srcPortingAPath} ${srcCaAPath}" 
+fi 
+
+ 
+if [ -d "${hmcPath}/${hmcProductPath}/" ]; then 
+   cd ${hmcPath}/${hmcProductPath}
+   pwd;
+   . setupenv
+   rm objs/ -Rf
+   if [ "${makeCleanFlag}" == "true" ]; then
+      make >> testcompile_${MMCP_PLATFORM}_dtvmx.log
+	    mv *.log  ${mmcpPath}/test/testdata/
+   else
+      make default
+   fi
+else
+      echo "sorry man,can't find product!"
+      exit 0
+fi
+
+
+echo ${hmcPath}/${hmcApplicationPath}/ShareLib/
+if [ -d "${hmcPath}/${hmcApplicationPath}/ShareLib/" ]; then 
+      cd ${hmcPath}/${hmcApplicationPath}/ShareLib
+      pwd 
+      if [ "${makeCleanFlag}" == "true" ]; then
+         ./auto_Ant_Compile.sh 
+      fi
+else
+    echo "sorry man,can't find java test application!"
+    exit 0   
+fi
+
+
+echo ${hmcPath}/${hmcExecutepath}
+echo ${bAutoTestFlag}
+ if [ -d "${hmcPath}/${hmcApplicationPath}/ShareLib/" ]; then 
+      cd ${hmcPath}/${hmcApplicationPath}/ShareLib
+      cd ../TestFramework/ 
+      pwd 
+      ./auto_Ant_Compile.sh
+   
+      if [ "${testCmd}" != "" ]; then 
+        cd ../${testCmd}/ 
+        pwd 
+        ./auto_Ant_Compile.sh
+      fi
+
+   else
+      echo "sorry man,can't find java test application!"
+      exit 0   
+   fi
+
+echo ${hmcPath}/${hmcExecutepath}
+ echo hmcExecuteCmd $hmcExecuteCmd
+ cd ${hmcPath}
+if [ -f "${hmcExecutepath}/main.out" ]; then 
+   rm -Rf $mmcpPath/test/exe_file.tmp;
+   echo ${hmcExecuteCmd} >>${mmcpPath}/test/exe_file.tmp;
+   
+   cd $mmcpPath/test
+   export MmcpTestExeFile=$(cat exe_file.tmp)
+   cd ${mmcpPath}/bin/
+   pwd
+   ip_split=(${stbip//./ })
+   ipmatch=${ip_split[0]}.${ip_split[1]}.${ip_split[2]}
+   platform=${hmcExecutepath%%"/"*}
+   hmcmountpath=${hmcPath}/${platform}
+   hmcMountExcutePath=${hmcExecutepath#*"/"}
+
+   echo hmcmountpath $hmcmountpath
+   ./run_bcm740x_test_p $ipmatch $stbip $mmcpPath $hmcmountpath $hmcMountExcutePath 
+else
+   echo "sorry man,can't find main.out!"
+   exit 0
+fi
+
+
+
+
+
+   
+
+
+ 

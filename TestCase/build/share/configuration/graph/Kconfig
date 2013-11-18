@@ -1,0 +1,92 @@
+# Kconfig options for Graph
+
+
+#######################################
+# 	Image Decode
+########################################	  	
+
+config MMCP_GRAPH_HARDDECODE
+	depends MMCP_UDI2
+	bool "Graph use Hard decode Image"
+	default n
+	help
+		if the plat support harddecode, bcm7403 use fastjpeg 
+		not select,please select yes,else select no! 
+
+config MMCP_GRAPH_USE_FASTJPEG
+	bool "Graph use fast decode jpeg Image"
+	default n
+	help
+		this will decode jpeg image fast, can be use in bcm7403 and st7100
+		so please select yes on bcm7403 and st7100, other plat please select no!
+		
+config MEMORY_OPTIMAZATION
+	bool "Graph support imagedecode with little memory"
+	default n
+	help
+		if the plat has little memory, you want to show image normally.  
+		  please select yes,else select no!
+########################################
+
+#######################################
+# 	Effect Support
+########################################	  	
+
+config MMCP_GRAPH_EFFECT
+	bool "Graph Support effect"
+	default y
+	help
+		if the project need effect,
+		please select yes,else select no! 
+########################################
+
+#######################################
+# 	PLAT Support
+########################################	  	
+
+config PLAT_NOT_SUPPORT_ZOOM
+	depends MMCP_UDI2
+	bool "Graph Will ZOOM by Soft"
+	default n
+	help
+		if the plat not support zoom by CSUDIOSGBlit, please select yes,
+		such as bcm7580 Standard Display, else select no! 
+
+########################################
+
+#######################################
+# 	Input Method Manager Support
+########################################	  	
+
+config MMCP_GRAPH_SUPPORT_IMM
+	bool "Graph Will support input method manager"
+	default n
+	help
+		if guitools has integration the new input method manager, please select yes,
+		else select no!
+
+########################################
+
+#######################################
+# 	 FontEngine Select
+########################################	  	
+choice
+	prompt "Selet FontEngine"
+	help
+	  Selet FontEngine.
+
+config GRAPH_SELECT_FONTENGINE_ARPHIC
+	bool "graph use old fontengine"
+	help
+		if we want use old fontengine, please
+		select yes,else select no!	
+	
+config GRAPH_SELECT_FONTENGINE_ARPHICSTANDARD
+	bool "graph use new fontengine"
+	help
+		if we want use the fontengine witch for guizhou program, please
+		select yes,else select no!
+		
+endchoice
+
+########################################

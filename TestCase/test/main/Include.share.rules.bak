@@ -1,0 +1,316 @@
+
+#todo 这后面的几个目录需要去掉，但要等QAM->Tuner完成后，
+INCLUDES_LOCAL += -I . \
+		-I $(MMCP_HOME)/include/porting/platform \
+		-I $(MMCP_HOME)/include/porting/hdi \
+		-I $(MMCP_HOME)/include/porting/udi \
+		-I $(MMCP_HOME)/include/porting/udi2 \
+	-I $(MMCP_HOME)/include/porting/deprecated/udi \
+	-I $(MMCP_HOME)/include/porting/deprecated \
+	-I $(MMCP_HOME)/include/porting/deprecated/platform \
+	-I $(MMCP_HOME)/include/porting/deprecated/hdi \
+	-I $(MMCP_HOME)/include/porting/csplus 
+	
+ifeq "$(MMCP_QT)" "y"
+INCLUDES_LOCAL := -I. -I/usr/local/qt_install/include/QtCore -I/usr/local/qt_install/include/QtNetwork -I/usr/local/qt_install/include/QtGui -I/usr/local/qt_install/include -I$(MMCP_HOME)/cute/qtapp/googlepinyin -I$(MMCP_HOME)/cute/QT/qt-everywhere-opensource-src-4.7.3/include -I$(MMCP_HOME)/cute/QT/qt-everywhere-opensource-src-4.7.3/include/QtCore -I$(MMCP_HOME)/cute/QT/qt-everywhere-opensource-src-4.7.3/include/QtGui -I$(MMCP_HOME)/cute/qtapp/googleime/src/include 
+endif
+
+vpath %.$(LIBSUFFIX) $(MMCP_HOME)/lib/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE) 
+vpath %.$(LIBSUFFIX) $(MMCP_HOME)/test/main/libs/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE) 
+vpath %.$(LIBSUFFIX) $(MMCP_HOME)/test/testkit/libs/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE) 
+
+VPATH+= $(MMCP_HOME)/lib/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE) 
+VPATH+= $(MMCP_HOME)/tplib/$(MMCP_PLATFORM) 
+
+ifeq "$(MMCP_UDI2)" "y"
+INPUTS_LOCAL	=  \
+								$(MMCP_HOME)/lib/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE)/libUDIPlus.$(LIBSUFFIX) \
+								 \
+								$(MMCP_HOME)/lib/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE)/libos_udi2_to_udi1.$(LIBSUFFIX)
+else
+INCLUDES_LOCAL +=	-I $(MMCP_HOME)/test/porting/include
+endif
+
+INPUTS_LOCAL	+= \
+	libporting.$(LIBSUFFIX) \
+	libtestkittest.$(LIBSUFFIX) \
+	libmaintest.$(LIBSUFFIX) \
+	$(MMCP_HOME)/test/main/objs/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE)/main.$(OBJSUFFIX)
+ifeq "$(MMCP_UDI2)" "y"
+INPUTS_LOCAL	+= \
+	libhdi_udi2_to_udi1.a \
+	libplat_udi2_to_udi1.a \
+	libos_udi2_to_udi1.a \
+	libUDIPlus.a 
+endif		
+ifeq "$(MMCP_PLATFORM)" "st7100"
+INPUTS_LOCAL += libregistry_d.$(LIBSUFFIX)
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_udi"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX)  
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_porting"
+INPUTS_LOCAL	+=  
+ifeq "$(MMCP_PLATFORM)" "linux"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX)
+endif
+endif 
+
+ifeq "$(MMCP_PLATFORM)" "hi3110E"
+INPUTS_LOCAL += libportingudi2.$(LIBSUFFIX)
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_integration"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX)\
+		  \
+		libprotocol.$(LIBSUFFIX) \
+		libgraph.$(LIBSUFFIX)
+endif
+
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_kernel"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX) \
+	libdtvxx.a libprotocol.a 
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_codec"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX)
+INPUTS_LOCAL	+= libcodec.$(LIBSUFFIX)
+INPUTS_LOCAL	+=  
+ifeq "$(MMCP_PLATFORM)" "st7100"
+INPUTS_LOCAL	+= libusblink.$(LIBSUFFIX)
+INPUTS_LOCAL	+= libospluslib.$(LIBSUFFIX)
+endif
+endif
+
+
+####################  dtv  模块  ###########
+ifeq "$(FLAG_SELECT)" "TKMODULE_dtv"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX) \
+		  \
+		libmediaplayer.$(LIBSUFFIX) \
+		libprotocol.$(LIBSUFFIX)  \
+		libcodec.$(LIBSUFFIX) \
+		libnoca.$(LIBSUFFIX)
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_graphics"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX) \
+		 
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_graph"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX) \
+		  \
+		libshell.$(LIBSUFFIX) \
+		libgraph.$(LIBSUFFIX) \
+		libipstack.$(LIBSUFFIX)
+ifeq "$(MMCP_UDI2)" "y"
+INPUTS_LOCAL	+=  libdtvxx.$(LIBSUFFIX) \
+	libmediaplayer.$(LIBSUFFIX) \
+	libprotocol.$(LIBSUFFIX)  \
+	libcodec.$(LIBSUFFIX) \
+	libnoca.$(LIBSUFFIX)
+endif		
+ifeq "$(MMCP_QT)" "y"
+INPUTS_LOCAL	+= libqtmicrowin.$(LIBSUFFIX) \
+	libmidp.$(LIBSUFFIX) \
+	libwebkitshell.$(LIBSUFFIX)
+endif
+
+ifeq "$(MMCP_PLATFORM)" "st7100"
+INPUTS_LOCAL +=	libgenerated.$(LIBSUFFIX)
+endif
+
+ifeq "$(MMCP_PLATFORM)" "st5105"
+INPUTS_LOCAL +=	libgenerated.$(LIBSUFFIX)
+endif
+
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_guitool"
+INPUTS_LOCAL	+= \
+		libkernel.$(LIBSUFFIX) \
+		libgraph.$(LIBSUFFIX) \
+		libprotocol.$(LIBSUFFIX) \
+		libmidp.$(LIBSUFFIX) \
+		libguitools.$(LIBSUFFIX) \
+		libdtvxxx.$(LIBSUFFIX) \
+		libmediaplayer.$(LIBSUFFIX) \
+		libpvr.$(LIBSUFFIX) \
+		libirdetosoftcell_pvr.$(LIBSUFFIX) \
+		libcodec.$(LIBSUFFIX) \
+		libjsext.$(LIBSUFFIX)
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_jvm"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX) \
+		libjavavm.$(LIBSUFFIX) \
+		libjavaclass.$(LIBSUFFIX) \
+		libdtvxxx.$(LIBSUFFIX) \
+		libgraph.$(LIBSUFFIX) \
+		libprotocol.$(LIBSUFFIX) \
+		libgenerated.$(LIBSUFFIX) \
+		libshell.$(LIBSUFFIX)
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_midp"
+INPUTS_LOCAL	+= libmidp.$(LIBSUFFIX) \
+		libkernel.$(LIBSUFFIX) \
+		libdtvxxx.$(LIBSUFFIX) \
+		libgraph.$(LIBSUFFIX) \
+		libprotocol.$(LIBSUFFIX) \
+		libgenerated.$(LIBSUFFIX)\
+		libshell.$(LIBSUFFIX)
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_mediaplayer"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX) \
+		libdtvxx.$(LIBSUFFIX) \
+		libmediaplayer.$(LIBSUFFIX) \
+		libprotocol.$(LIBSUFFIX) \
+		libcodec.$(LIBSUFFIX)
+ifeq "$(MMCP_UDI2)" "n"
+    INPUTS_LOCAL += libirdetosoftcell_pvr.$(LIBSUFFIX) 
+		INPUTS_LOCAL += libpvr.$(LIBSUFFIX) 
+endif
+ifeq "$(MMCP_PLATFORM)" "bcm7309"
+	 INPUTS_LOCAL += libirdetoca.$(LIBSUFFIX) 
+else	 
+	 INPUTS_LOCAL += libnoca.$(LIBSUFFIX) 
+endif
+
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_jsext"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX) \
+		libdtvxx.$(LIBSUFFIX) \
+		libmediaplayer.$(LIBSUFFIX) \
+		libprotocol.$(LIBSUFFIX) \
+		libcodec.$(LIBSUFFIX) \
+		libguitools.$(LIBSUFFIX) \
+		libgraph.$(LIBSUFFIX) \
+		libmidp.$(LIBSUFFIX) \
+		libjsext.$(LIBSUFFIX)
+endif
+
+######################  protocol
+ifeq "$(FLAG_SELECT)" "TKMODULE_protocol"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX) \
+		libprotocol.$(LIBSUFFIX) \
+		libguitools.$(LIBSUFFIX) \
+		libgraph.$(LIBSUFFIX) \
+		libmidp.$(LIBSUFFIX) \
+		libdtvxx.$(LIBSUFFIX) \
+		libcodec.$(LIBSUFFIX) \
+		libjsext.$(LIBSUFFIX) \
+		libudiadapter.$(LIBSUFFIX)
+endif
+######################  pvr
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_pvr"
+ifeq "$(MMCP_PLATFORM)" "bcm740x"
+	INPUTS_LOCAL += libnoca.$(LIBSUFFIX) \
+	#SOURCES := CS_IRDETOCA_Interface.c \
+	#INPUTS_LOCAL += libirdetocapvr.$(LIBSUFFIX) \
+		#libirdetosoftcell_pvr.$(LIBSUFFIX)\
+		#libbsys.$(LIBSUFFIX)
+		
+endif
+
+ifeq "$(MMCP_PLATFORM)" "st7100"
+INPUTS_LOCAL += libpvrengine.$(LIBSUFFIX)
+endif
+
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX) \
+		libpvr.$(LIBSUFFIX) \
+		libdtvxxx.$(LIBSUFFIX) 
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_test"
+INPUTS_LOCAL	+= libkernel.$(LIBSUFFIX) \
+		libprotocolxx.$(LIBSUFFIX) \
+		libmediaplayer.$(LIBSUFFIX) \
+		libdtvxxx.$(LIBSUFFIX) \
+		libcodec.$(LIBSUFFIX) \
+		libgraph.$(LIBSUFFIX) \
+		libtts.$(LIBSUFFIX) \
+		libshell.$(LIBSUFFIX) \
+		libnoca.$(LIBSUFFIX) \
+		
+		
+INPUTS_LOCAL += libguitools.$(LIBSUFFIX) \
+		libjsext.$(LIBSUFFIX) \
+		libmidp.$(LIBSUFFIX)
+		
+ifeq "$(MMCP_PLATFORM)" "st5105"
+INPUTS_LOCAL += libtongfangca.$(LIBSUFFIX)  tf_cas21.$(LIBSUFFIX) 
+endif
+
+#这些模块目前仍不能再linux下运行，暂时放到这里
+ifeq "$(MMCP_PLATFORM)" "bcm740x"
+	INPUTS_LOCAL += libirdetocapvr.$(LIBSUFFIX) \
+		libirdetosoftcell_pvr.$(LIBSUFFIX)\
+		libbsys.$(LIBSUFFIX)
+		
+endif
+
+ifeq "$(MMCP_PLATFORM)" "bcm7309"
+	 INPUTS_LOCAL += libirdetosoftcell.$(LIBSUFFIX) \
+        libirdetoca.$(LIBSUFFIX) \
+        libbsys.$(LIBSUFFIX)\
+		libguitools.$(LIBSUFFIX) \
+		libmidp.$(LIBSUFFIX)
+endif
+
+ifeq "$(MMCP_PLATFORM)" "linux"
+	 INPUTS_LOCAL += libnoca.$(LIBSUFFIX) 
+endif
+
+ifeq "$(MMCP_PLATFORM)" "st7100"
+	 INPUTS_LOCAL += libirdetosoftcell.$(LIBSUFFIX) \
+        libirdetoca.$(LIBSUFFIX) 
+endif
+
+endif
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_kernel"
+	 #INPUTS_LOCAL += libnoca.$(LIBSUFFIX) 
+endif
+
+
+ifeq "$(FLAG_SELECT)" "TKMODULE_ca"
+ifeq "$(MMCP_CATYPE)" "irdetoca"
+	 INPUTS_LOCAL += libsoftcell3.$(LIBSUFFIX) \
+	 	libcsirdetoca.$(LIBSUFFIX)
+endif
+
+ifeq "$(MMCP_CATYPE)" "tongfangca"
+	INPUTS_LOCAL += libtfcas.$(LIBSUFFIX) \
+	 	libtongfangca3.$(LIBSUFFIX)
+endif
+
+ifeq "$(MMCP_CATYPE)" "conaxca"
+	INPUTS_LOCAL += libcsconaxca.$(LIBSUFFIX)
+endif
+
+ifeq "$(MMCP_CATYPE)" "nagraca"
+	INPUTS_LOCAL += libcsnagraca.$(LIBSUFFIX) \
+		libnagracas_cak_rel.$(LIBSUFFIX) \
+		libnagracas_op_embratel_rel.$(LIBSUFFIX)
+endif
+
+
+	INPUTS_LOCAL += libkernel.$(LIBSUFFIX) \
+		libdtvxx.$(LIBSUFFIX) \
+		libpvr.$(LIBSUFFIX)
+endif
+
+
+#	libirdetosoftcell.$(LIBSUFFIX)
+#	libbsys.$(LIBSUFFIX)
+
+INPUTS = $(INPUTS_LOCAL)
+

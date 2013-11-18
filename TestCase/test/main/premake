@@ -1,0 +1,16 @@
+
+if [ "-x$FLAG_SELECT" == "-xTKMODULE_dtvm" -o "-x$FLAG_SELECT" == "-xTKMODULE_test" ];then
+mkdir -p $MMCP_HOME/test/main/$MMCP_PLATFORM/
+if [ "-x$MMCP_LINK_CLASSES_TO_JVM" == "-xfalse" ];then
+getnativelistx -j $MMCP_HOME/classes/javacode $MMCP_HOME/dtvm/javacode \
+	-n $MMCP_HOME/lib/$MMCP_PLATFORM/$MMCP_COMPILING_MODE/libclasses.a $MMCP_HOME/lib/$MMCP_PLATFORM/$MMCP_COMPILING_MODE/libdtvm.a \
+	-o $MMCP_HOME/test/main/$MMCP_PLATFORM/ 
+else
+getnativelistx \
+        -o $MMCP_HOME/test/main/$MMCP_PLATFORM/
+fi
+else
+getnativelistx \
+	-o $MMCP_HOME/test/main/$MMCP_PLATFORM/
+
+fi

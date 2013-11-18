@@ -1,0 +1,21 @@
+# Kconfig options for Kernel
+
+###################################################	  	
+config MMCP_LOCKCHECK_SUPPORT
+	bool "Debug With LockCheck"
+	default n
+	help
+		if need debug with lockcheck,please
+		select yes,else select no!
+	  	
+config MMCP_KERNEL_MEMORY_DLMALLOC
+	bool "Support dlmalloc memory Management "
+	default n
+	help
+		if support dlmalloc memory Management ,
+		please select yes,else select no!
+###################################################	
+
+		
+		
+			 	  		  	  			 	  				   	  				 	  				  	

@@ -1,0 +1,220 @@
+MMCP_MENUCONFIG_DIR  ?= $(MMCP_HOME)/build/share/configuration/
+include $(MMCP_MENUCONFIG_DIR)$(MMCP_MENUCONFIG_FILE)
+
+##INPUTS += $(LIBS_LOCAL)
+##INCLUDES += -I$(MMCP_HOME)/test/testkit -I$(MMCP_HOME)/test/main
+SPECSPATH = $(MMCP_HOME)/test/main/
+
+TOPDIR     := $(shell $(PWD))
+TARGET	   := $(notdir $(TOPDIR))
+
+#SOURCES    :=$(wildcard *.c *.cpp)
+
+OBJSPATH   := $(subst $(BAD_SLASH),$(GOOD_SLASH),$(TOPDIR)/objs/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE))
+LIBSPATH   := $(subst $(BAD_SLASH),$(GOOD_SLASH),$(TOPDIR)/libs/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE))
+EXESPATH   := $(subst $(BAD_SLASH),$(GOOD_SLASH),$(TOPDIR)/exec/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE))
+
+SOURCE_C   := $(filter %.c,$(SOURCES))
+SOURCE_CXX := $(filter %.cpp,$(SOURCES))
+
+OBJECTS_C_T  := $(addprefix $(OBJSPATH)/,$(subst .c,.$(OBJSUFFIX),$(SOURCE_C)))
+OBJECTS_CXX_T:= $(addprefix $(OBJSPATH)/,$(subst .cpp,.$(OBJSUFFIX),$(SOURCE_CXX)))
+
+OBJECTS_C  := $(filter-out %testmain.$(OBJSUFFIX), $(OBJECTS_C_T)) 
+OBJECTS_CXX:= $(filter-out %testmain.$(OBJSUFFIX), $(OBJECTS_CXX_T)) 
+OBJECTS_FOR_EXE := $(filter %testmain.$(OBJSUFFIX), $(OBJECTS_C_T)) 
+
+EXPORTS_LIB:= $(addprefix $(LIBSPATH)$(GOOD_SLASH),lib$(TARGET)test.$(LIBSUFFIX))
+EXPORTS_EXE:= $(addprefix $(EXESPATH)$(GOOD_SLASH),$(TARGET)test.$(EXESUFFIX))
+EXPORTS_EXE_JAVA:=$(addprefix $(EXESPATH)$(GOOD_SLASH),dtvmtest.$(EXESUFFIX))
+
+ifeq "$(AUTO_RUN_TEST)" "1"
+CFLAGS += -DAUTO_RUN_TEST
+endif
+
+ifeq "$(INDEPENDENT_MODE)" "1"
+CFLAGS += -DINDEPENDENT_MODE
+endif
+
+CFLAGS += $(COSHIP_MMCP_FLAGS)
+CXXFLAGS += $(COSHIP_MMCP_FLAGS)
+
+###################################################################
+ifeq "$(FLAG_SELECT)" ""
+subs := dtv dtvm protocol graphics mediaplayer graph porting jvm midp pvr kernel codec udi2 udi guitool ca test
+dirs := $(subst $(GOOD_SLASH), ,$(TOPDIR))
+result := $(firstword $(foreach sub,$(subs),$(findstring $(sub),$(dirs))))
+FLAG_SELECT :=$(join TKMODULE_,$(result))
+export FLAG_SELECT
+endif
+
+include $(MMCP_HOME)/test/main/Include.share.rules
+INCLUDES += -I$(MMCP_HOME)/test/testkit\
+	    -I$(MMCP_HOME)/test/main\
+	    -I$(MMCP_HOME)/test/mediaplayer/include\
+	    -I$(MMCP_HOME)/mediaplayer/include
+###################################################################
+define MMCP_BUILD_DIRECTORY
+  @for DIR in $2; do \
+    cd $$DIR; \
+    make $1; RETVAL="$$?";\
+  if [ "$$RETVAL" -eq "0" ]; then \
+    cd ..; \
+  else \
+   exit $$RETVAL; \
+  fi; \
+ done
+endef
+
+.PHONY: default_target_all default_target_kit default_target_java
+default_target_all : check-exedir build_testkit_all 
+	make $(EXPORTS_EXE)
+
+
+default_target_kit : $(EXPORTS_LIB)
+	
+default_target_java : check-exedir check-objdir
+	make $(EXPORTS_EXE_JAVA)
+
+$(EXPORTS_EXE) : $(EXPORTS_LIB) $(INPUTS) $(LIBS_LOCAL) $(OBJECTS_FOR_EXE)
+	@echo [Build: $(EXPORTS_EXE)]
+	$(MMCP_LINK_EXECUTABLE)	
+	@echo $(EXPORTS_EXE) > exe_file.tmp
+	
+$(EXPORTS_EXE_JAVA) : $(INPUTS)
+	@echo [Build: $(EXPORTS_EXE_JAVA)]	
+	$(MMCP_LINK_EXECUTABLE)
+	@echo $(EXPORTS_EXE_JAVA) > exe_file.tmp
+
+$(EXPORTS_LIB) : getVersion \
+	check-libdir build_objs
+	@$(RM) $@; \
+	find $(SUBDIRS) objs -name "*.$(OBJSUFFIX)"  >.all_obj_list; \
+	cat .all_obj_list | grep $(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE)  | grep -v "/main." | grep -v "testmain" >.obj_list; \
+	$(AR) $(ARFLAGS) $@ $(filter-out %testmain.$(OBJSUFFIX),`cat .obj_list`); \
+	echo "generate $@ over !" ;\
+	$(RM) .obj_list;$(RM) .all_obj_list;
+
+##  测试单个模块，不需要删除操作
+ifeq "$(MMCP_TEST_ONE_MODULE)" "y"
+build_testkit_all:	build_one_module 
+
+else
+
+build_testkit_all:	build_testkit
+
+endif 
+
+build_testkit : 
+	@$(RM) $(MMCP_HOME)/test/main/objs/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE)/main.$(OBJSUFFIX)
+	@$(RM) $(MMCP_HOME)/test/main/objs/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE)/setup*.$(OBJSUFFIX)
+	@$(RM) $(MMCP_HOME)/test/main/libs/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE)/*.$(LIBSUFFIX)
+	@$(MAKE) -C $(MMCP_HOME)/test/testkit
+	@$(MAKE) -C $(MMCP_HOME)/test/main 
+	echo " ********************  Compile a single module"
+	echo " \" export MMCP_TEST_ONE_MODULE=y  \" to speed up " 
+	
+build_one_module:
+	@$(MAKE) -C $(MMCP_HOME)/test/testkit
+	@$(MAKE) -C $(MMCP_HOME)/test/main 
+	echo " ********************  Compile a single module"
+	echo " \" export MMCP_TEST_ONE_MODULE=y  \" to speed up " 
+
+
+build_objs : check-objdir $(OBJECTS_C) $(OBJECTS_CXX) 
+	@$(call MMCP_BUILD_DIRECTORY,build_sub,$(SUBDIRS))
+
+build_sub : build_objs
+		
+clean: clean_sub
+	@cd $(MMCP_HOME)/test/main; make clean_self;
+	@cd $(MMCP_HOME)/test/testkit; make clean_self;
+
+clean_self: clean-objdir clean-libdir clean-exedir 
+
+clean_sub: clean-objdir clean-libdir clean-exedir
+	@$(call MMCP_BUILD_DIRECTORY,clean_sub,$(SUBDIRS))
+
+run:
+	mmcptest -r $(TARGET_CONNECT)
+	
+dbgrun:
+	mmcptest -d $(TARGET_CONNECT)
+	
+$(OBJSPATH)/%.$(OBJSUFFIX):%.c
+	@echo [$(notdir  $@)]
+	@echo $(CFLAGS) $(CFLAGS_LOCAL) -D$(FLAG_SELECT) -D$(MMCP_PLATFORM) $(INCLUDES_LOCAL)
+	@$(CC) $(CFLAGS) $(CFLAGS_LOCAL) -D$(FLAG_SELECT) -D$(MMCP_PLATFORM) $(INCLUDES) $(INCLUDES_LOCAL) -c $< -o $@
+	@echo -------------------------------------------------	
+$(OBJSPATH)/%.$(OBJSUFFIX):%.cpp
+	@echo [$(notdir  $@)]
+	@echo $(CXXFLAGS) $(CXXFLAGS_LOCAL) -D$(FLAG_SELECT) -D$(MMCP_PLATFORM) $(INCLUDES_LOCAL)
+	@$(CXX) $(CXXFLAGS) $(CXXFLAGS_LOCAL) -D$(FLAG_SELECT) -D$(MMCP_PLATFORM) $(INCLUDES) $(INCLUDES_LOCAL) -c $< -o $@
+	@echo -------------------------------------------------
+
+###################################################################
+check-objdir: $(OBJSPATH)
+
+$(OBJSPATH):
+	@$(MKDIR)  $(OBJSPATH); 
+
+check-libdir: $(LIBSPATH)
+$(LIBSPATH):
+	@$(MKDIR)  $(LIBSPATH);
+	
+check-exedir: $(EXESPATH)
+$(EXESPATH):
+	@$(MKDIR) $(EXESPATH)
+
+	
+clean-objdir:
+	$(RM) $(OBJSPATH)$(GOOD_SLASH)*
+	$(RMDIR) $(OBJSPATH)
+ifeq "$(foreach dir,$(wildcard objs/*),$(wildcard $(dir)/*))" ""
+	@$(RMDIR) $(TOPDIR)/objs
+endif
+	
+clean-libdir:
+	$(RM) $(LIBSPATH)$(GOOD_SLASH)*
+	$(RMDIR) $(LIBSPATH)
+ifeq "$(foreach dir,$(wildcard libs/*),$(wildcard $(dir)/*))" ""
+	@$(RMDIR) $(TOPDIR)/libs
+endif
+	
+clean-exedir:
+	$(RM) $(EXESPATH)$(GOOD_SLASH)*
+	$(RMDIR) $(EXESPATH)
+ifeq "$(foreach dir,$(wildcard exec/*),$(wildcard $(dir)/*))" ""
+	@$(RMDIR) $(TOPDIR)/exec
+endif
+###################################################################
+define MMCP_BUILD_TARGET
+export FLAG_SELECT=TKMODULE_$@; \
+$(MAKE) -C $@; \
+$(MV) $@/exec/$(MMCP_PLATFORM)/$@test.$(EXESUFFIX) ./exec/$(MMCP_PLATFORM);
+endef
+
+.PHONY: porting dtv graphics protocol dtvm
+
+porting:check-exedir
+	@$(MMCP_BUILD_TARGET)
+
+dtv:check-exedir
+	@$(MMCP_BUILD_TARGET)
+
+graphics:check-exedir
+	@$(MMCP_BUILD_TARGET)
+
+protocol:check-exedir
+	@$(MMCP_BUILD_TARGET)
+
+dtvm:
+	@export FLAG_SELECT=TKMODULE_$@; \
+	$(MAKE) -C $@; \
+	make build_testkit; \
+	make default_target_java;
+
+dtvm1:
+	@export FLAG_SELECT=TKMODULE_dtvm; \
+	make build_testkit; \
+	make default_target_java;

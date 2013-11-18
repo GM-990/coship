@@ -1,0 +1,122 @@
+#!/bin/sh
+#
+
+showusage()
+{
+	echo "usage......"
+	echo "  [mmcptest -a],svn up,make clean,make & run 'mmcp/trunk/test' automaticly."
+	echo "  [mmcptest -cm],make & run in current dir manually."
+	echo "  [mmcptest -ca],make & run in current dir automaticly."
+	echo "  [mmcptest -c],make in current dir automaticly."
+	echo "  [mmcptest -r],just run in current dir with test menu."
+	echo "  [mmcptest -d],debug run in current dir with test menu."
+}
+echo in mmcptest parameter 1 is "$1", parameter 2 is "$2"
+
+if [ "$1" = "" ]; then
+	showusage
+	exit 0
+fi
+
+
+if [ "$MMCP_HOME" = "" ]; then
+	echo Not setup evn, exit!
+	exit 0
+fi
+
+export MmcpTestExeFile=""
+
+if [ "$1" = "-a" ]; then
+	cd ${MMCP_HOME};
+	svn up build;
+	svn up test;
+
+	cd ${MMCP_HOME}/test;
+	make clean;
+	export AUTO_RUN_TEST=1;
+	make;	
+	export AUTO_RUN_TEST=0;
+	export MmcpTestExeFile=$(cat exe_file.tmp)
+fi
+
+if [ "$1" = "-ca" ]; then
+	export AUTO_RUN_TEST=1;
+	make;
+	export AUTO_RUN_TEST=0;
+	export MmcpTestExeFile=$(cat exe_file.tmp)
+fi
+
+if [ "$1" = "-c" ]; then
+	export AUTO_RUN_TEST=1;
+	make;
+	export AUTO_RUN_TEST=0;
+fi
+
+if [ "$1" = "-cm" ]; then
+	export AUTO_RUN_TEST=0;
+	make;
+	export MmcpTestExeFile=$(cat exe_file.tmp)
+fi
+
+if [ "$1" = "-r" ]; then
+	export MmcpTestExeFile=$(cat exe_file.tmp)
+fi
+
+if [ "$1" = "-d" ]; then
+	export MmcpTestExeFile=$(cat exe_file.tmp)
+fi
+
+#-----------
+if [ "$MmcpTestExeFile" = "" ]; then
+	echo MmcpTestExeFile is null!!!!!!
+#	showusage
+	exit 0
+fi
+#---------
+echo Run $MmcpTestExeFile
+if [ "$MMCP_PLATFORM" = "linux" ]; then
+	$MmcpTestExeFile
+	exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "bcm740x" ]; then
+	run_bcm740x_test 
+	exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st5105" ]; then
+	run_st5105_test $1 $2
+	exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st5107" ]; then
+	run_st5107_test $1 $2
+	exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st7100" ]; then
+	run_st7100_test $1
+	exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st7111" ] ; then
+	run_st7100_test $1
+	exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st5197" ] ; then
+	run_st5197_test $1
+	exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st5206" ] ; then
+	run_st7100_test $1
+	exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st71xxos21" ] ; then
+	run_st71xx_test $1
+	exit 0
+fi
+
+echo Cannot support this platform:-(

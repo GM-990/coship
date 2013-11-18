@@ -1,0 +1,13 @@
+if [ "$1" = "-d" ]; then
+	if [ "-x$2" = "-x" ];then
+		$ST20ROOT/bin/st20run -g -l $MMCP_HOME/porting/st/st5107/config/board -l $MMCP_HOME/porting/st/st5107/config/chip -l $MMCP_HOME/porting/st/st5107/config/platform -i mb436.cfg -t coship2 -v $MmcpTestExeFile 
+	else
+		$ST20ROOT/bin/st20run -g -l $MMCP_HOME/porting/st/st5107/config/board -l $MMCP_HOME/porting/st/st5107/config/chip -l $MMCP_HOME/porting/st/st5107/config/platform -i mb436.cfg -t $2 -v $MmcpTestExeFile 
+	fi
+else
+	if [ "-x$2" = "-x" ];then
+		$ST20ROOT/bin/st20run -l $MMCP_HOME/porting/st/st5107/config/board -l $MMCP_HOME/porting/st/st5107/config/chip -l $MMCP_HOME/porting/st/st5107/config/platform -i mb436.cfg -t coship -v $MmcpTestExeFile 
+	else
+		$ST20ROOT/bin/st20run -l $MMCP_HOME/porting/st/st5107/config/board -l $MMCP_HOME/porting/st/st5107/config/chip -l $MMCP_HOME/porting/st/st5107/config/platform -i mb436.cfg -t $2 -v $MmcpTestExeFile 
+	fi
+fi

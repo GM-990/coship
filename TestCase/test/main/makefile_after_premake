@@ -1,0 +1,95 @@
+
+include $(MMCP_HOME)/build/$(MMCP_PLATFORM)/Makefile.defs
+include $(MMCP_HOME)/build/$(MMCP_PLATFORM)/Include.rules
+
+#CFLAGS_LOCAL   := 
+#CXXFLAGS_LOCAL := 
+INCLUDES_LOCAL += -I$(MMCP_HOME)/test/testkit -I$(MMCP_HOME)/test/main
+VPATH	+= ./$(MMCP_PLATFORM)
+VPATH	+= ./prepare ./setup
+SUBDIRS := 
+
+#SOURCES_LOCAL := $(filter-out Font.c CSAppRC.c,$(wildcard *.c *.cpp))
+##SOURCES_LOCAL := $(wildcard *.c *.cpp)
+
+ifeq ($(MMCP_HOME)/test/main/udi_init.c, $(wildcard $(MMCP_HOME)/test/main/udi_init.c))
+SOURCES_LOCAL :=  udi_init.c	\
+		CSAppRC.c    \
+		irdecode.c  \
+		main.c     \
+		setup.c     \
+		Font.c      \
+
+
+
+ifneq "$(MMCP_UDI2)" "y"
+	SOURCES_LOCAL+=		\
+			prepare_kernel.c \
+			prepare_ca.c  \
+			prepare_dtv.c  \
+			prepare_jsext.c  \
+			prepare_midp.c  \
+			prepare_porting.c  \
+			prepare_pvr.c \
+			prepare_codec.c \
+			prepare_graph_guitool_graphics.c \
+			prepare_kernel.c \
+			prepare_mp.c \
+			prepare_protocol.c \
+			prepare_test.c\
+			prepare_all.c \
+			setup_fs.c    \
+			setup_dtv.c     \
+			setup_jvm.c       \
+			setup_guitool.c   \
+			setup_protocol.c \
+			setup_ca.c	\
+			setup_pvr.c	\
+			setup_graphics.c  
+else
+			SOURCES_LOCAL+=  \
+			prepare_kernel.c \
+			prepare_ca.c  \
+			prepare_dtv.c  \
+			prepare_jsext.c  \
+			prepare_midp.c  \
+			prepare_porting.c  \
+			prepare_pvr.c \
+			prepare_codec.c \
+			prepare_graph_guitool_graphics.c \
+			prepare_kernel.c \
+			prepare_mp.c \
+			prepare_protocol.c \
+			prepare_test.c\
+			prepare_all.c \
+			setup_fs.c    \
+			setup_dtv.c     \
+			setup_jvm.c       \
+			setup_guitool.c   \
+			setup_protocol.c \
+			setup_ca.c	\
+			setup_pvr.c	 
+endif
+else
+$(warning WARNING:*****cant find udi_init.c*****)
+endif
+
+ifeq "$(MMCP_QT)" "y"
+	SOURCES_LOCAL+=		\
+			prepare_qt.cpp
+endif
+
+##ifeq "$(MMCP_PLATFORM)" "linux"
+##SOURCES_LOCAL +=  dummy_irdetoca.c
+##endif
+
+SOURCES := $(SOURCES_LOCAL)
+
+all:default_target_kit
+	echo $(SOURCES)
+
+default_local:
+	premake
+
+MMCP_COMPILE_RULES:=TESTKIT
+include $(MMCP_HOME)/build/$(MMCP_PLATFORM)/Compile.rules

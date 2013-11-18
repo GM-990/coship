@@ -1,0 +1,309 @@
+#!/bin/sh
+#
+
+BuildCodeBySubDirEntryHeader()
+{
+	rm -rf inc.tmp
+	rm -rf getobj.tmp
+	for DirName in *
+	do
+		if [ -d $DirName ]; then
+			FileName=$(ls $DirName | grep '^cs_' | grep 'testentry.h$')
+			if [ "$FileName" != "" ]; then
+				ModName=$(echo ${FileName%%testentry.h})
+				ModName=$(echo ${ModName#*cs_})
+				ModName=$(echo $ModName | tr [a-z] [A-Z])
+				echo Find [$FileName], get module name: $ModName
+				
+				echo "#include \"$DirName/$FileName\"" >> inc.tmp
+				echo "    CS${ModName}TESTGetObj," >> getobj.tmp
+				SubDirList=${SubDirList}" "${DirName}
+			fi
+			
+		fi
+	done
+	IncCode=$(cat inc.tmp)
+	GetObjCode=$(cat getobj.tmp)
+	
+	rm -rf inc.tmp
+	rm -rf getobj.tmp
+}
+
+
+
+
+echo " -----------------------------------------------------------"
+echo "|    Welcome to use Coship Test Framework Generator v1.2    |"
+echo " -----------------------------------------------------------"
+echo pwd: $PWD
+echo 
+#------------------------
+# Select operaion
+#------------------------
+echo "Please select:"
+echo "    1 - Clear and generate test framework code"
+echo "    2 - Only generate test framework code"
+echo "    3 - Generate test entry by test case code(CSTC_ functions)"
+echo "    q - Quit"
+read -p "Enter your anwser(default: 1):" INPUT
+case "$INPUT" in
+	2)
+		CLEAR=0
+		;;
+	3)
+		build_test_entry_by_test_code
+		exit 0
+		;;
+	q)
+		exit 0
+		;;
+	*)
+		CLEAR=1
+		;;
+		
+esac
+echo 
+#------------------------
+# Input module name
+#------------------------
+DIR_BASE_NAME=$(basename $PWD)
+read -p "Enter module name(default:$DIR_BASE_NAME):" INPUT
+if [ "$INPUT" = "" ]; then
+	INPUT=$DIR_BASE_NAME
+fi
+echo Module name is: $INPUT
+M_NAME=$(echo $INPUT | tr [a-z] [A-Z])
+fn_name=$(echo $INPUT | tr [A-Z] [a-z])
+
+#------------------------
+# Need generate testcase
+#------------------------
+echo 
+echo "What do you want to generate:"
+echo "    1 - Test framework code with demo testcase files"
+echo "    2 - Test framework code for directory(autoscan sub dir)"
+echo "    q - Quit"
+read -p "Enter your anwser(default: 1):" INPUT
+case "$INPUT" in
+	2)
+		GEN_TESTCASE=0
+		MySource="cs_${fn_name}testmain.c cs_${fn_name}testentry.c"
+		BuildCodeBySubDirEntryHeader
+		;;
+	q)
+		return 0
+		;;
+	*)	
+		GEN_TESTCASE=1
+		MySource="\$(wildcard *.c *.cpp)"
+		;;		
+esac
+
+
+#-----------------------------
+# Delete old test framework files......
+#-----------------------------
+if [ "$CLEAR" = "1" ]; then
+	echo Delete old  \"*testmain.*\" and \"*testentry.*\" files......
+	rm -f *testmain.*
+	rm -f *testentry*
+	if [ "$GEN_TESTCASE" = "1" ]; then
+		echo Delete old  \"*testcase.*\" files......
+		rm -f *testcase.*
+	fi
+fi
+
+#----------------------------
+# Generate makefile
+#----------------------------
+echo Generate makefile......
+
+cat > makefile << EOF
+include \$(MMCP_HOME)/build/\$(MMCP_PLATFORM)/Makefile.defs
+include \$(MMCP_HOME)/build/\$(MMCP_PLATFORM)/Include.rules
+
+# You can modify MYFLAGS_LOCAL,VPATH,INCLUDES_LOCAL,SUBDIRS,SOURCES,LIBS_LOCAL, don't use +=
+# 编译参数，如-D，但-I的参数写在INCLUDES_LOCAL中
+MYFLAGS_LOCAL  :=
+
+# 源码搜索路径，都在当前目录则留空
+VPATH	       := 
+
+# 头文件搜索路径
+INCLUDES_LOCAL := 
+
+# 其它要链接的库，空格分开，库扩展名".\$(LIBSUFFIX)"，放在"trunk\lib\平台目录"中
+LIBS_LOCAL :=
+
+# 下级测试用例目录, 空格分开
+SUBDIRS := ${SubDirList}
+
+# 本级测试用到的源代码,\$(wildcard *.c *.cpp)表示所有文件
+SOURCES := ${MySource}
+
+CFLAGS_LOCAL   := \$(MYFLAGS_LOCAL)
+CXXFLAGS_LOCAL := \$(MYFLAGS_LOCAL)
+MMCP_COMPILE_RULES:=TESTKIT
+include \$(MMCP_HOME)/build/\$(MMCP_PLATFORM)/Compile.rules
+
+EOF
+
+#----------------------------
+# Generate testmain.c
+#----------------------------
+echo Generate cs_${fn_name}testmain.c......
+
+cat > cs_${fn_name}testmain.c << EOF
+#include "cs_${fn_name}testentry.h"
+void test_main(void)
+{
+	CS${M_NAME}TESTEntry();
+}
+
+EOF
+
+#----------------------------
+# Generate testentry.h
+#----------------------------
+echo Generate cs_${fn_name}testentry.h......
+
+cat > cs_${fn_name}testentry.h << EOF
+#ifndef _CS_${M_NAME}_TEST_ENTRY_H_
+#define _CS_${M_NAME}_TEST_ENTRY_H_
+
+#include "cs_testkit.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void CS${M_NAME}TESTEntry(void);
+extern CSTestObj_S* CS${M_NAME}TESTGetObj(void);//本级测试入口
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+
+EOF
+
+#----------------------------
+# Generate testentry.c
+#----------------------------
+echo Generate cs_${fn_name}testentry.c......
+
+if [ "$GEN_TESTCASE" = "0" ]; then
+	TEST_CASE_COMMENT=//
+else
+	DIR_COMMENT=//
+fi
+
+
+cat > cs_${fn_name}testentry.c << EOF
+#include "cs_testkit.h"
+#include "version.h"
+#include "cs_${fn_name}testentry.h"
+${IncCode}
+//#include "sub/cs_subtestentry.h" ///下级测试用例的目录
+
+${TEST_CASE_COMMENT}#include "cs_${fn_name}testcase.h"
+
+/*begin change*/
+${DIR_COMMENT}static CSTestInit_S s_sTestInit = {NULL, NULL};
+${TEST_CASE_COMMENT}static CSTestInit_S s_sTestInit = {CSTC_${M_NAME}_Init, CSTC_${M_NAME}_UnInit};
+static CSTestCase_S s_asTestCase[] = 
+{
+	${TEST_CASE_COMMENT}{CS_TK_AUTOCASE(CSTC_${M_NAME}_MT_0001)},//CS_TK_AUTOCASE,测试过程无需干预
+	${TEST_CASE_COMMENT}{CS_TK_MANUALCASE(CSTC_${M_NAME}_MT_0002)},//CS_TK_MANUALCASE，测试过程需与测试者交互
+	CS_TK_ENDCASE //测试用例结束标记，必须要有，且在最后一个
+};
+
+
+static CSTestGetObj_F s_afnTestGetObj[]= 
+{
+	CS${M_NAME}TESTGetObj,	//对应自己，必须是第一个，必须要有
+	//CSSUBTESTGetObj,	//下级测试用例目录入口，可以没有
+${GetObjCode}
+};
+/*end change*/
+
+CS_TEST_BUILD_FRAME_CODE(${M_NAME})
+/*end don't change*/
+
+EOF
+
+#----------------------------
+# Generate testcase.h
+#----------------------------
+if [ "$GEN_TESTCASE" = "0" ]; then
+	return 0
+fi
+
+if [ -e cs_${fn_name}testcase.h ] ;then
+	GEN_TESTCASE=0
+	echo cs_${fn_name}testcase files exist, do not generate......
+	return 0
+fi
+
+echo Generate cs_${fn_name}testcase.h......
+cat > cs_${fn_name}testcase.h << EOF
+#ifndef _CS_${M_NAME}_TEST_CASE_H_
+#define _CS_${M_NAME}_TEST_CASE_H_
+
+#include "cs_testkit.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+BOOL CSTC_${M_NAME}_Init(void);
+BOOL CSTC_${M_NAME}_UnInit(void);
+
+BOOL CSTC_${M_NAME}_MT_0001(void);
+BOOL CSTC_${M_NAME}_MT_0002(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+
+EOF
+
+#----------------------------
+# Generate testcase.c
+#----------------------------
+echo Generate cs_${fn_name}testcase.c......
+cat > cs_${fn_name}testcase.c << EOF
+/* --------------------------------------------------------------------
+注意：
+1.在需要与用户交互的测试用例中，可以：
+	a. 使用CSTKWaitAnyKey等待用户输入任意按键
+	b. 使用CSTKWaitYes等待用户输入YES
+2.测试用例函数命名：测试用例ID，"测试用例ID"定义在测试用例文档中
+-----------------------------------------------------------------------*/
+#include "cs_${fn_name}testcase.h"
+BOOL CSTC_${M_NAME}_Init(void)
+{
+	//在本测试用例集执行前调用
+	return TRUE;
+}
+
+BOOL CSTC_${M_NAME}_UnInit(void)
+{
+	//在本测试用例集执行后调用
+	return TRUE;
+}
+
+BOOL CSTC_${M_NAME}_MT_0001(void)
+{
+	return TRUE;
+}
+
+BOOL CSTC_${M_NAME}_MT_0002(void)
+{
+	return TRUE;
+}
+
+EOF

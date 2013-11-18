@@ -1,0 +1,5 @@
+MMCP_MENUCONFIG_DIR  ?= $(MMCP_HOME)/build/share/configuration/
+include $(MMCP_MENUCONFIG_DIR)$(MMCP_MENUCONFIG_FILE)
+include $(MMCP_HOME)/build/$(MMCP_PLATFORM)/COption.rules
+CFLAGS += $(COSHIP_MMCP_FLAGS)
+CXXFLAGS += $(COSHIP_MMCP_FLAGS)

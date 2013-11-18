@@ -1,0 +1,119 @@
+[cx24501default]
+productpath = /test/main/udi_init/cx24501/demo
+productdespath = test/main
+description = 
+
+[st5197default]
+productpath = test/main/udi_init/st5197/demo
+productdespath = test/main
+description = 
+
+[bcm740xdefault]
+productpath = test/main/udi_init/bcm7403/N8606
+productdespath = test/main
+description = 
+
+[stih237_linuxdefault]
+productpath = test/main/udi_init/stih237_linux/demo
+productdespath = test/main
+description = 
+
+[st71xxlinuxdefault]
+productpath = test/main/udi_init/st71xxlinux/demo
+productdespath = test/main
+description = 
+
+[st7100default]
+productpath = test/main/udi_init/st7100/ChengDuXingWang
+productdespath = test/main
+description = 
+
+[bcm7309default]
+productpath = test/main/udi_init/bcm7309/N7300
+productdespath = test/main
+description = 
+
+[st5105default]
+productpath = test/main/udi_init/st5105/HuNan_mmcp
+productdespath = test/main
+description = 
+
+[97403default]
+productpath = test/main/udi_init/bcm7403/N8606
+productdespath = test/main
+description = 
+
+[bcm7401default]
+productpath = test/main/udi_init/bcm7401/demo
+productdespath = test/main
+description = 
+
+[hi3110Edefault]
+productpath = test/main/udi_init/hi3110E/demo
+productdespath = test/main
+description = 
+
+[linuxdefault]
+productpath = test/main/udi_init/linux/x86
+productdespath = test/main
+description = 
+
+[st7111default]
+productpath = test/main/udi_init/st7111/demo
+productdespath = test/main
+description = 
+
+[SupraXD_180default]
+productpath = test/main/udi_init/SupraXD_180/demo
+productdespath = test/main
+description = 
+
+[97309default]
+productpath = test/main/udi_init/bcm7309/N7300
+productdespath = test/main
+description = 
+
+[bcm7406default]
+productpath = test/main/udi_init/bcm7406/demo
+productdespath = test/main
+description = 
+
+[bcm75xxdefault]
+productpath = test/main/udi_init/bcm75xx/demo
+productdespath = test/main
+description = 
+
+[bcm7019default]
+productpath = test/main/udi_init/bcm7019/demo
+productdespath = test/main
+description =
+
+[bcm7468default]
+productpath = test/main/udi_init/bcm7468/demo
+productdespath = test/main
+description =
+
+[hi3716Hdefault]
+productpath = test/main/udi_init/hi3716H/demo
+productdespath = test/main
+description =
+
+[hi3716Mdefault]
+productpath = test/main/udi_init/hi3716M/demo
+productdespath = test/main
+description =
+
+[hi3716M_hisiv200default]
+productpath = test/main/udi_init/hi3716M/demo
+productdespath = test/main
+description =
+
+[pnx8473default]
+productpath = /test/main/udi_init/pnx8473/demo
+productdespath = test/main
+description = 
+
+[mtk8652default]
+productpath = test/main/udi_init/mtk8652/demo
+productdespath = test/main
+description =

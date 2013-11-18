@@ -1,0 +1,111 @@
+#ifndef  _CS_NETB_H_
+#define  _CS_NETB_H_
+
+#include <stdlib.h>
+#include <cs_types.h>
+
+#if	!defined(BIG_ENDIAN) && !defined(LITTLE_ENDIAN)
+#error	"No Big or Little ENDIAN defined!!!"
+#endif
+
+#if defined	BIG_ENDIAN
+#	define	LOWWORD_LOWBYTE_32		3
+#	define	LOWWORD_HIGHBYTE_32		2
+#	define	HIGHWORD_LOWBYTE_32		1
+#	define	HIGHWORD_HIGHBYTE_32	        0
+#	define	LOWBYTE_16			1
+#	define	HIGHBYTE_16			0
+#elif defined LITTLE_ENDIAN	/* ! BIG_ENDIAN */
+#	define	LOWWORD_LOWBYTE_32		0
+#	define	LOWWORD_HIGHBYTE_32		1
+#	define	HIGHWORD_LOWBYTE_32		2
+#	define	HIGHWORD_HIGHBYTE_32	        3
+#	define	LOWBYTE_16			0
+#	define	HIGHBYTE_16			1
+#endif	/* BIG_ENDIAN */
+
+#define	MMCP_NETB_WRITE_VALUE8(BUFFER, VALUE)				\
+	( (_BUFF_BYTE(BUFFER, 0) = (BYTE)(VALUE),			\
+	  (BYTE *)((BUFFER) += sizeof(BYTE))))
+
+#define	MMCP_NETB_WRITE_VALUE16(BUFFER, VALUE)				\
+	((_BUFF_BYTE(BUFFER, 0) = (BYTE)((WORD)(VALUE) >> 8),	\
+	  _BUFF_BYTE(BUFFER, 1) = (BYTE)((WORD)(VALUE)),		\
+	  (BYTE *)((BUFFER) += sizeof(WORD))))
+
+#define	MMCP_NETB_WRITE_VALUE32(BUFFER, VALUE)				\
+	((_BUFF_BYTE(BUFFER, 0) = (BYTE)((DWORD)(VALUE) >> 24),	\
+	  _BUFF_BYTE(BUFFER, 1) = (BYTE)((DWORD)(VALUE) >> 16),	\
+	  _BUFF_BYTE(BUFFER, 2) = (BYTE)((DWORD)(VALUE) >> 8),	\
+	  _BUFF_BYTE(BUFFER, 3) = (BYTE)((DWORD)(VALUE)),		\
+	  (BYTE *)((BUFFER) += sizeof(DWORD))))
+	
+#define	MMCP_NETB_WRITE_8(BUFFER, VARIABLE)				\
+	((_BUFF_BYTE(BUFFER, 0) = _BUFF_VARIABLE_BYTE(VARIABLE, 0),	\
+	  (BYTE *)((BUFFER) += sizeof(BYTE))))
+
+#define	MMCP_NETB_WRITE_16(BUFFER, VARIABLE)				\
+  ((_BUFF_BYTE(BUFFER, 0) = _BUFF_VARIABLE_BYTE(VARIABLE, HIGHBYTE_16),	\
+    _BUFF_BYTE(BUFFER, 1) = _BUFF_VARIABLE_BYTE(VARIABLE, LOWBYTE_16),	\
+	  (BYTE *)((BUFFER) += sizeof(WORD))))
+
+#define	MMCP_NETB_WRITE_32(BUFFER, VARIABLE)				\
+	((_BUFF_BYTE(BUFFER, 0) = _BUFF_VARIABLE_BYTE(VARIABLE,		\
+					      HIGHWORD_HIGHBYTE_32),	\
+	  _BUFF_BYTE(BUFFER, 1) = _BUFF_VARIABLE_BYTE(VARIABLE,	\
+					      HIGHWORD_LOWBYTE_32),	\
+	  _BUFF_BYTE(BUFFER, 2) = _BUFF_VARIABLE_BYTE(VARIABLE,		\
+					      LOWWORD_HIGHBYTE_32),	\
+	  _BUFF_BYTE(BUFFER, 3) = _BUFF_VARIABLE_BYTE(VARIABLE,		\
+						LOWWORD_LOWBYTE_32),	\
+	  (BYTE *)((BUFFER) += sizeof(DWORD))))
+
+#define	MMCP_NETB_READ_VALUE8(BUFFER)					\
+	(((BUFFER) += sizeof(BYTE),					\
+	  (BYTE)_BUFF_BYTE(BUFFER, -1)))
+
+#define	MMCP_NETB_READ_VALUE16(BUFFER)					\
+	(((BUFFER) += sizeof(WORD),					\
+	  (WORD)(_BUFF_BYTE(BUFFER, -2) << 8) |			\
+	  (WORD)(_BUFF_BYTE(BUFFER, -1))))
+
+#define	MMCP_NETB_READ_VALUE32(BUFFER)					\
+	(((BUFFER) += sizeof(DWORD),					\
+	  (DWORD)(_BUFF_BYTE(BUFFER, -4) << 24) |			\
+	  (DWORD)(_BUFF_BYTE(BUFFER, -3) << 16) |			\
+	  (DWORD)(_BUFF_BYTE(BUFFER, -2) << 8)  |			\
+	  (DWORD)(_BUFF_BYTE(BUFFER, -1))))
+	
+#define	MMCP_NETB_READ_8(BUFFER, VARIABLE)				\
+	((_BUFF_VARIABLE_BYTE(VARIABLE, 0) = _BUFF_BYTE(BUFFER, 0),	\
+	  (BYTE *)((BUFFER) += sizeof(BYTE))))
+
+#define	MMCP_NETB_READ_16(BUFFER, VARIABLE)				\
+  ((_BUFF_VARIABLE_BYTE(VARIABLE, HIGHBYTE_16) = _BUFF_BYTE(BUFFER, 0),	\
+    _BUFF_VARIABLE_BYTE(VARIABLE, LOWBYTE_16) = _BUFF_BYTE(BUFFER, 1),	\
+	  (BYTE *)((BUFFER) += sizeof(WORD))))
+
+#define	MMCP_NETB_READ_32(BUFFER, VARIABLE)				\
+	((_BUFF_VARIABLE_BYTE(VARIABLE,					\
+			HIGHWORD_HIGHBYTE_32) = _BUFF_BYTE(BUFFER, 0),	\
+	  _BUFF_VARIABLE_BYTE(VARIABLE,					\
+			HIGHWORD_LOWBYTE_32) = _BUFF_BYTE(BUFFER, 1),	\
+	  _BUFF_VARIABLE_BYTE(VARIABLE,					\
+			LOWWORD_HIGHBYTE_32) = _BUFF_BYTE(BUFFER, 2),	\
+	  _BUFF_VARIABLE_BYTE(VARIABLE,					\
+			LOWWORD_LOWBYTE_32) = _BUFF_BYTE(BUFFER, 3),	\
+	  (BYTE *)((BUFFER) += sizeof(DWORD))))
+	
+#define	MMCP_NETB_SKIP_8(BUFFER, COUNT)					\
+	(/*(BYTE *)*/((BUFFER) += (int)sizeof(BYTE) * (COUNT)))
+
+#define	MMCP_NETB_SKIP_16(BUFFER, COUNT)					\
+	(/*(BYTE *)*/((BUFFER) += (int)sizeof(WORD) * (COUNT)))
+
+#define	MMCP_NETB_SKIP_32(BUFFER, COUNT)					\
+	(/*(BYTE *)*/((BUFFER) += (int)sizeof(DWORD) * (COUNT)))
+
+#define	_BUFF_BYTE(BUFFER, INDEX)     (((BYTE *)(BUFFER))[INDEX])
+#define	_BUFF_VARIABLE_BYTE(VARIABLE, INDEX)	_BUFF_BYTE(&(VARIABLE), INDEX)
+
+#endif /*_CS_NETB_H_*/

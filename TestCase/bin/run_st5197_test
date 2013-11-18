@@ -1,0 +1,16 @@
+#!/bin/sh
+
+if [ -f $MmcpTestExeFile ]; then
+	mv -f $MmcpTestExeFile ./exec/$PLATFORM/main.exe
+fi
+
+if [ "$1" = "-d" ]; then
+
+sh4gdb -nw --directory $MMCP_HOME/porting/st/st7111/config/platform/5197 \
+        -x $MMCP_HOME/porting/st/st7111/config/platform/5197/cab5197_5197_start_file.cmd -ex start_exec_d
+else
+
+sh4gdb -nw --directory $MMCP_HOME/porting/st/st7111/config/platform/5197 \
+        -x $MMCP_HOME/porting/st/st7111/config/platform/5197/cab5197_5197_start_file.cmd -ex start_exec
+
+fi

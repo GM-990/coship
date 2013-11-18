@@ -1,0 +1,22 @@
+# 下级测试用例目录, 空格分开
+SUBDIRS := audio os osg input section player panel demux fs tuner debug toolset \
+		flash injecter eeprom screen video descramble aout smartcard record network ittest  
+
+define MMCP_BUILD_DOCUMENT
+  @cd $(MMCP_HOME)/test/udi2
+  @for DIR in $(SUBDIRS); do \
+    cd $$DIR; \
+    pwd; \
+    make -f makefile; \
+    make -f makefile testlib; \
+    make -f makefile doc; \
+    cd ..; \
+ done
+ endef
+ 
+all: 
+	@echo build $(EXPORT_PORT_TEST_LIB) $^...
+	@make -f makefile testlib
+	@make -f makefile doc
+	$(MMCP_BUILD_DOCUMENT)	
+	@echo build $(EXPORT_PORT_TEST_LIB) over

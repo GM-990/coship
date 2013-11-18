@@ -1,0 +1,1 @@
+echo "svn st | grep \"? \"   | grep  .h$ "

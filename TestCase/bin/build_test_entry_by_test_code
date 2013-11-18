@@ -1,0 +1,196 @@
+#!/bin/sh
+#
+
+
+
+FindModName()
+{
+	for DirFileName in *
+	do
+		if [ -f $DirFileName ]; then
+			TestEntryFileName=$(echo $DirFileName | grep '^cs_' | grep 'testentry.h$')
+			if [ "$TestEntryFileName" != "" ]; then
+				ModName=$(echo ${TestEntryFileName%%testentry.h})
+				ModName=$(echo ${ModName#*cs_})
+				ModName=$(echo $ModName | tr [a-z] [A-Z])
+				return
+			fi
+			
+		fi
+	done	
+}
+
+FindCodeFile()
+{
+	for DirFileName in *
+	do
+		ExtendName=".c .cpp"
+		if [ -f $DirFileName ]; then
+			for ExtName in .c .cpp
+			do
+				TheCodeFile=$(echo $DirFileName | grep -v "testentry" | grep "${ExtName}$")
+				if [ "$TheCodeFile" = "" ]; then
+					continue
+				fi
+				
+				CstcFile=$(grep -rl "CSTC_" ${TheCodeFile})
+				if [ "$CstcFile" != "" ]; then
+					CodeFiles="$CodeFiles $TheCodeFile"
+				fi
+			done
+		fi
+	done	
+	echo CodeFiles is $CodeFiles
+}
+
+OutPutTestCase()
+{
+	local OutPut=0
+
+	if [ "$TestCaseRow" != "" ]; then
+		OutPut=1;
+	fi
+	
+	if [ "$1" = "last" ]; then
+		OutPut=1
+	fi
+
+	if [ "$OutPut" = "1" ]; then
+		if [ "$LastTestCaseRow" != "" ]; then
+			if [ "$FindManualRow" = "0" ]; then
+				echo "	{CS_TK_AUTOCASE(${LastTestCaseRow})}," >> entry_c.tmp
+			else
+				echo "	{CS_TK_MANUALCASE(${LastTestCaseRow})}," >> entry_c.tmp
+			fi
+			echo "BOOL ${LastTestCaseRow}(void);" >> testcase_h.tmp
+			echo Find ${LastTestCaseRow}
+		fi
+		LastTestCaseRow=$TestCaseRow
+		FindManualRow=0
+	fi
+}
+
+BuildTestCaseFuncs()
+{
+	for CodeFile in $CodeFiles
+	do
+		echo Parse $CodeFile .................
+		LastTestCaseRow=""
+		FindManualRow=0
+		
+		TheCode="$(sed -e '/CSTC_/b' -e '/CSTKWait/b' -e d ${CodeFile})"
+		
+		for CodeRow in $TheCode
+		do
+			TestCaseRow=$(echo $CodeRow | grep "^CSTC_" | grep "void" | grep -v ";" | grep -v "//" | grep -v "*")
+			TestCaseRow=$(echo $TestCaseRow | awk -F'[(]' '{print $1}')
+			if [ "$TestInitFunc" = "" ]; then
+				TestInitFunc=$(echo $TestCaseRow | grep "Init")
+				if [ "$TestInitFunc" != "" ]; then
+					echo Find $TestInitFunc
+					continue
+				fi
+			fi
+			if [ "$TestUnInitFunc" = "" ]; then
+				TestUnInitFunc=$(echo $TestCaseRow | grep "UnInit")
+				if [ "$TestUnInitFunc" != "" ]; then
+					echo Find $TestUnInitFunc
+					continue
+				fi				
+			fi			
+			
+			MyRow=$TestCaseRow
+			if [ "$TestCaseRow" = "" ]; then
+				MyRow=$(echo $CodeRow | grep "CSTKWait")
+				if [ "$MyRow" != "" ]; then
+					FindManualRow=1
+				fi
+			fi
+			
+			if [ "$MyRow" = "" ]; then
+				continue
+			fi
+			
+			OutPutTestCase
+			
+		done
+		
+		OutPutTestCase last		
+	done
+}
+
+
+FindModName
+if [ "$ModName" = "" ]; then
+	echo No *testentry.h file, exit!
+	exit 0
+fi
+echo Find mod name $ModName, testentry file is $TestEntryFileName
+
+FindCodeFile
+
+BuildTestCaseFuncs
+
+#------- generate code --------
+fn_name=$(echo $ModName | tr [A-Z] [a-z])
+M_NAME=$(echo $ModName | tr [a-z] [A-Z])
+
+EntryC=$(cat entry_c.tmp)
+TestCaseH=$(cat testcase_h.tmp)
+
+rm -rf *.tmp
+
+#------- generate testcase.h ----------
+echo Generate cs_${fn_name}testcase.h......
+cat > cs_${fn_name}testcase.h << EOF
+#ifndef _CS_${M_NAME}_TEST_CASE_H_
+#define _CS_${M_NAME}_TEST_CASE_H_
+
+#include "cs_testkit.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+BOOL CSTC_${M_NAME}_Init(void);
+BOOL CSTC_${M_NAME}_UnInit(void);
+
+${TestCaseH}
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+
+EOF
+
+#----------------------------
+# Generate testentry.c
+#----------------------------
+echo Generate cs_${fn_name}testentry.c......
+
+cat > cs_${fn_name}testentry.c << EOF
+#include "cs_testkit.h"
+#include "cs_${fn_name}testentry.h"
+#include "cs_${fn_name}testcase.h"
+
+static CSTestInit_S s_sTestInit = {CSTC_${M_NAME}_Init, CSTC_${M_NAME}_UnInit};
+static CSTestCase_S s_asTestCase[] = 
+{
+${EntryC}
+	{"", NULL, 0} //测试用例结束标记，必须要有，且在最后一个
+};
+
+
+static CSTestGetObj_F s_afnTestGetObj[]= 
+{
+	CS${M_NAME}TESTGetObj //对应自己，必须是第一个，必须要有
+};
+
+CS_TEST_BUILD_FRAME_CODE(${M_NAME})
+
+EOF
+
+
+                                                                 

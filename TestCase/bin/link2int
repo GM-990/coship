@@ -1,0 +1,30 @@
+#! /bin/bash
+
+#
+# This script is used to link the current working environment to an integration
+# environment
+#
+# @author: Liao Hongtao (on 2008/03/10)
+#
+INT_SPACE="/export/mmcp_integration"
+#INT_SPACE="/home/liaohongtao/mmcp"
+int_list=`ls $INT_SPACE`
+
+echo "The following integration exists, please choose one"
+n=0;
+for i in $int_list; do
+  n=$((n))+1;
+  arr[$((n))]=$i;
+  echo $((n))") $i"
+done 
+#  echo "$((n)), ${arr[$((n))]}"
+read -p "Select your intergration space> " INPUT
+echo "You chose \"${arr[$((INPUT))]}\" for integration SPACE"
+#
+# Touse symbolic link from the Integration space to the current working space
+#
+space_dir=$INT_SPACE/${arr[$((INPUT))]}
+space_list=`ls $space_dir`
+for f in $space_list; do
+   ln -s $space_dir/$f $f
+done

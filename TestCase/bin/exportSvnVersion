@@ -1,0 +1,42 @@
+#!/bin/sh
+
+#-----------------------------------------usage----------------------------------------------------#
+#get current path svn version infortion: exportSvnVersion 
+#get path:/home/test svn version infortion:  exportSvnVersion /home/test
+#get path:/home/test and /home/test1 svn version infortion: exportSvnVersion /home/test /home/test1
+#如果是配置组自动构建,export 环境变量 AutoCompile=y
+#-------------------------------------------end----------------------------------------------------#
+
+if [ ! -d "$1" ];then
+svn_path=$(pwd)
+else
+svn_path=$1
+fi
+
+export SRC_VERSION=$(svn info $svn_path| grep "^最后修改的修订版\| grep ^最后修改的版本: \|^Last Changed Rev: "|grep -Eo '[0-9]+');
+export SRC_SVN_URL=$(svn info $svn_path| grep "^URL: "|cut -d' ' -f2);
+echo "current module source code svn version=$SRC_VERSION";
+echo "current compiling mode=$MMCP_COMPILING_MODE";
+echo "current svn url=$SRC_SVN_URL"
+
+SRC_VERSION2=
+SRC_SVN_URL2=
+if [ -d "$2" ];then
+export SRC_VERSION2=$(svn info $2| grep "^最后修改的修订版\| grep ^最后修改的版本: \|^Last Changed Rev: "|grep -Eo '[0-9]+');
+export SRC_SVN_URL2=$(svn info $2| grep "^URL: "|cut -d' ' -f2);
+echo "second module source code svn version=$SRC_VERSION2";
+echo "second svn url=$SRC_SVN_URL2"
+fi
+
+if [ "-x$AutoCompile" = "-xy" ];then
+compile_mode=AutoCompile
+else
+compile_mode=ManualCompile
+fi
+
+if [ "-x$SRC_VERSION2" = "-x" ];then
+echo "#define SRC_VERSION \"$SRC_VERSION($MMCP_COMPILING_MODE) ($MMCP_MENUCONFIG_FILE) ($SRC_SVN_URL) (mode:$compile_mode)\"" >version.h
+else
+echo "#define SRC_VERSION \"$SRC_VERSION($MMCP_COMPILING_MODE) ($MMCP_MENUCONFIG_FILE) ($SRC_SVN_URL) (svn2_$SRC_VERSION2) ($SRC_SVN_URL2) (mode:$compile_mode)\"" >version.h
+fi
+echo "" >>version.h

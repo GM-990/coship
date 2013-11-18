@@ -1,0 +1,298 @@
+include $(MMCP_HOME)/build/share/COption.rules
+
+ifeq "$(MMCP_COMPILE_RULES)" "TESTKIT"
+include $(MMCP_HOME)/build/share/CCompile4Test.rules
+else
+
+TOPDIR     := $(shell $(PWD))
+
+OBJSPATH   := $(subst $(BAD_SLASH),$(GOOD_SLASH),$(TOPDIR)/objs/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE))
+EXESPATH   := $(subst $(BAD_SLASH),$(GOOD_SLASH),$(TOPDIR)/exec/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE))
+LIBSPATH   := $(subst $(BAD_SLASH),$(GOOD_SLASH),$(MMCP_HOME)/lib/$(MMCP_PLATFORM)/$(MMCP_COMPILING_MODE))
+
+SOURCE_C   := $(filter %.c,$(SOURCES))
+SOURCE_CXX := $(filter %.cpp,$(SOURCES))
+
+ifeq "$(MMCP_PLATFORM)" "cnx301"
+OBJECTS_C  := $(addprefix $(OBJSPATH)$(GOOD_SLASH),$(subst .c,.$(OBJSUFFIX),$(SOURCE_C)))
+OBJECTS_CXX:= $(addprefix $(OBJSPATH)$(GOOD_SLASH),$(subst .cpp,.$(OBJSUFFIX),$(SOURCE_CXX)))
+else
+OBJECTS_C  := $(addprefix $(OBJSPATH)/,$(subst .c,.$(OBJSUFFIX),$(SOURCE_C)))
+OBJECTS_CXX:= $(addprefix $(OBJSPATH)/,$(subst .cpp,.$(OBJSUFFIX),$(SOURCE_CXX)))
+GCOV_OBJECTS_C  := $(addprefix $(OBJSPATH)/,$(subst .c,.$(GCOVSUFFIX),$(SOURCE_C)))
+GCOV_OBJECTS_CXX:= $(addprefix $(OBJSPATH)/,$(subst .cpp,.$(GCOVSUFFIX),$(SOURCE_CXX)))
+endif
+
+EXPORTS_OBJ:= $(addprefix $(OBJSPATH)$(GOOD_SLASH),$(EXPORTS))
+EXPORTS_EXE:= $(addprefix $(EXESPATH)$(GOOD_SLASH),$(EXPORTS))
+
+ifeq "$(OV_GEN)" "true"
+EXPORTS_GCOV:= $(addprefix $(OBJSPATH)$(GOOD_SLASH),$(EXPORTS))
+else
+EXPORTS_LIB:= $(addprefix $(OBJSPATH)$(GOOD_SLASH),$(EXPORTS))
+endif
+
+
+SUBMODULESDIR_GCOV   := $(addsuffix _gcov,$(SUBDIRS))
+
+SUBMODULESDIR_LIB   := $(addsuffix _lib,$(SUBDIRS))
+SUBMODULESDIR_CLEAN := $(addsuffix _clean,$(SUBDIRS))
+
+ifneq "$(MMCP_COMPILE_RULES)" "EXECUTABLE"
+ifeq "$(OV_GEN)" "true"
+default: $(SUBMODULESDIR_GCOV) $(EXPORTS_GCOV) 
+else
+default: check-objdir check-libdir $(SUBMODULESDIR_LIB) $(EXPORTS_LIB) 
+endif
+else
+default: check-objdir check-exedir $(SUBMODULESDIR_LIB) $(EXPORTS_EXE) 
+endif
+
+run:$(EXPORTS_EXE)
+	$(MMCP_RUN_OBJECT)
+dbg:$(EXPORTS_EXE)
+	$(MMCP_DEBUG_RUN_OBJECT)
+
+clean: $(SUBMODULESDIR_CLEAN) clean-objdir clean-exedir $(LOCAL_TARGET_clean)
+	@echo Cleaning $(EXPORTS)
+
+.CLEAN: $(SUBMODULESDIR_CLEAN) clean-objdir clean-exedir $(LOCAL_TARGET_clean)
+	@echo Cleaning $(EXPORTS)
+	
+check-objdir: $(OBJSPATH)
+$(OBJSPATH):
+	@$(MKDIR)  $(OBJSPATH); 
+
+check-libdir: $(LIBSPATH)
+$(LIBSPATH):
+	@$(MKDIR)  $(LIBSPATH);
+	
+check-exedir: $(EXESPATH)
+$(EXESPATH):
+	@$(MKDIR) $(EXESPATH)
+
+clean-objdir:
+	$(RM) $(OBJSPATH)$(GOOD_SLASH)*
+	$(RMDIR) $(OBJSPATH)
+##ifeq "$(foreach dir,$(wildcard objs/*),$(wildcard $(dir)/*))" ""
+##	$(RMDIR) $(TOPDIR)/objs 只删除对应平台对应编译选项目录下的文件
+##endif
+
+##clean-libdir:
+##	$(RM) $(LIBSPATH)$(GOOD_SLASH)$(EXPORTS)
+
+clean-exedir:
+	$(RM) $(EXESPATH)$(GOOD_SLASH)*
+	$(RMDIR) $(EXESPATH)
+##ifeq "$(foreach dir,$(wildcard exec/*),$(wildcard $(dir)/*))" ""
+##	$(RMDIR) $(TOPDIR)/exec 只删除对应平台对应编译选项目录下的文件
+##endif
+
+$(SUBMODULESDIR_LIB):
+	make -C $(subst _lib,,$@)
+	
+$(SUBMODULESDIR_GCOV):
+	make -C $(subst _gcov,,$@)
+
+
+$(SUBMODULESDIR_CLEAN):
+	make -C $(subst _clean,,$@) clean
+
+
+$(EXPORTS_LIB): getVersion $(OBJECTS_C) $(OBJECTS_CXX)
+	$(MMCP_BUILD_LIBRARY)
+ifeq "$(EXPORTSCOPYOUT)" "TRUE"
+	$(CP) $@ $(LIBSPATH)  
+	#$(RM) $@
+endif
+
+$(EXPORTS_GCOV):  $(GCOV_OBJECTS_C) $(GCOV_OBJECTS_CXX) 
+	rm $(OBJSPATH)/*.$(GCOVSUFFIX) -rf;	\
+	mv *.$(GCOVSUFFIX)  $(OBJSPATH)/ ; \
+	cd $(OBJSPATH)/; \
+	$(LCOV) -b $(TOPDIR)  --directory $(OBJSPATH)   --capture --output-file  $(MODULE_NAME).info; \
+	genhtml -o  $(MODULE_NAME).cov  $(MODULE_NAME).info; \
+	cd -
+
+
+Q ?= @
+
+## MMCP_MEMLEAK_SUPPORT start 
+#(LEAK_B_CLASSES)" "1" 
+#(LEAK_B_CODEC)" "2 
+#(LEAK_B_DTVM)" 3 
+#(LEAK_B_DTV)" "4 
+#(LEAK_B_GRAPH)" "5"
+#(LEAK_B_GUITOOL)" "6"
+#(LEAK_B_JSEXT)" "7"
+#(LEAK_B_JVM)" "8"
+#(LEAK_B_KERNEL)" "9"
+#(LEAK_B_MEDIA)" "10"
+#(LEAK_B_MIDP)" "11"
+#(LEAK_B_PROTOCOL)" "12"
+#(LEAK_B_PVR)" "13"
+#(LEAK_B_JVM_NATIVE)" "14"
+#(LEAK_B_DTVMX)" "15"
+#(LEAK_B_SHELL)" "16"
+
+ifeq "$(GCOV)" "true"
+CFLAGS +=$(OV_TEST_COMPILE_FLAGS)
+endif
+
+
+ifeq "$(MMCP_MEMLEAK_SUPPORT)" "y"
+CFLAGS +=-DUSE_DBG_MALLOC
+CXXFLAGS +=-DUSE_DBG_MALLOC
+
+LEAK_PWD:= $(shell pwd)
+MMCP_HOME_PATERN := $(subst /,\/,$(MMCP_HOME))
+
+
+#LEAK_B_CLASSES:=$(shell echo $(LEAK_PWD)|awk '/$(MMCP_HOME_PATERN)\/classes/{print "1"}')
+LEAK_B_CODEC:=$(shell echo $(LEAK_PWD)|   awk '/$(MMCP_HOME_PATERN)\/codec/{print "1"}')
+#LEAK_B_DTVM:=$(shell echo $(LEAK_PWD)|   awk '/$(MMCP_HOME_PATERN)\/dtvm/{print "1"}')
+LEAK_B_DTV:=$(shell echo $(LEAK_PWD)|     awk '/$(MMCP_HOME_PATERN)\/dtv/{print "1"}')
+LEAK_B_GRAPH:=$(shell echo $(LEAK_PWD)|   awk '/$(MMCP_HOME_PATERN)\/graph/{print "1"}')
+LEAK_B_GUITOOL:=$(shell echo $(LEAK_PWD)| awk '/$(MMCP_HOME_PATERN)\/guitool/{print "1"}')
+LEAK_B_JSEXT:=$(shell echo $(LEAK_PWD)|   awk '/$(MMCP_HOME_PATERN)\/jsext/{print "1"}')
+LEAK_B_JVM:=$(shell echo $(LEAK_PWD)|     awk '/$(MMCP_HOME_PATERN)\/jvm/{print "1"}')
+LEAK_B_KERNEL:=$(shell echo $(LEAK_PWD)|  awk '/$(MMCP_HOME_PATERN)\/kernel/{print "1"}')
+LEAK_B_MEDIA:=$(shell echo $(LEAK_PWD)|   awk '/$(MMCP_HOME_PATERN)\/mediaplayer/{print "1"}')
+LEAK_B_MIDP:=$(shell echo $(LEAK_PWD)|    awk '/$(MMCP_HOME_PATERN)\/midp/{print "1"}')
+LEAK_B_PROTOCOL:=$(shell echo $(LEAK_PWD)|awk '/$(MMCP_HOME_PATERN)\/protocol/{print "1"}')
+LEAK_B_PVR:=$(shell echo $(LEAK_PWD)|     awk '/$(MMCP_HOME_PATERN)\/pvr/{print "1"}')
+LEAK_B_DTVMX:=$(shell echo $(LEAK_PWD)|   awk '/$(MMCP_HOME_PATERN)\/dtvmx/{print "1"}')
+LEAK_B_SHELL:=$(shell echo $(LEAK_PWD)|   awk '/$(MMCP_HOME_PATERN)\/shell/{print "1"}')
+
+
+ifeq "$(LEAK_B_CODEC)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=2
+CXXFLAGS += -DMEMLEAK_TYPE=2
+
+else
+ifeq "$(LEAK_B_DTVMX)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=15
+CXXFLAGS += -DMEMLEAK_TYPE=15
+
+else
+ifeq "$(LEAK_B_DTV)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=4
+CXXFLAGS += -DMEMLEAK_TYPE=4
+else
+ifeq "$(LEAK_B_GRAPH)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=5
+CXXFLAGS += -DMEMLEAK_TYPE=5
+else
+ifeq "$(LEAK_B_GUITOOL)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=6
+CXXFLAGS += -DMEMLEAK_TYPE=6
+
+else
+ifeq "$(LEAK_B_JSEXT)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=7
+CXXFLAGS += -DMEMLEAK_TYPE=7
+else
+ifeq "$(LEAK_B_JVM)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=8
+CXXFLAGS += -DMEMLEAK_TYPE=8
+else
+ifeq "$(LEAK_B_KERNEL)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=9
+CXXFLAGS += -DMEMLEAK_TYPE=9
+else
+ifeq "$(LEAK_B_MEDIA)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=10
+CXXFLAGS += -DMEMLEAK_TYPE=10
+else
+ifeq "$(LEAK_B_MIDP)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=11
+CXXFLAGS += -DMEMLEAK_TYPE=11
+else
+ifeq "$(LEAK_B_PROTOCOL)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=12
+CXXFLAGS += -DMEMLEAK_TYPE=12
+else
+ifeq "$(LEAK_B_PVR)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=13
+CXXFLAGS += -DMEMLEAK_TYPE=13
+else
+ifeq "$(LEAK_B_SHELL)" "1"
+CFLAGS +=-DMEMLEAK_TYPE=16
+CXXFLAGS += -DMEMLEAK_TYPE=16
+
+endif
+endif
+endif
+endif
+endif
+endif
+endif
+endif
+endif
+endif
+endif
+endif
+endif
+
+endif  
+## MMCP_MEMLEAK_SUPPORT end 
+
+
+$(DLL_EXPORT): $(OBJECTS_C) $(OBJECTS_CXX) $(INPUTS) 
+	@echo Building $@
+	$(MMCP_SHARED_LIBRARY)
+
+$(EXPORTS_EXE): $(OBJECTS_C) $(OBJECTS_CXX) $(INPUTS) 
+	@echo Building $@
+	$(MMCP_LINK_EXECUTABLE)
+
+$(SHARED_LIB): $(OBJECTS_C) $(OBJECTS_CXX) $(INPUTS) 
+	@echo Building $@
+	$(MMCP_SHARED_LIBRARY)
+
+ifeq "$(MMCP_PLATFORM)" "win32"
+$(OBJECTS_C)   : $(OBJSPATH)/%.$(OBJSUFFIX) : %.c
+	@$(CC) -c $^ $(CFLAGS) $(CFLAGS_LOCAL)  $(INCLUDES_LOCAL) $(INCLUDES) /Fo$@
+
+$(OBJECTS_CXX) : $(OBJSPATH)/%.$(OBJSUFFIX) : %.cpp
+	@$(CXX) -c $^ $(CXXFLAGS) $(CXXFLAGS_LOCAL)  $(INCLUDES_LOCAL) $(INCLUDES) /Fo$@
+else
+ifeq "$(MMCP_PLATFORM)" "cnx301"
+$(OBJECTS_C)   : $(OBJSPATH)\\%.$(OBJSUFFIX) : %.c
+	@echo [$(notdir  $@)]
+	$(CC) -c $< $(CFLAGS) $(CFLAGS_LOCAL) $(INCLUDES_LOCAL) $(INCLUDES) -o $@
+else
+$(OBJECTS_C)   : $(OBJSPATH)/%.$(OBJSUFFIX) : %.c
+	@echo [$(notdir  $@)]
+	$(Q)$(CC) -c $< $(CFLAGS) $(CFLAGS_LOCAL) $(INCLUDES_LOCAL) $(INCLUDES) -o $@
+
+$(GCOV_OBJECTS_C)   : $(OBJSPATH)/%.$(GCOVSUFFIX): %.c
+	@echo [$(notdir  $@)]
+	$(GCOVSUFFIX) -c -l -p $^  -o $(OBJSPATH)
+	
+endif
+
+ifeq "$(MMCP_PLATFORM)" "cnx301"
+$(OBJECTS_CXX) : $(OBJSPATH)\\%.$(OBJSUFFIX) : %.cpp
+	@echo [$(notdir  $@)]
+	$(CXX) -c $^ $(CXXFLAGS) $(CXXFLAGS_LOCAL) $(INCLUDES_LOCAL) $(INCLUDES) -o $@
+else
+$(OBJECTS_CXX) : $(OBJSPATH)/%.$(OBJSUFFIX) : %.cpp
+	@echo [$(notdir  $@)]
+	$(Q)$(CXX) -c $^ $(CXXFLAGS) $(CXXFLAGS_LOCAL) $(INCLUDES_LOCAL) $(INCLUDES) -o $@
+
+$(GCOV_OBJECTS_CXX) : $(OBJSPATH)/%.$(GCOVSUFFIX): %.cpp
+	@echo [$(notdir  $@)]
+	$(GCOV)  $(GCOVFLAGS) $^  -o $(OBJSPATH)
+	
+endif
+endif
+
+endif
+
+getVersion:
+	$(MMCP_HOME)/bin/exportSvnVersion
+	
+.PHONY: menuconfig	
+menuconfig:
+	make -C $(MMCP_MENUCONFIG_DIR) menuconfig

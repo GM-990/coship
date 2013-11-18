@@ -1,0 +1,11 @@
+INCLUDES += -I. 
+INCLUDES += -I$(ARMV7ROOT)/target/usr/include
+
+$(warning "ouzhongwu: /trunk/build/st315/include.rules 01.")
+
+include $(MMCP_HOME)/build/share/CInclude.rules
+
+$(warning "ouzhongwu: /trunk/build/st315/include.rules 02.")
+
+#INCLUDES += -I$(MMCP_HOME)/include/udiplus
+INCLUDES += -I$(MMCP_HOME)/include/porting/udi2

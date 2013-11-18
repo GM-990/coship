@@ -1,0 +1,55 @@
+#ifndef _CS_SCREEN_TEST_CASE_H_
+#define _CS_SCREEN_TEST_CASE_H_
+
+#include "cs_testkit.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+CSUDI_BOOL CSTC_SCREEN_Init(void);
+CSUDI_BOOL CSTC_SCREEN_UnInit(void);
+
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_AddCallback_0001( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_AddCallback_0002( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_AddCallback_0003( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_DelCallback_0001( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_DelCallback_0002( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_DelCallback_0003( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_BeforeSetResolution_0001( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0001( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0002( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0003( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0004( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0005( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0006( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0007( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0008( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0009( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0010( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0011( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0012( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0013( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetResolution_0014( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_GetResolution_0001( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_GetResolution_0002( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_GetCapability_0001( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_GetCapability_0002( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetBrightness_0001( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetBrightness_0002( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetContrast_0001( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetContrast_0002( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetSaturation_0001( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetSaturation_0002( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetOSDTransparency_0001( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetOSDTransparency_0002( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_SetOSDTransparency_0003( void );
+CSUDI_BOOL CSTC_SCREEN_TEST_IT_0001( void );
+
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+

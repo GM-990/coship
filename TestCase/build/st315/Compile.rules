@@ -1,0 +1,31 @@
+CFG_SECTION_NAME := st315default
+
+define MMCP_LINK_EXECUTABLE
+$(LINK) -L$(LIBSPATH) \
+	-L$(MMCP_HOME)/porting/$(CHIP_PROVIDER)/$(MMCP_PLATFORM_PORTING_DIR)/config/chip \
+	-L$(MMCP_HOME)/porting/$(CHIP_PROVIDER)/$(MMCP_PLATFORM_PORTING_DIR)/config/board \
+	-L$(MMCP_HOME)/porting/$(CHIP_PROVIDER)/$(MMCP_PLATFORM_PORTING_DIR)/config/platform \
+	-Wl,--start-group \
+	$^\
+	-lpthread \
+	-lrt \
+	-Wl,--end-group \
+	-o $@ \
+	-Wl,-Map=$(EXESPATH)/main.map
+endef
+
+define MMCP_RUN_OBJECT
+ 
+$(RUN) -nw --directory $(MMCP_HOME)/porting/$(CHIP_PROVIDER)/$(MMCP_PLATFORM_PORTING_DIR)/config/platform/$(DVD_BACKEND) \
+	-x $(MMCP_HOME)/porting/$(CHIP_PROVIDER)/$(MMCP_PLATFORM_PORTING_DIR)/config/platform/$(DVD_BACKEND)/$(DVD_PLATFORM)_$(DVD_BACKEND)_start_file.cmd -ex start_exec
+##$(RUN) -t $(TARGET) -c $(CONFIG_FILE) -e $(subst _RUN,,$@) $(ST40_RUNARGS) $(DVD_RUNARGS)
+endef
+
+define MMCP_DEBUG_RUN_OBJECT
+$(DBG) -nw --directory $(MMCP_HOME)/porting/$(CHIP_PROVIDER)/$(MMCP_PLATFORM_PORTING_DIR)/config/platform/$(DVD_BACKEND) \
+	-x $(MMCP_HOME)/porting/$(CHIP_PROVIDER)/$(MMCP_PLATFORM_PORTING_DIR)/config/platform/$(DVD_BACKEND)/$(DVD_PLATFORM)_$(DVD_BACKEND)_start_file.cmd -ex start_exec_d
+endef
+
+include $(MMCP_HOME)/build/share/CCompile.rules
+
+$(OBJSPATH)/udi_init.o : $(MEM_CFG_FILES)

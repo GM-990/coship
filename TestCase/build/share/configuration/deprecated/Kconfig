@@ -1,0 +1,13 @@
+# Kconfig options for Overdue
+
+##################################################	
+config USE_GUITOOL
+	bool "MMCP USE GUITOOL"
+	default y
+	help
+		if the system use guitool,
+		please select yes ,else select no! 
+		
+##################################################
+
+			 	  		  	  			 	  				   	  				 	  				  	

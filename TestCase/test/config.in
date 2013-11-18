@@ -1,0 +1,138 @@
+[ChengDuXingWang]
+productpath = /test/main/udi_init/st7100/ChengDuXingWang
+productdespath = /test/main
+description = 
+
+[NingBoGaoQing]
+productpath = /test/main/udi_init/st7100/NingBoGaoQing
+productdespath = /test/main
+description = 
+
+[TaiWanTop]
+productpath = /test/main/udi_init/st7100/TaiWanTop
+productdespath = /test/main
+description = 
+
+[N7300]
+productpath = /test/main/udi_init/bcm7309/N7300
+productdespath = /test/main
+description = 
+
+[N8606]
+productpath = /test/main/udi_init/bcm7403/N8606
+productdespath = /test/main
+description = 
+
+[HuNan_mmcp]
+productpath = /test/main/udi_init/st5105/HuNan_mmcp
+productdespath = /test/main
+description = 
+
+[97403]
+1 = N8606
+2 = N8606E
+b = MAINMENU
+
+[st7111]
+1 = 7111demo
+b = MAINMENU 
+
+[MAINMENU]
+1 = Choose Hardware
+3 = Del Hardware
+2 = Add Hardware
+b = MAINMENU
+
+[st7100]
+1 = ChengDuXingWang
+2 = NingBoGaoQing
+3 = TaiWanTop
+b = MAINMENU
+
+[N8606E]
+productpath = /test/main/udi_init/bcm7403/N8606E
+productdespath = /test/main
+description =  
+
+[97309]
+1 = N7300
+b = MAINMENU 
+
+[linux]
+1 = x86
+b = MAINMENU
+
+[7111demo]
+productpath = /test/main/udi_init/st7111/demo
+productdespath = /test/main
+description = 
+
+[st5105]
+1 = HuNan_mmcp
+b = MAINMENU
+
+[x86]
+productpath = /test/main/udi_init/linux/x86
+productdespath = /test/main
+description = 
+
+[st5197]
+1 = 5197demo
+b = MAINMENU 
+
+[5197demo]
+productpath = /test/main/udi_init/st5197/demo
+productdespath = /test/main
+description = 
+
+[cx24501]
+1 = cx24501demo
+b = MAINMENU 
+
+[cx24501demo]
+productpath = /test/main/udi_init/cx24501/demo
+productdespath = /test/main
+description = 
+
+[SupraXD_180]
+1 = SupraXD_180demo
+b = MAINMENU 
+
+[SupraXD_180demo]
+productpath = test/main/udi_init/SupraXD_180/demo
+productdespath = /test/main
+description = 
+
+[bcm75xx]
+1 = bcm75xxdemo
+b = MAINMENU 
+
+[bcm75xxdemo]
+productpath = test/main/udi_init/bcm75xx/demo
+productdespath = /test/main
+description = 
+
+[bcm7019]
+1 = bcm7019demo
+b = MAINMENU 
+
+[bcm7019demo]
+productpath = test/main/udi_init/bcm7019/demo
+productdespath = /test/main
+description = 
+
+[pnx8473]
+1 = pnx8473demo
+b = MAINMENU 
+
+[pnx8473demo]
+productpath = test/main/udi_init/pnx8473/demo
+productdespath = /test/main
+description =
+
+[stih237_linux]
+productpath = /test/main/udi_init/stih237/demo
+productdespath = /test/main
+description = 
+
+

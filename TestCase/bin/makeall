@@ -1,0 +1,46 @@
+#!/bin/sh
+
+#
+# This script is used to make every module in it`s directory for mmcp
+#
+# @author: Li Hui (on 2010/03/04)
+#
+
+modules=(
+udiadapter
+mediaplayer
+dtv
+codec
+dtv
+graph
+protocol
+kernel
+shell
+midp
+jvm
+dtvmx
+guitool
+jsext
+#nes/
+#lwuit/
+#pvr
+#mhp
+)
+
+faillist=""
+
+for ((i=0; i<${#modules[@]}; i++)) do
+	module=${modules[$i]}
+	echo Building $module ...
+	make -C ${MMCP_HOME}/$module
+
+	if [ $? = 0 ]; then
+		echo Build Success!
+	else
+		echo Build Failed!
+		faillist="${faillist}"" "$module
+	fi
+done
+
+echo Done!Modules Failed:[ $faillist ]
+

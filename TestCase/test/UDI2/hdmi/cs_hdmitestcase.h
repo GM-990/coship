@@ -1,0 +1,43 @@
+#ifndef _CS_HDMI_TEST_CASE_H_
+#define _CS_HDMI_TEST_CASE_H_
+
+#include "cs_testkit.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+CSUDI_BOOL CSTC_HDMI_IT_Init(void);
+CSUDI_BOOL CSTC_HDMI_IT_UnInit(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIGetCount(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIGetSinkCapabilities_001(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIGetSinkCapabilities_002(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIGetSinkCapabilities_003(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMISetProperty_001(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMISetProperty_002(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMISetGetProperty_001(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIAddCallback_001(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIAddCallback_002(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIAddCallback_003(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIDelCallback_001(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIDelCallback_002(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIDelCallback_003(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIDelCallback_004(void);
+CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIGetProperty_001(void);
+//CSUDI_BOOL CSTC_HDMI_IT_CSUDIHDMIGetProperty_002(void);
+
+
+
+
+
+
+
+
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+
+

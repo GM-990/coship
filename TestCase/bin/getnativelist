@@ -1,0 +1,123 @@
+#! /bin/bash
+#
+
+Filename=NativeFuncSymbols.c
+
+
+if [ "x$1" != "x" ];then
+JavaCodePath=$1
+else
+JavaCodePath=$MMCP_HOME/integration/hmc/javacode/app
+fi
+
+if [ "x$2" != "x" ];then
+NativeLib=$2
+else
+NativeLib=$MMCP_HOME/lib/$MMCP_PLATFORM/libappnative.a
+fi
+
+if [ "x$3" != "x" ];then
+FileLocation=$3
+else
+FileLocation=$MMCP_HOME/generated
+fi
+
+
+if [ ! -d $FileLocation ]; then
+  mkdir -p $FileLocation
+fi
+
+GenerateInclude()
+{
+  header_files1=`find $JavaCodePath -name '*.h' | sed 's/^.*classes\///g' | gawk '{ printf "%s ", $$1 }'`
+  if [ "x$MMCP_PLATFORM" = "xlinux" ];then
+	 header_files2=`find $MMCP_HOME/classes/javacode -name '*.h' | sed 's/^.*javacode\///g' | gawk '{ printf "%s ", $$1 }'`
+	 if [ "x$MMCP_MIDDLEWARE" = "xdtvm" ]; then
+	    header_files3=`find $MMCP_HOME/dtvm/javacode -name '*.h' | sed 's/^.*javacode\///g' | gawk '{ printf "%s ", $$1 }'`
+	  fi
+  fi
+
+  rm -rf $FileLocation/$Filename
+  touch $FileLocation/$Filename
+
+  for h in $header_files1
+  do
+    echo "#include <$h>" >> $FileLocation/$Filename
+  done
+
+ for h in $header_files2
+  do
+ echo "#include <$h>" >> $FileLocation/$Filename
+ done
+ 
+ for h in $header_files3
+  do
+ echo "#include <$h>" >> $FileLocation/$Filename
+ done
+ 
+
+  echo '' >> $FileLocation/$Filename
+}
+
+GenerateStruct()
+{
+  echo 'struct NativeFunctionSymbols { ' >> $FileLocation/$Filename
+  echo '	char *FuncName;' >> $FileLocation/$Filename
+  if [ "x$MMCP_PLATFORM" = "xst5105" ]; then
+  echo '	void* pFunction;' >> $FileLocation/$Filename
+  else
+  echo '	void* (*Function)();' >> $FileLocation/$Filename
+  fi
+  echo '};' >> $FileLocation/$Filename
+  echo '' >> $FileLocation/$Filename
+
+  echo 'const struct NativeFunctionSymbols function_symbols[] = {' >> $FileLocation/$Filename
+}
+
+GenerateData()
+{
+  echo "in GenerateData PLATFORM=$MMCP_PLATFORM"
+if [ "x$MMCP_PLATFORM" = "xst7100" ]; then
+    $NM $NativeLib | grep  "$GREP_OPTION" | gawk '{ n=substr($3, 2);  printf "	{\"%s\", (void*)&%s},\n", n, n}' >> $FileLocation/$Filename
+elif [ "x$MMCP_PLATFORM" = "xst5105" ]; then
+    $NM -E -NT $NativeLib | grep  "$GREP_OPTION" | gawk '{ n=substr($1, 1);  printf "	{\"%s\", (void*)&%s},\n", n, n}' >> $FileLocation/$Filename
+elif [ "x$MMCP_PLATFORM" = "xlinux" ]; then
+    $NM $MMCP_HOME/lib/$MMCP_PLATFORM/libclasses.a | grep  "$GREP_OPTION" | gawk '{ n=substr($3, 1);  printf "	{\"%s\", (void*)&%s},\n", n, n}' >> $FileLocation/$Filename
+    $NM $MMCP_HOME/lib/$MMCP_PLATFORM/libdtvm.a | grep  "$GREP_OPTION" | gawk '{ n=substr($3, 1);  printf "	{\"%s\", (void*)&%s},\n", n, n}' >> $FileLocation/$Filename
+    $NM $NativeLib | grep  "$GREP_OPTION" | gawk '{ n=substr($3, 1);  printf "	{\"%s\", (void*)&%s},\n", n, n}' >> $FileLocation/$Filename
+	 
+elif [ "x$MMCP_PLATFORM" = "xbcm740x" -o "x$MMCP_PLATFORM" = "xbcm7309" -o  "x$MMCP_PLATFORM" = "xbcm7401" ]; then
+    $NM $NativeLib | grep  "$GREP_OPTION" | gawk '{ n=substr($3, 1);  printf "	{\"%s\", (void*)&%s},\n", n, n}' >> $FileLocation/$Filename
+fi
+  echo "	{0, 0}" >> $FileLocation/$Filename
+}
+
+GenerateEnd()
+{
+  echo '};' >> $FileLocation/$Filename
+}
+##if [ "x$OPTION" = "x--help" -o "x$OPTION" = "x--h" ];then
+##echo "Generate $FileLocation/$Filename with $MMCP_HOME/lib/$MMCP_PLATFORM/libappnative.a"
+##exit
+##fi
+NM=
+if [ "x$MMCP_PLATFORM" = "xlinux" ]; then
+  NM=nm
+  GREP_OPTION="T Java_"
+elif [ "x$MMCP_PLATFORM" = "xst5105" ]; then
+  NM=st20list 
+  GREP_OPTION="Java_"
+elif [ "x$MMCP_PLATFORM" = "xst7100" ]; then
+  NM=sh4nm
+  GREP_OPTION="T _Java_"
+elif [ "x$MMCP_PLATFORM" = "xbcm740x" -o  "x$MMCP_PLATFORM" = "xbcm7309" -o  "x$MMCP_PLATFORM" = "xbcm7401" ]; then
+  NM=mipsel-linux-nm 
+  GREP_OPTION="T Java_"
+fi
+
+GenerateInclude
+GenerateStruct
+GenerateData
+GenerateEnd
+
+echo "generate file OK: $FileLocation/$Filename"

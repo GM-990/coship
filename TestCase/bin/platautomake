@@ -1,0 +1,28 @@
+#!/bin/sh
+echo $MMCP_HOME
+platform="bcm740x st5105 st71xxlinux hi3716M_hisiv200"
+for plat in $platform
+do
+        cd $MMCP_HOME 
+	. bin/setupenv --ia bin/envfile_fortrunk/setenv_$plat\_release
+        
+	cd -
+	if [ "$1" == "-n" ]
+	then :
+	else
+                make  clean 
+        fi
+
+	make
+
+        if [ $? -eq 0 ]
+        then :
+        else
+                echo "compile palt $plat error"
+                exit 1
+        fi
+done
+echo "Ok you have compiled $platform success"
+echo "your env has been changed, you must setupenv again manually"
+exit 0
+

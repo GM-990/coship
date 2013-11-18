@@ -1,0 +1,54 @@
+#!/bin/sh
+
+start_script=${DVD_PLATFORM_ROOT}/${DVD_PLATFORM}/${DVD_BACKEND}/${DVD_PLATFORM}_${DVD_BACKEND}_start_script_mmcptest.cmd
+start_file=${DVD_PLATFORM_ROOT}/${DVD_PLATFORM}/${DVD_BACKEND}/${DVD_PLATFORM}_${DVD_BACKEND}_start_file_mmcptest.cmd
+
+build_start_script_connect_st40()
+{
+	echo define connect_${DVD_PLATFORM}_${DVD_BACKEND} > ${start_file}
+	echo directory ${DVD_PLATFORM_ROOT}/${DVD_PLATFORM}/${DVD_BACKEND} >> ${start_file}
+if [ -z "${DVD_ADDRESSMODE}" ] ; then
+	echo set \$DVD_ADDRESSMODE=32 >> ${start_file}
+	echo set \$seuc=1 >> ${start_file}
+fi
+	echo source ${DVD_PLATFORM}_${DVD_BACKEND}_start_script_mmcptest.cmd >> ${start_file}
+if [ -z "${DVD_ADDRESSMODE}" ]  ; then
+	echo ${DVD_PLATFORM}_tp "192.168.1.228" \",boardrev=1,se=1\" >> ${start_file}
+else
+	echo ${DVD_PLATFORM}_tp "192.168.1.228" \",boardrev=1,se=0\" >> ${start_file}
+fi
+	
+	echo end >> ${start_file}
+}
+
+build_start_script_run_main_st40()
+{
+	echo define start_${DVD_PLATFORM}_${DVD_BACKEND} >> ${start_file}
+	echo set pagination 0 >> ${start_file}
+	echo set print pretty 1 >> ${start_file}
+	echo set args ${OBJECT_NAME} >> ${start_file}
+	echo file $MmcpTestExeFile >> ${start_file}
+	echo connect_${DVD_PLATFORM}_${DVD_BACKEND} >> ${start_file}
+	echo load >> ${start_file}
+	echo console off  >> ${start_file}
+	echo continue >> ${start_file}
+	echo end >> ${start_file}
+}
+
+build_start_script_run_tp_st40()
+{
+ echo define ${DVD_PLATFORM}_tp > ${start_script}
+ echo if \( \$argc \> \1 \)  >> ${start_script} >> ${start_script}
+ echo sh4tp \$arg0:${DVD_PLATFORM}:st40,no_convertor_abort=1,\$arg1  >> ${start_script}
+ echo else >> ${start_script}
+ echo  sh4tp \$arg0:${DVD_PLATFORM}:st40,no_convertor_abort=1  >> ${start_script}
+ echo end >> ${start_script}
+ echo end >> ${start_script}
+}
+
+build_start_script_connect_st40
+build_start_script_run_main_st40
+build_start_script_run_tp_st40
+
+sh4gdb -q -nw --directory ${DVD_PLATFORM_ROOT}/${DVD_PLATFORM}/${DVD_BACKEND} -x $start_file -ex start_${DVD_PLATFORM}_${DVD_BACKEND}
+

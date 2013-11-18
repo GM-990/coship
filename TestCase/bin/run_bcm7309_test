@@ -1,0 +1,53 @@
+#!/bin/bash
+
+#################################################################
+#BCM740x自动运行脚本，可供其它类似平台可参考
+#特别注意：本文件只能在VI下编辑
+#方案：由于7309标准内核不带telnet服务，暂时用串口实现
+#################################################################
+
+echo -----------------------------------------------------
+echo Run bcm74 test...
+if [ "$MMCP_PLATFORM" != "bcm7309" ]; then
+	echo Not bcm740x platform!
+	exit 0
+fi
+
+#get ip addr of stb eth
+ips=$(/sbin/ifconfig | sed -n '/inet addr/p' | awk -F'[: ]+' '{print $4}')
+for ip in $ips
+do
+	ip_match=$(echo $ip | grep 192.168.1)
+	if [ "$ip_match" != "" ]; then
+		break;
+	fi
+done
+
+
+
+if [ "$ip_match" = "" ]; then
+	echo Can not find ip matched 192.168.1.*, exit!
+	exit 0
+fi
+
+outputfile=bcm740x_test_$(date "+%Y%m%d_%H%M").log
+inputfile=/dev/ttyS0
+
+#get exec file name
+echo Find local ip: $ip
+echo Run file: $MmcpTestExeFile
+echo out log:$outputfile
+
+stbip="192.168.1.228"
+inp1="root"
+inp2="mount -t nfs ${ip}:/home/ /home"
+inp3="insmod ${MMCP_HOME}/lib/bcm7309/bcm7309.o"
+inp4="cd ${MMCP_HOME}/test/"
+inp5="${MmcpTestExeFile} > ${outputfile}"
+
+sleep 2; echo $inp1 >> $inputfile
+sleep 2; echo $inp2 >> $inputfile  
+sleep 5; echo $inp3 >> $inputfile 
+sleep 5; echo $inp4 >> $inputfile
+sleep 2; echo $inp5 >> $inputfile
+

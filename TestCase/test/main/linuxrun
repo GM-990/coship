@@ -1,0 +1,10 @@
+#!/bin/bash
+
+BOOT_CLASSES=$MMCP_HOME/jvm/build/$PLATFORM_JAVAVM/btclasses.zip:$MMCP_HOME/classes/lib/classes.jar:$MMCP_HOME/$MMCP_MIDDLEWARE/lib/$MMCP_MIDDLEWARE.jar
+
+if [ "x$MMCP_MIDDLEWARE" != "xdtvm" ]; then
+  BOOT_CLASSES=$BOOT_CLASSES:$MMCP_HOME/gem/lib/gem.jar
+fi
+
+$MMCP_HOME/test/main/exec/linux/main.out -Duser.home=$WORK_DIR -Xbootclasspath=$MMCP_HOME/jvm/build/$PLATFORM_JAVAVM/btclasses.zip:$MMCP_HOME/classes/lib/classes.jar:$MMCP_HOME/$MMCP_MIDDLEWARE/lib/$MMCP_MIDDLEWARE.jar:$MMCP_HOME/test/dtvm/lib/testsuite.jar  -Dscreensize=720*576 org.avmsc.dtvm.test.PackageMain
+

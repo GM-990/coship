@@ -1,0 +1,15 @@
+*mb411_memory_map:
+--defsym .physrambase=0x04000000 --defsym ___ramsize=0x05000000 \
+--defsym .physrombase=0x00000000 --defsym ___romsize=0x00800000 \
+--defsym .offset_for_fw=0x00400000 \
+--defsym .region_base=0x80000000 \
+--defsym ___rambase=.region_base+.physrambase+.offset_for_fw \
+--defsym ___rombase=.region_base+.physrombase \
+--defsym _start=___rambase+0x1000 --defsym _stack=___rambase+___ramsize-4
+
+*board_link:
+%{mboard=mb411_memory_map:%(mb411_memory_map)}
+
+*lib_os21bsp_base:
+%{mboard=mb411_memory_map:mb411}
+

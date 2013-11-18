@@ -1,0 +1,157 @@
+#!/usr/bin/python
+
+#Thanks wuzhengbing!This guy bring  me into python.
+#------------------------------------------------------------------------------------
+# FileName:  portingInit
+# Copyright (c) 2008, Shen Zhen Coship Electronics CO., LTD.
+# 
+# Version:       Ver 1.0
+# Author:        wangdong (wangdong@coship.com)
+#
+# File Description:
+#            porting init  config script
+# 
+# Modify History:
+# Version     Date        Author          Description
+# --------    ----------  --------        ------------
+# 1.0         2009-2-05  wangdong     Create
+# ------------------------------------------------------------------------------------
+# DO NOT modify this file if you don't know the result. 
+# Please report bug to wangdong@coship.com,thank you!
+# ------------------------------------------------------------------------------------
+import ConfigParser, os, sys, re, logging,string,shutil,traceback
+section=None
+def getArgv():
+	for arg in sys.argv:
+		if arg=='-d':
+			doDefault()
+			sys.exit()
+#get the environ var MMCPHOME 
+def getMMCPHOME():
+	e=os.environ
+	path=e['MMCP_HOME']
+	return path
+#get a ConfigParser object which used to parse the file config.in
+def getConfigParser(cfgPath):
+	cfg = ConfigParser.ConfigParser()
+	path=getMMCPHOME()
+	cfg.read(path+'/'+cfgPath)
+	return cfg
+#shown the tip
+def showTip():
+	print '\n======================================================================='
+	print '			 Porting Init Config '
+	print 'q to exit,b to back,you can choose a menu item by enter its number'
+	print 'Please report bug to wangdong@coship.com,thank you!'
+	print '=======================================================================\n'
+#show menu str mentioned
+def showMenu(str):
+	global section
+	showTip()
+	config=getConfigParser('test/config.in')
+	section=str
+	i=len(config.items(section))-1
+	j=1
+	while j<=i: 
+		itemName=repr(j)
+		menuItem=config.get(section,itemName)
+		print itemName+" : "+ menuItem
+		j=j+1
+#get the choice of user
+def getAnswer():
+	answer=raw_input("please input your choice:")
+	return answer
+#add hardware of new project
+def addHardware():
+	print 'This fuction is not implemented in this version'	
+#del hardware of existed porject
+def delHardware():
+	print 'This fuction is not implemented in this version'	
+#copy the init code after a kind of hardware choosed
+def chooseHardware(product):
+	config=getConfigParser('test/config.in')
+	path=getMMCPHOME()
+	newPath=config.get(product,'productPath')
+	productPath=path+'/'+newPath
+	productDesPath=path+'/'+config.get(product,'productDesPath')
+	for file in os.listdir(productPath):
+		if os.path.isfile(productPath+'/'+file):
+			shutil.copyfile(productPath+'/'+file,productDesPath+'/'+file)
+			print 'copy '+productPath+'/'+file +' to '+productDesPath 
+	#the code below save the user's last choice to test/default.in
+	if not os.path.exists(path+'/test/default.in'):
+		if os.path.exists(path+'/test/main/udi_init/default.in'):
+			shutil.copyfile(path+'/test/main/udi_init/default.in',path+'/test/default.in')
+			print 'copy '+path+'/test/main/udi_init/default.in' + ' to '+ path+'/test/default.in'
+		else:
+			print 'you must svn up test/main first'
+			sys.exit()
+	cfgdef=getConfigParser('test/default.in')
+	e=os.environ
+	section=e['MMCP_PLATFORM']+'default'
+	cfgdef.set(section,'productPath',newPath)
+	cfgdef.write(open(path+'/test/default.in','w'))
+#do work after accepted the user's choice
+def doChoice(item):
+	global section
+	e=os.environ
+	if item=='Add Hardware':
+		addHardware()
+		return 1
+	elif item=='Del Hardware':
+		delHardware()
+		return 1
+	elif section==e['MMCP_PLATFORM'] and item!='MAINMENU':
+		chooseHardware(item)
+		return 1
+	else:
+	    	showMenu(item)
+	return  0
+#if you just make this fuction works
+def doDefault():
+	path=getMMCPHOME()
+	if not os.path.exists(path+'/test/default.in'):
+		if os.path.exists(path+'/test/main/udi_init/default.in'):
+			shutil.copyfile(path+'/test/main/udi_init/default.in',path+'/test/default.in')
+			print 'copy '+path+'/test/main/udi_init/default.in' + ' to '+ path+'/test/default.in'
+		else:
+			print 'you must svn up test/main first'
+			sys.exit()
+	e=os.environ
+	section=e['MMCP_PLATFORM']+'default'
+	config=getConfigParser('test/default.in')
+	print 'copy the default hardware config for '+e['MMCP_PLATFORM']
+	productPath=path+'/'+config.get(section,'productPath')
+	productDesPath=path+'/'+config.get(section,'productDesPath')
+	for file in os.listdir(productPath):
+		if os.path.isfile(productPath+'/'+file):
+			shutil.copyfile(productPath+'/'+file,productDesPath+'/'+file)
+			print 'copy '+productPath+'/'+file +' to '+productDesPath 
+# the main function, hey guys, please remember the function name can not be main,python 
+# actually don't have main like C
+def main():
+	e=os.environ
+	global section
+	getArgv()
+	showMenu('MAINMENU')
+	choice=getAnswer()
+	while choice!='q' and choice!='Q':
+		if section=='MAINMENU' and choice=='1':
+			menuItem=e['MMCP_PLATFORM']
+		else:
+			config=getConfigParser('test/config.in')
+			menuItem=config.get(section,choice)
+		isBreak=doChoice(menuItem)
+		if isBreak==1:
+			break
+		choice=getAnswer()	
+try:
+	main()
+except	ConfigParser.NoOptionError:
+	print 'your choice is not correct or your bin/config.in is not the latest version'
+except 	IOError:
+	print 'file or directory lost '
+#except	Exception:
+#   	print 'Congratulaions!You has found a hidden bug of portingInit config script ,and you can buy lottery today,but'
+#	print 'remeber to report bug to wangdong@coship.com before that,thank you && good luck!'
+#	traceback.print_exc()

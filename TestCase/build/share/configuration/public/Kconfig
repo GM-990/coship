@@ -1,0 +1,172 @@
+# Kconfig options for Public
+
+##################################################					  		
+###           select Big/Little Endian         ###
+##################################################	  	
+choice
+	prompt "Selet Big/Little Endian"
+	help
+	  Selet Big/Little Endian.
+
+config LITTLE_ENDIAN
+	bool "Little Endian Mode"
+	help
+		if the system is little endian mode,
+		please select yes ,else select no!	
+	
+config BIG_ENDIAN
+	bool "Big Endian Mode"
+	help
+		if the system is Big endian mode,
+		please select yes ,else select no!		
+endchoice
+		
+##################################################	
+config MMCP_SUPPORT_LL
+	bool "MMCP Support longlong"
+	default y
+	help
+		if the system support longlong,
+		please select yes ,else select no! 
+		
+##################################################
+
+##################################################	
+config MMCP_UDI2
+	bool "MMCP Support UDI2"
+	default n
+	help
+		if the system support udi2.0,
+		please select yes ,else select no! 
+		
+##################################################
+
+##################################################	
+config  MMCP_USE_NEW_SHELL
+	bool "MMCP use new shell interface"
+	default n
+	help
+		if you want to use new shell interface in dtvmx,
+		please select yes ,else select no! 
+		
+##################################################
+
+###################################################	  	
+config PURE_IP_PLAY
+	bool "Define PURE_IP_PLAY"
+	default n
+	help
+		if need define PURE_IP_PLAY,please select
+	  	yes,else select no!
+	  	
+###################################################	
+	  
+###################################################	  	
+config MMCP_TTS_SUPPORT
+	bool "Mediaplayer Support TTS"
+	default n
+	help
+		if Mediaplayer Support TTS,please select
+	  	yes,else select no!
+##################################################		
+ 
+###################################################	  	
+config MMCP_PVR_SUPPORT
+	bool "Mediaplayer Support PVR"
+	default n
+	help
+		if Mediaplayer Support PVR,please select
+	  	yes,else select no!
+###################################################	
+ 
+###################################################	  	
+config MMCP_PVOD_SUPPORT
+	bool "MMCP Support PVOD"
+	default n
+	help
+		if MMCP Support PVOD,please select
+	  	yes,else select no!
+###################################################	  	
+
+###################################################	  	
+config MMCP_OC_SUPPORT
+	bool "MMCP Support OC"
+	default y
+	help
+		if MMCP Support OC,please select
+	  	yes,else select no!
+###################################################
+	  	
+##################################################	  	
+config SUPPORT_NES_SIMULATOR
+	bool "Define SUPPORT_NES_SIMULATOR"
+	default n
+	help
+		if need define SUPPORT_NES_SIMULATOR,
+		please select yes,else select no!
+##################################################   
+
+##################################################	  	
+config MMCP_PUBLIC_TRIAL
+	bool "Define MMCP_PUBLIC_TRIAL"
+	default n
+	help
+		if need define MMCP_PUBLIC_TRIAL,
+		please select yes,else select no!
+##################################################   	
+
+##################################################	
+config MMCP_PUBLIC_SUPPORT_LWUIT
+	bool "MMCP Support lwuit"
+	default n
+	help
+		if the system support lwuit,
+		please select yes ,else select no! 
+		
+##################################################	
+
+###################################################	  	
+config MMCP_MEMLEAK_SUPPORT
+	bool "Debug With Memleak"
+	default n
+	help
+		if need debug with memleak,please select
+	  	yes,else select no!
+###################################################
+
+###################################################	  	
+config MMCP_BOUNDCHECK_SUPPORT
+	bool "Debug With BoundCheck"
+	default n
+	help
+		if need debug with boundcheck,please select
+	  	yes,else select no!
+###################################################
+		
+###################################################	  	
+config MMCP_3D_EFFECT_SUPPORT
+	bool "Support 3D effect"
+	default n
+	help
+		if Support 3D effect,please select
+	  	yes,else select no!
+###################################################
+
+###################################################	  	
+config MMCP_NRC_SUPPORT
+	bool "Support Nrc"
+	default n
+	help
+		if Support Nrc,please select
+	  	yes,else select no!
+###################################################		
+
+###################################################	  	
+config MMCP_QT
+	bool "Support EW600"
+	default n
+	help
+		if Support EW600,please select
+	  	yes,else select no!
+###################################################		
+			 	  		  	  			 	  				   	  				 	  				  	

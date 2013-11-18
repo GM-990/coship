@@ -1,0 +1,101 @@
+# Kconfig options for JSExt
+
+###################################################	  	
+config MMCP_JSEXT_SUPPORT_DVB
+	bool "Jsext support dvb"
+	default y
+	help
+		if jsext support dvb,please
+		select yes,else select no!
+###################################################	 	
+
+###################################################	  	
+config SUPPORT_PROJECT_TJBANK
+	bool "SUPPORT_PROJECT_TJBANK"
+	default n
+	help
+		if jsext support TJBank,please
+		select yes,else select no!
+###################################################
+
+###################################################	  	
+config MMCP_JSEXT_SUPPORT_COSHIP
+	bool "Jsext support coship"
+	default y
+	help
+		if jsext support coship,please
+		select yes,else select no!
+###################################################	
+
+###################################################	  	
+config MMCP_JSEXT_SUPPORT_ENREACH
+	bool "Jsext support enreach"
+	default n
+	help
+		if jsext support enreach,please
+		select yes,else select no!
+###################################################	
+
+###################################################	  	
+config MMCP_JSEXT_SUPPORT_VOD_DMX
+	bool "Jsext support vod dmx"
+	default n
+	help
+		if jsext support vod dmx,please
+		select yes,else select no!
+###################################################	
+
+###################################################	  	
+config MMCP_JSEXT_SUPPORT_VOD_MOTO
+	bool "Jsext support vod moto"
+	default n
+	help
+		if jsext support vod moto,please
+		select yes,else select no!
+###################################################	
+
+###################################################	  	
+config MMCP_JSEXT_SUPPORT_VOD_CITV
+	bool "Jsext support vod citv"
+	default n
+	help
+		if jsext support vod citv,please
+		select yes,else select no!
+###################################################		
+
+###################################################	  	
+config MMCP_JSEXT_SUPPORT_PROJECT_TOPWAY
+	bool "Jsext support topway"
+	default n
+	help
+		if jsext support topway,please
+		select yes,else select no!
+###################################################	
+
+###################################################	  	
+config MMCP_JSEXT_SUPPORT_PROJECT_IPTV1
+	bool "Jsext support IPTV1"
+	default n
+	help
+		if jsext support IPTV1,please
+		select yes,else select no!
+###################################################
+
+###################################################	  	
+config MMCP_JSEXT_SUPPORT_PROJECT_IPTV2
+	bool "Jsext support IPTV2"
+	default n
+	help
+		if jsext support IPTV2,please
+		select yes,else select no!
+###################################################
+
+###################################################	  	
+config MMCP_JSEXT_SUPPORT_UPNP
+	bool "Jsext support upnp"
+	default n
+	help
+		if jsext support upnp,please
+		select yes,else select no!
+###################################################		
+	  		  	  		  	  			 	  				   	  				 	  				  	

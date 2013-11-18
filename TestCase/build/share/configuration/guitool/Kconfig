@@ -1,0 +1,253 @@
+# Kconfig options for GuiTool
+
+	  	
+########################################
+#        XML module
+########################################
+config BROWSER_SUPPORT_XML
+	bool "Browser Support XML"
+	default y
+	help
+		if browser support XML,please select
+	  	yes,else select no!
+	  	
+config GT_SUPPORT_XML
+	depends BROWSER_SUPPORT_XML
+	bool "Define GT_SUPPORT_XML"
+	default y
+	help
+		if browser not support XML,the macro
+		GT_SUPPORT_XML is invalid!	  	
+
+config GT_SUPPORT_XSLT
+	depends BROWSER_SUPPORT_XML
+	bool "Define GT_SUPPORT_XSLT"
+	default y
+	help
+		if browser not support XML,the macro
+		GT_SUPPORT_XSLT is invalid!
+
+config GT_SUPPORT_XPATH
+	depends BROWSER_SUPPORT_XML
+	bool "Define GT_SUPPORT_XPATH"
+	default y
+	help
+		if browser not support XML,the macro
+		GT_SUPPORT_XPATH is invalid!
+
+########################################
+# 	OPENSSL module
+########################################	  	
+config BROWSER_SUPPORT_OPENSSL
+	bool "Browser Support OpenSSL"
+	default y
+	help
+		if browser support OpenSSL,please select
+	  	yes,else select no!
+
+config GT_SUPPORT_OPENSSL
+	depends BROWSER_SUPPORT_OPENSSL
+	bool "Define GT_SUPPORT_OPENSSL"
+	default y
+	help
+		if browser not support OpenSSL,the macro
+		GT_SUPPORT_OPENSSL is invalid!
+
+config GT_SUPPORT_SSLEAY
+	depends BROWSER_SUPPORT_OPENSSL
+	bool "Define GT_SUPPORT_SSLEAY"
+	default y
+	help
+		if browser not support OpenSSL,the macro
+		GT_SUPPORT_SSLEAY is invalid!
+
+########################################
+# 	Plugin module
+########################################	  	
+config BROWSER_SUPPORT_PLUGIN
+	bool "Browser Support Plugin"
+	default y
+	help
+		if browser support Plugin,please select
+	  	yes,else select no!
+
+config GT_SUPPORT_PLUGIN
+	depends BROWSER_SUPPORT_PLUGIN
+	bool "Define GT_SUPPORT_PLUGIN"
+	default y
+	help
+		if browser not support Plugin,the macro
+		GT_SUPPORT_PLUGIN is invalid!	
+		
+########################################
+# 	T9INPUT module
+########################################	  	
+config BROWSER_SUPPORT_T9INPUT
+	bool "Browser Support TPINPUT"
+	default y
+	help
+		if browser support TPINPUT,please select
+	  	yes,else select no!
+
+config GT_SUPPORT_T9INPUT
+	depends BROWSER_SUPPORT_T9INPUT
+	bool "Define GT_SUPPORT_T9INPUT"
+	default y
+	help
+		if browser not support TPINPUT,the macro
+		GT_SUPPORT_T9INPUT is invalid!
+
+########################################
+# 	VOLMUTEBAR module
+########################################	  	
+config BROWSER_SUPPORT_VOLMUTEBAR
+	bool "Browser Support VolMuteBar"
+	default y
+	help
+		if browser support VolMuteBar,please select
+	  	yes,else select no!
+
+config GT_SUPPORT_VOLMUTE
+	depends BROWSER_SUPPORT_VOLMUTEBAR
+	bool "Define GT_SUPPORT_VOLMUTE"
+	default y
+	help
+		if browser not support VolMuteBar,the macro
+		GT_SUPPORT_VOLMUTE is invalid!
+
+########################################
+# 	2D module
+########################################	  	
+config BROWSER_SUPPORT_EFFECT_2D
+	bool "Browser Support 2D Effect"
+	default y
+	help
+		if browser support 2D Effect,please select
+	  	yes,else select no!
+
+config GT_SUPPORT_EFFECT_2D
+	depends BROWSER_SUPPORT_EFFECT_2D
+	bool "Define GT_SUPPORT_EFFECT_2D"
+	default y
+	help
+		if browser not support 2D Effect,the macro
+		GT_SUPPORT_EFFECT_2D is invalid!
+
+########################################
+# 	GTOOL OC
+########################################	  	
+config BROWSER_SUPPORT_OC
+	bool "Browser Support OC"
+	default y
+	help
+		if browser support OC,please select
+	  	yes,else select no!
+
+########################################
+# 	GTOOL SHTEL
+########################################	  	
+config BROWSER_SUPPORT_SHTEL
+	bool "Browser Support Shtel"
+	default n
+	help
+		if browser support Shtel,please select
+	  	yes,else select no!
+
+config GT_SUPPORT_SHTEL
+	depends BROWSER_SUPPORT_SHTEL
+	bool "Define GT_SUPPORT_SHTEL"
+	default y
+	help
+		if browser not support Shtel,the macro
+		GT_SUPPORT_SHTEL is invalid!
+
+########################################
+# 	Use Hybrid Memory
+########################################		
+config usinghybridmem
+	bool "Use hybrid Memory"
+	default n
+	help
+		set y to use hybrid memory , make sure 
+		the usingtcmalloc is 'y' before  you 
+		use this option 
+
+config GT_SUPPORT_CSMALLOC
+	depends usinghybridmem
+	bool "Define GT_SUPPORT_CSMALLOC"
+	default y
+	help
+		if not use hybridmem,the macro
+		GT_SUPPORT_CSMALLOC is invalid!
+
+########################################
+# 	hybridpoolsize
+########################################
+config hybridpoolsize
+	string "Set Hybridpoolsize"
+	default "default"
+	help
+		memory pool size in hybrid memory situation, 
+		if you set the value ,please make sure the size 
+		lager than 3M ,else don't change
+
+config HYBRID_POOLSIZE
+	depends hybridpoolsize != "default"
+	string "Define HYBRID_POOLSIZE"
+	default "$(hybridpoolsize)"
+	help
+		if hybridpoolsize equal to "default",the macro
+		HYBRID_POOLSIZE is invalid
+
+########################################
+# 	maxconnectcount
+########################################
+config maxconnectcount
+	string "Set Maxconnectcount"
+	default "default"
+	help
+		max sokect connect at one time , 
+		default value is 5 
+
+config MAX_CONNECTCOUNT
+	depends maxconnectcount != "default"
+	string "Define MAX_CONNECTCOUNT"
+	default "$(maxconnectcount)"
+	help
+		if maxconnectcount equal to "default",the macro
+		MAX_CONNECTCOUNT is invalid
+		
+########################################
+# 	colorbits
+########################################
+config colorbits
+	string "Set Colorbits"
+	default "default"
+	help
+		set color bit ,you can set it to  32 or 16
+
+config COLOR_BITS
+	depends colorbits != "default"
+	string "Define COLOR_BITS"
+	default "$(colorbits)"
+	help
+		if colorbits equal to "default",the macro
+		COLOR_BITS is invalid
+
+########################################
+# 	imagemaxmemory
+########################################
+config imagemaxmemory
+	string "Set imagemaxmemory"
+	default "default"
+	help
+		set cache image MAX memeory size
+
+config IMAGEMAXMEM
+	depends imagemaxmemory != "default"
+	string "Define IMAGEMAXMEM"
+	default "$(imagemaxmemory)"
+	help
+		if imagemaxmemory equal to "default",the macro
+		IMAGEMAXMEM is invalid
+  		  			  			  	

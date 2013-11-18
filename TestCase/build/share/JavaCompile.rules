@@ -1,0 +1,89 @@
+ 
+JavaClasses := $(JAVAFILES:.java=.class) 
+JavaH := $(JAVAFILES:.java=.h)
+APP_SOURCE_PATH=/integration/$(MMCP_APP_SECTOR)/classes
+all: install
+ 
+%.class: %.java
+	@echo "$? "
+ifneq ($(shell pwd|grep -e "/integration/$(MMCP_APP_SECTOR)/javacode/"), )
+	@$(JAVAC) $(JAVACFLAGS) -deprecation -encoding EUC_CN  -source 1.3 -target 1.3 -classpath $(MMCP_APPSCLASSPATH)$(LOCAL_CLASSPATH) -bootclasspath $(MMCP_BOOTCLASSPATH) $? || exit $$?
+else
+ifneq ($(shell pwd|grep -e "/test/"), )
+	@$(JAVAC) $(JAVACFLAGS) -deprecation -encoding EUC_CN -source 1.3 -target 1.3 -classpath $(MMCP_CORECLASSPATH)$(MMCP_TESTCLASSPATH)$(LOCAL_CLASSPATH) -bootclasspath $(MMCP_BOOTCLASSPATH) $? || exit $$?
+else
+	@$(JAVAC) $(JAVACFLAGS) -deprecation -encoding EUC_CN -source 1.3 -target 1.3 -classpath $(MMCP_CORECLASSPATH)$(MMCP_TESTCLASSPATH)$(LOCAL_CLASSPATH) -bootclasspath $(MMCP_BOOTCLASSPATH) $? || exit $$?
+endif
+endif
+ 
+%.h: %.java
+	@echo "javah** $(shell pwd)/$? "
+ifneq ($(shell pwd|grep -e "/integration/$(MMCP_APP_SECTOR)/javacode/"), )
+	@$(JAVAH) -classpath $(MMCP_APPSCLASSPATH) -bootclasspath $(MMCP_BOOTCLASSPATH)$(LOCAL_CLASSPATH) -o $@ $(package_name).$* || exit $$?
+else
+ifneq ($(shell pwd|grep -e "/test/"), )
+	@$(JAVAH) -classpath $(MMCP_TESTCLASSPATH)$(MMCP_CORECLASSPATH) -bootclasspath $(MMCP_BOOTCLASSPATH)$(LOCAL_CLASSPATH) -o $@ $(package_name).$* || exit $$?
+else
+	@$(JAVAH) -classpath $(MMCP_TESTCLASSPATH)$(MMCP_CORECLASSPATH) -bootclasspath $(MMCP_BOOTCLASSPATH)$(LOCAL_CLASSPATH) -o $@ $(package_name).$* || exit $$?
+endif
+endif
+
+ifeq "$(MMCP_MAKE_H)" "y"
+share: $(JavaClasses) makejavah
+	@if [ -x ready.sh ]; then \
+		./ready.sh; \
+	fi;
+	@list="$(SUBDIRS)"; \
+	if [ "x$$list" != "x" ]; then \
+		for subdir in $$list; do \
+			$(MAKE) --no-print-directory  -C $$subdir $(OPTION) || exit $$?; \
+		done; \
+	fi;
+else
+share: $(JavaClasses) 
+	@if [ -x ready.sh ]; then \
+		./ready.sh; \
+	fi;
+	@list="$(SUBDIRS)"; \
+	if [ "x$$list" != "x" ]; then \
+		for subdir in $$list; do \
+			$(MAKE) --no-print-directory  -C $$subdir $(OPTION) || exit $$?; \
+		done; \
+	fi;
+endif
+
+
+makejavah:	$(JavaH)
+
+cleanjavah: 
+	rm -rf *.h
+ 
+install:: 
+	@export JAVACFLAGS=$(JAVACDEBUGFLAGS); \
+	export OPTION=$@; \
+	$(MAKE) --no-print-directory share
+
+debug:: 
+	@export JAVACFLAGS=$(JAVACDEBUGFLAGS); \
+	export OPTION=$@; \
+	$(MAKE) --no-print-directory share
+
+release::
+	@export JAVACFLAGS=$(JAVACRELEASEFLAGS); \
+	export OPTION=$@; \
+	$(MAKE) --no-print-directory share
+ 
+install-localh:
+install-allh:
+install-headers:
+
+
+ 
+clean:
+	rm -rf *.class
+	@list="$(SUBDIRS)"; \
+	if [ "x$$list" != "x" ]; then \
+		for subdir in $$list; do \
+			$(MAKE) --no-print-directory -C $$subdir $@ || exit $$?; \
+		done; \
+	fi;

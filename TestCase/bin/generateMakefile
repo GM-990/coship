@@ -1,0 +1,608 @@
+#!/bin/bash
+#
+# This file is used for creating Makefile
+#
+#
+#set -x
+
+BlankLine()
+{
+  echo ' ' >> Makefile
+}
+
+Getsubdirs()
+{
+  ignoreddir="bin include obj config docs test lib porting objs"
+
+  sub_dirs=
+
+  for cur in `find . -maxdepth 1 -type d | sed 's/\.\///' | egrep -v '\.'`
+  do
+    e=y
+
+    for dir in `echo $ignoreddir`
+    do
+      [ "$cur" = "$dir" ] && e=n
+    done
+
+    if [ "x$e" = "xy" ]; then
+      if [ "x$cur" = "xclasses" ]; then
+	sub_dirs=`echo $cur $sub_dirs`
+      else
+	sub_dirs=`echo $sub_dirs $cur`
+      fi
+    fi
+  done
+
+  if [ "x$1" = "x-formf" ]; then
+    export RETURNVALUE=`echo $sub_dirs`
+  else
+    export RETURNVALUE=$sub_dirs
+  fi
+
+}
+
+GenerateStartSection() 
+{
+  echo '#' > Makefile
+  echo '# Makefile is generated. '>> Makefile
+  echo '#' >> Makefile
+  echo " " >> Makefile
+  echo 'include $(MMCP_HOME)/build/share/COption.rules'>> Makefile
+  if [ "x$1" = "xkernel" -o "x$1" = "xporting" -o "x$1" = "xguitool" ]; then
+    echo 'TOPDIR = $(MMCP_HOME)/' > Makefile
+    echo "$1" >> Makefile
+    echo 'OBJSPATH = $(TOPDIR)/obj/$(MMCP_PLATFORM)' >> Makefile
+    echo 'LIBSPATH = $(TOPDIR)/lib/$(MMCP_PLATFORM)' >> Makefile
+  fi
+  BlankLine
+
+  Getsubdirs
+
+  PWD=`pwd`
+  name=`basename $PWD`
+
+  echo '# set SUBDIRS' >> Makefile
+  echo "SUBDIRS := $RETURNVALUE" >> Makefile
+}
+
+NORMAL_Subdirs()
+{
+  echo '	@list="$(SUBDIRS)"; \' >> Makefile
+  echo '	if [ "x$$list" != "x" ]; then \' >> Makefile
+  echo '		for subdir in $$list; do \' >> Makefile
+  echo '			$(MAKE) -C $$subdir $@ || exit $$?; \' >> Makefile
+  echo '		done; \' >> Makefile
+  echo '	fi;' >> Makefile
+}
+
+CLEAN_Subdirs()
+{
+
+  echo '	@list="$(SUBDIRS)"; \'  >> Makefile
+  echo '	if [ "x$$list" != "x" ]; then \' >> Makefile
+  echo '		for subdir in $$list; do \' >> Makefile
+  echo '			$(MAKE) -C $$subdir $@ || exit $$?; \' >> Makefile
+  echo '		done; \' >> Makefile
+  echo '	fi;' >> Makefile
+}
+
+CCode_Share()
+{
+  echo 'share:check-objdir $(OBJECTS_C) $(OBJECTS_CXX)' >> Makefile
+  echo '	@list="$(SUBDIRS)"; \' >> Makefile
+  echo '	if [ "x$$list" != "x" ]; then \' >> Makefile
+  echo '		for subdir in $$list; do \' >> Makefile
+  echo '			$(MAKE) -C $$subdir $(OPTION) || exit $$?; \' >> Makefile
+  echo '		done; \' >> Makefile
+  echo '	fi;' >> Makefile
+}
+
+CCode_GDB_Subdirs()
+{
+  echo '	@export FLAGS=$(GDBFLAGS); \' >> Makefile
+  echo '	export OPTION=$@; \' >> Makefile
+  echo '	$(MAKE) share' >> Makefile
+}
+
+CCode_DEBUG_Subdirs()
+{
+  echo '	@export FLAGS=$(DEBUGFLAGS); \' >> Makefile
+  echo '	export OPTION=$@; \' >> Makefile
+  echo '	$(MAKE) share' >> Makefile
+}
+
+CCode_RELEASE_Subdirs()
+{
+  echo '	@export FLAGS=$(RELEASEFLAGS); \' >> Makefile
+  echo '	export OPTION=$@; \' >> Makefile
+  echo '	$(MAKE) share' >> Makefile
+}
+
+CCode_InstallHeaders()
+{
+  c=`pwd`
+  dirname=`basename $c`
+
+  echo 'check-headerdir:' >> Makefile
+  echo '	@if [ "x$(INCDPATH)" != "x" ]; then \' >> Makefile
+  echo '	if [ ! -d $(INCDPATH) ]; then \' >> Makefile
+  echo '		mkdir -p $(INCDPATH); \' >> Makefile
+  echo '	fi; \' >> Makefile
+  echo '	fi;' >> Makefile
+  BlankLine
+  echo 'install-localh:: check-headerdir' >> Makefile
+  echo '	@if [ "x$(HEADERS)" != "x" ]; then \' >> Makefile
+  echo '		cp $(HEADERS) $(INCDPATH); \' >> Makefile
+  echo '	fi;' >> Makefile
+
+  BlankLine
+  echo 'install-allh: install-headers' >> Makefile
+  echo 'install-headers: check-headerdir install-localh' >> Makefile
+  echo '	@list="$(SUBDIRS)"; \' >> Makefile
+  echo '	if [ "x$$list" != "x" ]; then \' >> Makefile
+  echo '		for subdir in $$list; do \' >> Makefile
+  echo '			$(MAKE) -C $$subdir $@ || exit $$?; \' >> Makefile
+  echo '		done; \' >> Makefile
+  echo '	fi;' >> Makefile
+}
+
+Include_Include.rules() 
+{
+  echo 'include $(MMCP_HOME)/build/$(MMCP_PLATFORM)/Include.rules' >> Makefile
+}
+
+Include_CMakefile.defs() 
+{
+  echo 'include $(MMCP_HOME)/build/$(MMCP_PLATFORM)/Makefile.defs' >> Makefile
+}
+
+Include_Compile.rules() 
+{
+  echo '######## Include user defined make rules ###########' >> Makefile
+  echo '-include Makefile.defs.local' >> Makefile
+  echo '####################################################' >> Makefile
+  BlankLine
+
+  echo '####### Include user defined compilation rules ##########' >> Makefile
+  echo '-include Compile.rules.local' >> Makefile
+  echo '####################################################' >> Makefile
+
+    if [ "x$1" != "xNoCommonCompiling" ]; then
+      echo 'include $(MMCP_HOME)/build/$(MMCP_PLATFORM)/Compile.rules' >> Makefile
+    fi
+
+  BlankLine
+
+}
+
+GenerateEnd()
+{
+  echo '###########################' >> Makefile
+  echo "##### end of generation ###" >> Makefile 
+  echo '###########################' >> Makefile
+}
+
+
+# Generate C Makefile
+GenerateCMakefile()
+{
+  curdir=`pwd`
+  name=`basename $curdir`
+  echo "IN $curdir:		C Makefile"
+
+  GenerateStartSection
+  BlankLine
+
+  Include_CMakefile.defs
+  BlankLine
+
+  Include_Include.rules
+  echo 'CFLAGS +=' >> Makefile
+  echo 'CXXFLAGS += $(CFLAGS)' >> Makefile
+  BlankLine
+
+  if [ "x`echo $curdir/ | grep -e '/mmcp/kernel/'`" != "x" ]; then
+    echo "TOPDIR := $(MMCP_HOME)" >> Makefile
+  elif [ "x`echo $curdir/ | grep -e '/mmcp/protocol/'`" != "x" ]; then
+      echo 'TOPDIR := $(MMCP_HOME)/protocol' >> Makefile
+  elif [ "x`echo $curdir/ | grep -e '/mmcp/integration/'`" != "x" ]; then
+      echo 'TOPDIR := $(MMCP_HOME)/integration' >> Makefile
+  elif [ "x`echo $curdir/ | grep -e '/mmcp/graphics/'`" != "x" ]; then
+      echo 'TOPDIR := $(MMCP_HOME)/graphics' >> Makefile
+  elif [ "x`echo $curdir/ | grep -e '/mmcp/dtvm/'`" != "x" ]; then
+      echo 'TOPDIR := $(MMCP_HOME)/dtvm' >> Makefile
+  elif [ "x`echo $curdir/ | grep -e '/mmcp/midp/'`" != "x" ]; then
+      echo 'TOPDIR := $(MMCP_HOME)/midp' >> Makefile
+  elif [ "x`echo $curdir/ | grep -e '/mmcp/shell/'`" != "x" ]; then
+      echo 'TOPDIR := $(MMCP_HOME)/shell' >> Makefile  
+  elif [ "x`echo $curdir/ | grep -e '/classes/'`" != "x" ]; then
+      echo 'TOPDIR := $(MMCP_HOME)/classes' >> Makefile
+  elif [ "x`echo $curdir | grep -e '/mmcp/guitool'`" != "x" ]; then
+      echo 'TOPDIR := $(MMCP_HOME)/guitool' >> Makefile
+  else
+      echo "TOPDIR := $curdir">> Makefile
+  fi
+  BlankLine
+
+  subdir=`echo $curdir | gawk '{ n=match($1, "/mmcp/kernel/"); if (n!= 0) { name = substr($1, n+13); print name} }'`
+  if [ "x$subdir" = "x" ]; then
+    subdir=`echo $curdir | gawk '{ n=match($1, "/mmcp/pvr/"); if (n!= 0) { name = substr($1, n+10); print name} }'`
+  fi
+  if [ "x$subdir" = "x" ]; then
+    subdir=`echo $curdir | gawk '{ n=match($1, "/mmcp/integration/"); if (n!= 0) { name = substr($1, n+18); print name} }'`
+  fi
+  if [ "x$subdir" = "x" ]; then
+    subdir=`echo $curdir | gawk '{ n=match($1, "/mmcp/graphics/"); if (n!= 0) { name = substr($1, n+15); print name} }'`
+  fi
+  if [ "x$subdir" = "x" ]; then
+    subdir=`echo $curdir | gawk '{ n=match($1, "/mmcp/protocol/"); if (n!= 0) { name = substr($1, n+15); print name} }'`
+  fi
+  if [ "x$subdir" = "x" ]; then
+    subdir=`echo $curdir | gawk '{ n=match($1, "/mmcp/classes/"); if (n!= 0) { name = substr($1, n+14); print name} }'`
+  fi
+  if [ "x$subdir" = "x" ]; then
+    subdir=`echo $curdir | gawk '{ n=match($1, "/mmcp/dtvm/"); if (n!= 0) { name = substr($1, n+11); print name} }'`
+  fi
+  if [ "x$subdir" = "x" ]; then
+    subdir=`echo $curdir | gawk '{ n=match($1, "/mmcp/midp/"); if (n!= 0) { name = substr($1, n+11); print name} }'`
+  fi
+  if [ "x$subdir" = "x" ]; then
+    subdir=`echo $curdir | gawk '{ n=match($1, "/mmcp/shell/"); if (n!= 0) { name = substr($1, n+11); print name} }'`
+  fi
+
+  [ "x$subdir" != "x" ] && echo "subdir := /$subdir" >> Makefile
+
+  BlankLine
+
+  native_dir_name=`echo $curdir | gawk '{ n=match($1, "/native/"); if (n!= 0) { name = substr($1, n+8); print name} }' | sed -e 's/\///g'`
+  if [ "$native_dir_name" ]; then
+     libname=$native_dir_name
+  else
+     libname=$name
+     echo 'HEADERS := $(wildcard *.h)' >> Makefile
+  fi
+
+  SOURCE_TYPE=C
+  cpp_files=`find . -maxdepth 1 -name '*.cpp' | sed -e 's/\.\///g' | gawk '{ printf "%s ", $1}'`
+  if [ "x$cpp_files" != "x" ]; then
+    SOURCE_TYPE=P
+  else
+    cxx_files=`find . -maxdepth 1 -name '*.cxx' | sed -e 's/\.\///g' | gawk '{ printf "%s ", $1}'`
+    if [ "x$cxx_files" != "x" ]; then
+      SOURCE_TYPE=X
+    fi
+  fi
+
+  case "$SOURCE_TYPE" in
+    C)
+	echo 'SOURCES := $(wildcard *.c)' >> Makefile
+	;;
+    P)
+	echo 'SOURCES := $(wildcard *.cpp)' >> Makefile
+	;;
+    X)
+	echo 'SOURCES := $(wildcard *.cxx)' >> Makefile
+	;;
+  esac
+
+  echo '##OBJECTS = $(addprefix $(OBJSPATH)/, $(patsubst %$(firstword $(suffix $(SOURCES))), %.$(OBJSUFFIX), $(SOURCES)))' >> Makefile
+  echo 'DEPENDS := $(patsubst %$(firstword $(suffix $(SOURCES))), %.d, $(SOURCES))' >> Makefile
+  BlankLine
+  if [ "x`pwd | grep generated`" != "x" ]; then
+      echo "LIBNAME :=" >> Makefile
+      echo 'RESULT :=' >> Makefile
+  else
+      echo "LIBNAME := lib${libname}" >> Makefile
+      echo "MODULE_NAME := libclasses${libname} " >> Makefile
+      echo 'RESULT = $(LIBSPATH)/$(LIBNAME).$(LIBSUFFIX)' >> Makefile
+  fi
+  BlankLine
+
+  echo "LIBADD += " >> Makefile
+
+  BlankLine
+
+  Include_Compile.rules
+  BlankLine
+
+  GenerateCTargetMakefile
+  GenerateEnd
+}
+
+JavaCode_GDB_Subdirs()
+{
+  echo '	@if [ -x ready.sh  ]; then \' >> Makefile
+  echo '		./ready.sh; \' >> Makefile
+  echo '	fi;' >> Makefile
+  echo '	@list="$(SUBDIRS)"; \' >> Makefile
+  echo '	if [ "x$$list" != "x" ]; then \' >> Makefile
+  echo '		for subdir in $$list; do \' >> Makefile
+  echo '			$(MAKE) -C $$subdir -e JAVACFLAGS=$(JAVACDEBUGFLAGS) $@ || exit $$?; \' >> Makefile
+  echo '		done; \' >> Makefile
+  echo '	fi;' >> Makefile
+}
+
+JavaCode_DEBUG_Subdirs()
+{
+  echo '	@if [ -x ready.sh  ]; then \' >> Makefile
+  echo '		./ready.sh; \' >> Makefile
+  echo '	fi;' >> Makefile
+  echo '	@list="$(SUBDIRS)"; \' >> Makefile
+  echo '	if [ "x$$list" != "x" ]; then \' >> Makefile
+  echo '		for subdir in $$list; do \' >> Makefile
+  echo '			$(MAKE) -C $$subdir -e JAVACFLAGS=$(JAVACDEBUGFLAGS) $@ || exit $$?; \' >> Makefile
+  echo '		done; \' >> Makefile
+  echo '	fi;' >> Makefile
+}
+
+JavaCode_RELEASE_Subdirs()
+{
+  echo '	@if [ -x ready.sh  ]; then \' >> Makefile
+  echo '		./ready.sh; \' >> Makefile
+  echo '	fi;' >> Makefile
+  echo '	@list="$(SUBDIRS)"; \' >> Makefile
+  echo '	if [ "x$$list" != "x" ]; then \' >> Makefile
+  echo '		for subdir in $$list; do \' >> Makefile
+  echo '			$(MAKE) -C $$subdir -e JAVACFLAGS=$(JAVACRELEASEFLAGS) $@ || exit $$?; \' >> Makefile
+  echo '		done; \' >> Makefile
+  echo '	fi;' >> Makefile
+}
+
+JavaCode_InstallHeaders()
+{
+    echo 'install-localh:' >> Makefile
+    echo 'install-allh:' >> Makefile
+    echo 'install-headers:' >> Makefile
+}
+
+Include_JavaMakefile.defs()
+{
+  echo '-include Makefile.defs.local' >> Makefile
+  echo 'include $(MMCP_HOME)/build/share/JavaMakefile.defs' >> Makefile
+}
+
+Include_JavaCompile.rules()
+{
+  ## modified for MHP test suites makefiles
+  echo '-include Compile.rules.local' >> Makefile
+  echo 'include $(MMCP_HOME)/build/share/JavaCompile.rules' >> Makefile
+
+  ## modified end
+}
+
+# Generate Java Makefile
+GenerateJavaMakefile() 
+{
+  curdr=`pwd`
+  name=`basename $curdr`
+  echo "IN $curdr :		Java Makefile"
+
+  GenerateStartSection
+  BlankLine
+
+  Include_JavaMakefile.defs
+  BlankLine
+
+  package_dir=`echo $curdr | gawk '{ n=match($1, "/com/"); if (n!= 0) { name = substr($1, n+1); print name} }'`
+ 	if [ "x$package_dir" = "x" ]; then
+    package_dir=`echo $curdr | gawk '{ n=match($1, "/org/"); if (n!= 0) { name = substr($1, n+1); print name} }'`
+  fi
+  if [ "x$package_dir" = "x" ]; then
+    package_dir=`echo $curdr | gawk '{ n=match($1, "/javacode/"); if (n!= 0) { name = substr($1, n+10); print name} }'`
+  fi
+  echo "package_dir = ${package_dir}" >> Makefile
+  package_name=`echo ${package_dir} | sed -e 's/\//\./g'`
+  echo "package_name = ${package_name}" >> Makefile
+  BlankLine
+
+  echo 'JAVAFILES := $(wildcard *.java)' >> Makefile
+  BlankLine
+
+  Include_JavaCompile.rules
+  BlankLine
+
+  GenerateJavaTargetMakefile
+  GenerateEnd
+}
+
+GenerateCTargetMakefile()
+{
+  echo 'LOCAL_TARGET: install' >> Makefile 
+  BlankLine
+  CCode_Share
+  BlankLine
+  echo 'install:: ' >> Makefile && CCode_GDB_Subdirs
+  BlankLine
+  echo 'debug::' >> Makefile && CCode_DEBUG_Subdirs
+  BlankLine
+  echo 'release:: ' >> Makefile && CCode_RELEASE_Subdirs
+}
+
+GenerateCDirMakefile()
+{
+  GenerateStartSection
+  BlankLine
+
+  Include_CMakefile.defs
+  BlankLine
+
+  GenerateCTargetMakefile
+  BlankLine
+
+#
+# Do not generate Install headers and clean
+#
+  #CCode_InstallHeaders
+  #BlankLine
+
+  echo 'LOCAL_TARGET_clean:' >> Makefile
+  CLEAN_Subdirs
+  BlankLine
+
+  Include_Compile.rules ##NoCommonCompiling
+  GenerateEnd
+}
+
+GenerateJavaTargetMakefile()
+{
+
+  echo 'all: install' >> Makefile 
+  BlankLine
+  echo 'install:: share' >> Makefile && JavaCode_GDB_Subdirs
+  BlankLine
+  echo 'debug:: share' >> Makefile && JavaCode_DEBUG_Subdirs
+  BlankLine
+  echo 'release:: share' >> Makefile && JavaCode_RELEASE_Subdirs
+}
+
+GenerateJavaDirMakefile()
+{
+  GenerateStartSection
+  BlankLine
+
+  Include_JavaMakefile.defs
+  BlankLine
+#
+# Do not generate install headers and clean
+#
+
+  echo 'all: install' >> Makefile 
+  BlankLine
+  echo 'install:' >> Makefile && JavaCode_GDB_Subdirs
+  BlankLine
+  echo 'debug:' >> Makefile && JavaCode_DEBUG_Subdirs
+  BlankLine
+  echo 'release:' >> Makefile && JavaCode_RELEASE_Subdirs
+  BlankLine
+  JavaCode_InstallHeaders
+  BlankLine
+  echo 'clean:' >> Makefile
+  CLEAN_Subdirs
+  BlankLine
+
+  Include_Compile.rules NoCommonCompiling
+
+  GenerateEnd
+}
+
+
+GenerateMakefile() 
+{
+  curdrs=`pwd`
+  name=`basename $curdrs`
+
+  Getsubdirs -formf
+  subdirs_list="$RETURNVALUE"
+
+  if [ "`find . -maxdepth 1 -name '*.java' `" ]; then
+    if [ "x$UPDATE" = "xY" ]; then
+      rm -rf Makefile
+      GenerateJavaMakefile
+    elif [ -f Makefile ]; then 
+      echo "Skip $curdrs"
+    else
+      GenerateJavaMakefile
+    fi
+  elif [ "`find . -maxdepth 1 -name '*.c' `" -o "`find . -maxdepth 1 -name '*.cxx' `" -o "`find . -maxdepth 1 -name '*.cpp' `" ]; then
+    if [ "x$UPDATE" = "xY" ]; then
+      rm -rf Makefile
+      GenerateCMakefile
+    elif [ -f Makefile ]; then 
+      echo "Skip $curdrs"
+    else
+      GenerateCMakefile
+    fi
+  else
+    if [ "x$UPDATE" != "xY" -a -f Makefile ]; then
+      echo "Skip $curdrs"
+    else
+      rm -rf Makefile
+
+      if [ "`find . -name '*.c'`" -o "`find . -name '*.cxx'`" -o "`find . -name '*.cpp'`" ]; then
+        echo "IN $curdrs :		C Makefile"
+
+	GenerateCDirMakefile
+
+      elif [ "`find . -name '*.java'`" ]; then
+        echo "IN $curdrs :		Java Makefile"
+
+	GenerateJavaDirMakefile
+
+      else
+        echo "IN $curdrs :		C Makefile"
+
+	GenerateCDirMakefile
+
+      fi
+    fi
+  fi
+
+  if [ "x$SUBDIR" = "xY" ]; then
+    for f in $subdirs_list; do
+      if [ -d $f ]; then
+        cd $f
+        GenerateMakefile
+        cd ..
+      fi
+    done
+  else
+    return 0
+  fi
+}
+
+ShowUsage()
+{
+  echo "$0 [ -s | -u | -U | -h ]" 
+  echo "   default	only generate local Makefile"
+  echo "	-s	generate local and its subdirs' Makefiles"
+  echo "	-u	update loacl Makefile"
+  echo "	-U	update all of Makefiles in current directory, including subdirs"
+  echo "	-h	show help"
+
+  exit 0
+}
+
+##################
+# Main Functions #
+##################
+LegalDirs="kernel integration graphics protocol test dtvm mhp gem classes midp shell"
+PWDDIR=`pwd`
+ok=0
+for pos in `echo $LegalDirs`
+do
+  ok=`echo $PWDDIR $pos | gawk '{n=match($1, $2); print n}'`
+  [ $ok -ne 0 ] && break
+done
+if [ $ok -eq 0 ]; then
+  echo "The tool does not fit the directory, it can be only"
+  echo "used in several directories, such as $LegalDirs"
+  exit 1
+fi
+
+
+SUBDIR=N
+UPDATE=N
+
+O=
+while ( [ "x$O" != "x?" ] )
+do
+  OPTARG=Z
+  getopts "suUh" O
+  if [ "x$O" = "xs" ]; then
+    SUBDIR=Y
+  elif [ "x$O" = "xu" ]; then
+    UPDATE=Y
+  elif [ "x$O" = "xU" ]; then
+    SUBDIR=Y
+    UPDATE=Y
+  elif [ "x$O" = "xh" ]; then
+    ShowUsage
+    exit 1
+  elif [ "x$O" = "x?" -a "x$OPTARG" == "xZ" ]; then
+    echo "Generating..."
+  fi
+done
+
+
+GenerateMakefile

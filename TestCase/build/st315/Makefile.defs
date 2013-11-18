@@ -1,0 +1,50 @@
+CC  := $(ARMV7ROOT)/bin/armv7-linux-gcc
+CXX := $(ARMV7ROOT)/bin/armv7-linux-gcc
+AR  := $(ARMV7ROOT)/bin/armv7-linux-ar
+LD  := $(ARMV7ROOT)/bin/armv7-linux-gcc
+DB  := $(ARMV7ROOT)/bin/armv7-linux-gdb
+LINK:= $(ARMV7ROOT)/bin/armv7-linux-g++
+RUN := $(ARMV7ROOT)/bin/armv7-linux-gdb
+DBG := $(ARMV7ROOT)/bin/armv7-linux-gdb
+RANLIB := $(ARMV7ROOT)/bin/armv7-linux-ranlib 
+
+$(warning "ouzhongwu: /trunk/build/st315/makefile.defs 01.")
+
+
+MMCP_MENUCONFIG_DIR  ?= $(MMCP_HOME)/build/share/configuration/
+include $(MMCP_MENUCONFIG_DIR)$(MMCP_MENUCONFIG_FILE)
+
+$(warning "ouzhongwu: /trunk/build/st315/makefile.defs 02.")
+
+CFLAGS  += -Wall -Wno-write-strings  -fno-exceptions -Wno-cast-qual -DPLATFORM=\"platform_st315\" -DPLATFORM_armv7_LINUX -DST_$(DVD_BACKEND) -DMMCP_SUPPORT_FS 
+#-DMMCP_SUPPORT_LL
+CFLAGS  +=  -DUSE_GUITOOL -DMMCP_UDI2
+CFLAGS  += -Wno-strict-aliasing
+CFLAGS  += -fno-strict-aliasing
+
+ifeq "$(MMCP_COMPILING_MODE)" "release"
+  CFLAGS += -O2
+else
+ifeq "$(MMCP_COMPILING_MODE)" "stepbystep"
+  CFLAGS += -O0 -g
+else
+  CFLAGS += -O2
+endif
+endif
+
+CXXFLAGS := $(CFLAGS)
+ARFLAGS  := -rc
+LDFLAGS  :=
+
+OBJSUFFIX:=o
+LIBSUFFIX:=a
+EXESUFFIX:=out
+IDBSUFFIX:=idb
+LIBPREFIX :=lib
+
+INCLUDE_PREFIX := -I
+LIBRARY_PREFIX := -L
+
+include $(MMCP_HOME)/build/share/CMakefile.defs
+$(warning "ouzhongwu: /trunk/build/st315/makefile.defs 03.")
+

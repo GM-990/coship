@@ -1,0 +1,59 @@
+#include "cs_testkit.h"
+#include "cs_eepromtestentry.h"
+
+//#include "sub/cs_subtestentry.h" ///下级测试用例的目录
+
+#include "cs_eepromtestcase.h"
+
+/*begin change*/
+//static CSTestInit_S s_sTestInit = {NULL, NULL};
+static CSTestInit_S s_sTestInit = {CSTC_EEPROM_Init, CSTC_EEPROM_UnInit};
+static CSTestCase_S s_asTestCase[] = 
+{
+	//{CS_TK_AUTOCASE(CSTC_EEPROM_MT_0001)},
+	//CS_TK_AUTOCASE,测试过程无需干预
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRGetInfo_0001)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRGetInfo_0002)},
+
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWrite_0001)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWrite_0002)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWrite_0003)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWrite_0004)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWrite_0005)},
+	
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRRead_0001)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRRead_0002)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRRead_0003)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRRead_0004)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRRead_0005)},
+	
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0001)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0002)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0003)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0004)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0005)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0006)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0007)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0008)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0009)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0010)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0011)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0012)},
+	{CS_TK_AUTOCASE(CSTC_EEPROM_IT_EPRWriteRead_0013)},
+	//{CS_TK_MANUALCASE(CSTC_EEPROM_MT_0002)},
+	//CS_TK_MANUALCASE，测试过程需与测试者交互
+	CS_TK_ENDCASE //测试用例结束标记，必须要有，且在最后一个
+};
+
+
+static CSTestGetObj_F s_afnTestGetObj[]= 
+{
+	CSEEPROMTESTGetObj,	//对应自己，必须是第一个，必须要有
+	//CSSUBTESTGetObj,	//下级测试用例目录入口，可以没有
+
+};
+/*end change*/
+
+CS_TEST_BUILD_FRAME_CODE(EEPROM)
+/*end don't change*/
+

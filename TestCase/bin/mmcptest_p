@@ -1,0 +1,140 @@
+#!/bin/sh
+#yezhenhong 904305
+
+echo in mmcptest_p parameter 1 is "$1";
+echo in mmcptest_p parameter 2 is "$2";
+echo in mmcptest_p parameter 3 is "$3";
+
+ipvalue=$2
+ip_split=(${ipvalue//./ })
+ipmatch=${ip_split[0]}.${ip_split[1]}.${ip_split[2]}
+
+testmodel="$3";
+mmcpPath=$4
+
+echo test modules: $testmodel ;
+#----------携带参数判断，不能为空-----
+if [ "$1" = "" ]; then
+	showusage
+	exit 0
+fi
+showusage()
+{
+	echo "usage......"
+	echo "  [mmcptest -a],svn up,make clean,make & run 'mmcp/trunk/test' automaticly."
+	echo "  [mmcptest -cm],make & run in current dir manually."
+	echo "  [mmcptest -ca],make & run in current dir automaticly."
+	echo "  [mmcptest -c],make in current dir automaticly."
+	echo "  [mmcptest -r],just run in current dir with test menu."
+	echo "  [mmcptest -d],debug run in current dir with test menu."
+}
+compileModule()
+{
+       cd ${mmcpPath}/test;
+       rm ${mmcpPath}/test/exe_file.tmp -Rf;
+       rm ${mmcpPath}/test/testdata/testReport_$MMCP_PLATFORM.txt -Rf;
+       for tmdl in $testmodel
+          do
+               cd ${mmcpPath}/test/$tmdl;
+               echo ${mmcpPath}/test/$tmdl 
+               make clean;
+	             make;
+	             report_cmd="mv ${mmcpPath}/test/testdata/testReport_$MMCP_PLATFORM.txt ${mmcpPath}/test/testdata/testReport_${MMCP_PLATFORM}_$(date "+%Y%m%d_%H%M")_$tmdl.txt ; "
+	             if [ -f ${mmcpPath}/test/$tmdl/exe_file.tmp ]; then
+                    sed "s/$/; /" ${mmcpPath}/test/$tmdl/exe_file.tmp >>${mmcpPath}/test/exe_file.tmp;
+                    echo ${report_cmd} >>${mmcpPath}/test/exe_file.tmp;
+               fi
+          done 
+       echo "pwd;" >>${mmcpPath}/test/exe_file.tmp
+       echo "mkdir modelEndTmp;" >>${mmcpPath}/test/exe_file.tmp
+      cd ${mmcpPath}/test
+     
+      
+      export MmcpTestExeFile=$(cat exe_file.tmp)
+}
+
+export MmcpTestExeFile=""
+#--------------参数 1==-u ，则更新module，编译自动测试版本---------------
+if [ "$1" = "-u" ]; then
+        export AUTO_RUN_TEST=1;
+	cd ${mmcpPath};
+	svn up build;
+	svn up test;
+	compileModule;
+        export AUTO_RUN_TEST=0;
+fi
+#--------------参数 1==-um ，则更新module，编译手动测试版本---------------
+if [ "$1" = "-um" ]; then
+	cd ${mmcpPath};
+	svn up build;
+	svn up test;
+	compileModule;
+        export AUTO_RUN_TEST=0;
+fi
+#--------------参数 1==-c ，则编译自动测试版本---------------
+if [ "$1" = "-c" ]; then      
+	export AUTO_RUN_TEST=1;
+	compileModule;
+	export AUTO_RUN_TEST=0;
+fi
+#--------------参数 1==-c ，则编译自动测试版本---------------
+if [ "$1" = "-cm" ]; then
+	export AUTO_RUN_TEST=0;
+	compileModule;
+fi
+#--------------参数 1==-r ，执行自动测试---------------
+if [ "$1" = "-r" ]; then
+        cd ${mmcpPath}/test
+	export MmcpTestExeFile=$(cat exe_file.tmp)
+fi
+	
+#--------------开始自动测试---------------
+if [ "$MmcpTestExeFile" = "" ]; then
+      echo MmcpTestExeFile is null!!!!!!
+      exit 0
+fi
+
+echo Run $MmcpTestExeFile
+
+if [ "$MMCP_PLATFORM" = "linux" ]; then
+     $MmcpTestExeFile
+     exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "bcm740x" ]; then
+     run_bcm740x_test_p ${ipmatch} $2 ${mmcpPath}
+     exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st5105" ]; then
+     run_st5105_test $1 $2
+     exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st5107" ]; then
+     run_st5107_test $1 $2
+     exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st7100" ]; then
+     run_st7100_test $1
+     exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st7111" ] ; then
+     run_st7100_test $1
+     exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st5197" ] ; then
+     run_st5197_test $1
+     exit 0
+fi
+
+if [ "$MMCP_PLATFORM" = "st5206" ] ; then
+     run_st7100_test $1
+     exit 0
+fi
+
+
+echo Cannot support this platform:-(

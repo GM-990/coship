@@ -1,0 +1,23 @@
+
+ifeq "$(MMCP_ENVIRONMENT)" "linux"
+	PWD := pwd
+	CP  := cp
+	MV  := mv -f
+	RM  := rm -rf
+	MKDIR:= mkdir -p
+	RMDIR:= rm -rf
+	BAD_SLASH:=$(strip \)
+	GOOD_SLASH:=/
+else
+	ifeq "$(MMCP_ENVIRONMENT)" "windows"
+		PWD := cd
+		CP  := copy
+		MV  := move /Y
+		RM  := -del /Q /F
+		MKDIR:= mkdir 
+		RMDIR:= -rmdir /Q /S
+		BAD_SLASH:=/
+		GOOD_SLASH:=$(strip \)
+	endif
+endif
+

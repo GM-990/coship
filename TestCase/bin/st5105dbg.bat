@@ -1,0 +1,1 @@
+%ST20ROOT%/bin/st20dev -g -l %MMCP_HOME%/porting/st/st5105/config/board -l %MMCP_HOME%/porting/st/st5105/config/chip -l %MMCP_HOME%/porting/st/st5105/config/platform -i mb400.cfg -t coship %MMCP_HOME%/integration/hmc/exec/st5105/main.lku

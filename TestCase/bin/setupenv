@@ -1,0 +1,1763 @@
+#!/bin/sh
+
+###################
+#                 #
+#  Sub Functions  #
+#                 #
+###################
+showusage()
+{
+  echo "Usage : "
+  echo "setupenv [ -op | -p PLATFORM | -s middleware ]"
+  echo "       -p PLATFORM        ; Set environmeat variable for specified PLATFORM, default is linux"
+  echo "       -s [dtvm|mhp|ocap] ; Specify MIDDLEWARE standard, default is dtvm"
+  echo "       -op                ; Use new ST20 Compiler (2.1.2)"
+  echo "       --im  [filename]           ; interactive mode,save input to filename,filename is optional"
+  echo "       --ia  (filename)        ;  autiomatic input mode,read input from filename,filename is neccessary"
+  nopara=yes
+}
+
+start_interactive_mode()
+{
+  export MMCP_HOME=$PWD
+  export MMCP_NETWORK=TRUE
+  export MMCP_USENW=yes
+  export MMCP_HAS_NETWORK=-DMMCP_SUPPORT_IP
+  
+  echo "Please select the target execution PLATFORM"
+  echo " 1)linux 2)st5516 3)st5105 4)st710x 5)bcm7309 6)bcm740x 7)windows 8)st71xx 9)bcm7401 10)st5197 11)ali3329 12)hi3110E 13)st5107 14)ali3602 15)bcm7406 16)bcm7002 17)cx24501 18)ZoranSupraXD-180 19)st5167 20)st71xxlinux 21)bcm75xx 22)bcm7019 23)skyworth_bcm7003 24)huawei_bcm7405 25)bcm7468 26)st5206 27)skyworth_yinhe_st5197 28)yinhe_st7105_linux 29)changhong_bcm7405 30)huawei_bcm7019 31)hi3716H 32)pnx8473 33)skyworth_bcm7019 34)MSD7C51L 35)hi3716M 36)bcm7231 37)mtk8652 38)hi3716M_hisiv200 39)htv900d 40)st71xxos21 41)hi3110E_tianbai 42)tcb_bcm7405 43)changhong_bcm7405 44)hi3716C 45)hi3716M_tianbai 46)jiangsu_skyworth_st7101 47)MSD7812 48)hi3110E_sfp 49)ali_m3701e 50)ali_m3202c 51)Android_Hi3716C 52)MSD7817 53)MSD7817_LINUX 54)hi3110E_v200 55)wuhan_kingvon_bcm7019 56)ali3603 57)hi3716M_hisiv200_A10 58)ali_3281 59)stih207_linux 60)ali_m3701c 61)hi3716x 62)stih237_os21 63)mstar_7c51c 64)mtk5480i 65)stih237_linux 66)Hi3716C_V200 67)st315"
+  read -p " Enter your anwser (default: linux) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  fi
+  select_platform
+
+  if [ "x$SET_SUCCESS" = "xtrue" ]; then
+      select_debugrelease_mode
+  fi
+
+  select_filesystem
+  
+  select_cfgfile_support
+  
+  if [ "$NEED_SELECT_CFGFILE" = "true" ]; then
+      select_config_file
+  else
+      export MMCP_MENUCONFIG_FILE="def.config"
+  fi
+
+  ##select_ca 取消ca选择，每个平台必须编译所有ca
+}
+
+select_jar_link_mode()
+{
+  echo "Please select the link mode of dtvmx.jar:"
+  echo "0)Linked to javavm(Be static linked to libjavavm.a,for release to all hmc project)"
+  echo "1)No linkage to javavm(Not be linked to libjavavm.a,for easy to debug in local develepment)"
+  read -p " Enter your anwser (default: Linked to javavm) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  fi
+
+  if [ "-x$INPUT" = "-x1" ];then
+  	MMCP_LINK_CLASSES_TO_JVM=false
+  else
+  	MMCP_LINK_CLASSES_TO_JVM=true
+  fi
+  
+}
+
+
+select_st40_compiler()
+{
+
+	if [ "-x$1" = "-x" ]; then
+  echo "Please select your compiler"
+  echo "1)ST40R4.0.2   2)ST40R3.1.1 3)ST40R4.2.1 4)ST40R4.3.1 5)ST40R4.4.0 6)ST40R5.1.0"
+  read -p "Enter your anwser (default: ST40R4.0.2) => " INPUT_1
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT_1">>$input_catch_file
+  fi
+  case "$INPUT_1" in 
+    1)
+	ST40TOOLS=/opt/STM/ST40R4.0.2
+    ;;
+    2)
+	ST40TOOLS=/opt/STM/ST40R3.1.1
+    ;;
+    3)
+	ST40TOOLS=/opt/STM/ST40R4.2.1
+    ;;
+    4)
+	ST40TOOLS=/opt/STM/ST40R4.3.1
+    ;;
+    5)
+	ST40TOOLS=/opt/STM/ST40R4.4.0
+    ;;
+	6)
+	ST40TOOLS=/opt/STM/ST40R5.1.0
+	;;
+    *)
+	ST40TOOLS=/opt/STM/ST40R4.0.2
+    ;;
+    esac
+    
+    else
+		if [ "-x$1" = "-x1" ]; then
+			ST40TOOLS=/opt/STM/ST40R4
+		fi
+		if [ "-x$1" = "-x2" ]; then
+			ST40TOOLS=/opt/STM/ST40R3.1.1
+		fi
+		if [ "-x$1" = "-x3" ]; then
+			ST40TOOLS=/opt/STM/ST40R4.2.1
+		fi
+		if [ "-x$1" = "-x4" ]; then
+			ST40TOOLS=/opt/STM/ST40R4.3.1
+		fi
+		if [ "-x$1" = "-x5" ]; then
+			ST40TOOLS=/opt/STM/ST40R4.4.0
+		fi
+		if [ "-x$1" = "-x6" ]; then
+			ST40TOOLS=/opt/STM/ST40R5.1.0
+		fi
+	fi
+	ST40ROOT=$ST40TOOLS
+	export ST40ROOT
+	export STROOT=$ST40ROOT
+	##echo "ST40ROOT = $ST40ROOT"
+	##echo "STROOT = $STROOT"
+}
+
+select_7309compiler_and_build_mode()
+{
+  echo "select toolchain?"
+  echo "1)uclibc-crosstools_linux-2.4.25_gcc-3.3.5_uclibc-20050308-20050502(old,for platform and driver code)"
+  echo "2)uclibc-crosstools_gcc-3.4.6_uclibc-0.9.28-linux-2.4.x(new,for mmcp project)"
+  read -p "Enter your anwser (default: old,for platform and driver code) => " INPUT_0
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT_0">>$input_catch_file
+  fi
+  case "$INPUT_0" in 
+    1)
+	export BCMROOT=/opt/toolchains/uclibc-crosstools_linux-2.4.25_gcc-3.3.5_uclibc-20050308-20050502
+    ;;
+    2)
+	export BCMROOT=/opt/toolchains/uclibc-crosstools_gcc-3.4.6_uclibc-0.9.28-linux-2.4.x
+    ;;
+    *)
+	export BCMROOT=/opt/toolchains/uclibc-crosstools_linux-2.4.25_gcc-3.3.5_uclibc-20050308-20050502
+    ;;
+    esac
+
+  cat $MMCP_HOME/porting/bcm/bcm7309/baseenv.sh > $MMCP_HOME/porting/bcm/bcm7309/setenv.sh
+  echo "build bcm7309.o in kernel?"
+  echo "1)no   2)yes"
+  read -p "Enter your anwser (default: no) => " INPUT_1
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT_1">>$input_catch_file
+  fi
+  case "$INPUT_1" in 
+    1)
+	echo "export DRIVER_NESTED=n" >> $MMCP_HOME/porting/bcm/bcm7309/setenv.sh
+    ;;
+    2)
+	echo "export DRIVER_NESTED=y" >> $MMCP_HOME/porting/bcm/bcm7309/setenv.sh
+    ;;
+    *)
+	echo "export DRIVER_NESTED=n" >> $MMCP_HOME/porting/bcm/bcm7309/setenv.sh
+    ;;
+    esac
+    	echo "echo DRIVER_NESTED=\${DRIVER_NESTED}" >> $MMCP_HOME/porting/bcm/bcm7309/setenv.sh
+}
+
+select_740xcompiler_and_build_mode()
+{
+  echo "select toolchain?"
+  echo "1)crosstools_sf-linux-2.6.12.0_gcc-3.4.6-20_uclibc-0.9.28-20050817-20070131(old,for project not base mmcp)"
+  echo "2)crosstools_sf-linux-2.6.12.0_gcc-3.4.6-21_uclibc-0.9.28-20050817-20070607-sf(new,support softfloat,for mmcp project)"
+  read -p "Enter your anwser (default: old,for project not base mmcp) => " INPUT_0
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT_0">>$input_catch_file
+  fi
+  case "$INPUT_0" in 
+    1)
+  export BCMROOT=/opt/toolchains/crosstools_sf-linux-2.6.12.0_gcc-3.4.6-20_uclibc-0.9.28-20050817-20070131
+    ;;
+    2)
+	export BCMROOT=/opt/toolchains/crosstools_sf-linux-2.6.12.0_gcc-3.4.6-21_uclibc-0.9.28-20050817-20070607-sf
+	export SOFT_FLOAT_SUPPORT="true"
+    ;;
+    *)
+	export BCMROOT=/opt/toolchains/crosstools_sf-linux-2.6.12.0_gcc-3.4.6-20_uclibc-0.9.28-20050817-20070131
+    ;;
+    esac
+}
+
+select_75xxcompiler_and_build_mode()
+{
+  echo "select toolchain?"
+  echo "1)crosstools_hf-linux-2.6.18.0_gcc-4.2-10ts_uclibc-nptl-0.9.29-20070423_20080721_for_7405(old toolchain)"
+  echo "2)crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508(new,6.5 phrase toolchain)"
+  echo "3)PN00115-05.36-2B-MIPSSW-LSDE-v5.03.06(toolchain for booter)"
+  echo "4)stbgcc-4.4.3-1.1"
+  
+  read -p "Enter your anwser (default: old,for project not base mmcp) => " INPUT_0
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT_0">>$input_catch_file
+  fi
+  
+  case "$INPUT_0" in 
+    1)
+    export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-10ts_uclibc-nptl-0.9.29-20070423_20080721_for_7405
+    ;;
+    2)
+    export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508
+    ;;
+    3)
+    export BCMROOT=/opt/SDE/5.03.06/
+	export TOOLCHAIN=CYGWIN_SDE5
+    ;;
+    4)
+    export BCMROOT=/opt/toolchains/stbgcc-4.4.3-1.1
+    ;;
+    *)
+    export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508
+    ;;
+    esac
+}
+
+select_hi3716Hcompiler_and_build_mode()
+{
+	export HISIROOT=/opt/hisi-linux/x86-arm/arm-hisiv200-linux/bin;
+	export HISIROOT=/opt/hisi-linux/x86-arm/arm-hisiv200-linux/target/bin/:$HISIROOT
+}
+
+select_hi3716Mcompiler_and_build_mode()
+{
+	export HISIROOT=/opt/hisi-linux/x86-arm/gcc-3.4.3-csl-uClibc-0.9.30-softvfp/bin;
+	export HISI_TOOLCHCAIN=arm-vfp_uclibc-linux-gnu
+	#uboot and kernel need arm-hisiv200-linux toolchains
+	export PATH=/opt/hisi-linux/x86-arm/arm-hisiv200-linux/target/bin:$PATH;
+
+}
+
+select_hi3716M_hisiv200_compiler_and_build_mode()
+{
+	export HISIROOT=/opt/hisi-linux/x86-arm/arm-hisiv200-linux/target/bin;
+	export HISI_TOOLCHCAIN=arm-hisiv200-linux
+}
+
+select_hi3716x_compiler_and_build_mode()
+{
+
+	echo "select PLATFORM"
+
+	echo "1)HISI3716M"
+	echo "2)HISI3716H"
+	echo "3)HISI3716C"
+	echo "4)HISI3716M_MCE"
+	read -p "Enter your anwser (default: HISI3716M) => " INPUT_0
+	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT_0">>$input_catch_file
+	fi
+	case "$INPUT_0" in
+	1)
+	MMCP_PLATFORM=hi3716M_SDK0A1
+	unset CSENV_MCE_SUPPORT
+	;;
+	2)
+	MMCP_PLATFORM=hi3716H_SDK0A1
+	unset CSENV_MCE_SUPPORT
+	;;
+	3)
+	MMCP_PLATFORM=hi3716C_SDK0A1
+	unset CSENV_MCE_SUPPORT
+	;;
+	4)
+	MMCP_PLATFORM=hi3716M_SDK0A1
+	export CSENV_MCE_SUPPORT=true
+	;;
+	*)
+	#MMCP_PLATFORM_BRANCH
+	MMCP_PLATFORM=hi3716M_SDK0A1
+	unset CSENV_MCE_SUPPORT
+	;;
+	esac
+
+	#MMCP_PLATFORM=hi3716x
+
+	export HISIROOT=/opt/hisi-linux/x86-arm/arm-hisiv200-linux/target/bin;
+	export HISI_TOOLCHCAIN=arm-hisiv200-linux
+}
+
+select_android_Hi3716C_V200_compiler_and_build_mode()
+{
+	export android_tool_dir=/opt/android_4.2
+	export android_gcc_dir=${android_tool_dir}/gcc/linux-x86/arm/arm-linux-androideabi-4.6/bin
+	export android_ndk_dir=${android_tool_dir}/ndk/platforms/android-14/arch-arm/usr
+	export android_cxx_dir=${android_tool_dir}/ndk/sources/cxx-stl
+	export PATH=${android_gcc_dir}:/opt/apache-ant-1.7.1/bin:${android_ndk_dir}/lib/$PATH;
+	export MMCP_LIB_NODEBUG=1
+}
+
+select_hi3716Ccompiler_and_build_mode()
+{
+	export HISIROOT=/opt/hisi-linux/x86-arm/arm-hisiv200-linux/bin;
+	export HISIROOT=/opt/hisi-linux/x86-arm/arm-hisiv200-linux/target/bin/:$HISIROOT
+}
+
+select_hi3110E_v200_compiler_and_build_mode()
+{
+	export HISIROOT=/opt/hisi-linux/x86-arm/gcc-3.4.3-csl-uClibc-0.9.30-softvfp/bin;
+}
+
+select_android_hi3716Ccompiler_and_build_mode()
+{
+	export android_ndk_dir=/opt/android-ndk-r4-crystax
+	export android_ndk_bin=${android_ndk_dir}/build/prebuilt/linux-x86/arm-eabi-4.4.0/bin
+	export android_ndk_hi3716c=${android_ndk_dir}/build/platforms/android-8/arch-arm/usr
+	export PATH=${android_ndk_bin}:/opt/apache-ant-1.7.1/bin:$PATH;
+	export MMCP_LIB_NODEBUG=1
+}
+
+select_7401_menuconfig()
+{
+  echo "Please select sd or hd platform"
+  echo " 1)sd 2)hd"
+  read -p " Enter your anwser (default: sd) => " INPUT
+  
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  fi
+
+  case "$INPUT" in
+	1|sd)
+	MMCP_DISPLAY_OPTION=sd
+	cd $MMCP_HOME/porting/bcm/$MMCP_PLATFORM/apps/basicapp/
+	rm -f defconfig
+	cp defconfig.sd defconfig
+	rm -f .config*
+	cd $MMCP_HOME/
+	;;
+	2|hd)
+	MMCP_DISPLAY_OPTION=hd
+	cd $MMCP_HOME/porting/bcm/$MMCP_PLATFORM/apps/basicapp/
+	rm -f defconfig
+	cp defconfig.hd defconfig
+	rm -f .config*
+	cd $MMCP_HOME/
+	;;
+	*)
+	MMCP_DISPLAY_OPTION=sd
+	cd $MMCP_HOME/porting/bcm/$MMCP_PLATFORM/apps/basicapp/
+	rm -f defconfig
+	cp defconfig.sd defconfig
+	rm -f .config*
+	cd $MMCP_HOME/
+	;;
+  esac
+  
+}
+
+select_7406compiler_and_build_mode()
+{
+  echo "select toolchain"
+  echo "1)crosstools_hf-linux-2.6.18.0_gcc-4.2-10ts_uclibc-nptl-0.9.29-20070423_20080721_for_7405(BCM SDK 4.0)"
+  echo "2)crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508(BCM SDK 6.5)"
+  read -p "Enter your anwser (default: BCM SDK 4.0) => " INPUT_0
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT_0">>$input_catch_file
+  fi
+  case "$INPUT_0" in 
+    1)
+  export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-10ts_uclibc-nptl-0.9.29-20070423_20080721_for_7405
+    ;;
+    2)
+	export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508
+    ;;
+    *)
+	export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-10ts_uclibc-nptl-0.9.29-20070423_20080721_for_7405
+    ;;
+    esac
+}
+
+select_7468_menuconfig()
+{
+  echo "Platform support hd ?"
+  echo " 1)yes 2)no"
+  read -p " Enter your anwser (default: no) => " INPUT
+  
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  fi
+
+  case "$INPUT" in
+	1|yes)
+	MMCP_PLATFORM_SUPPORT_HD=y
+	;;
+	2|no)
+	MMCP_PLATFORM_SUPPORT_HD=n
+	;;
+	*)
+	MMCP_PLATFORM_SUPPORT_HD=n
+	;;
+  esac
+  
+  export MMCP_PLATFORM_SUPPORT_HD
+#--------------------------------------#  
+  echo "BCM SDK Version ?"
+  echo " 1)phase2.0 2)phase3.0 3)phase4.0"
+  read -p " Enter your anwser (default: phase4.0) => " INPUT
+  
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  fi
+
+  case "$INPUT" in
+	1|phase2.0)
+	BCM_SDK_VERSION=phase2.0
+	export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508
+	;;
+	2|phase3.0)
+	BCM_SDK_VERSION=phase3.0
+	export BCMROOT=/opt/toolchains/crosstools-linux-2.6.31_stbgcc-4.4.3-1.1-20100618
+	;;
+	3|phase4.0)
+	BCM_SDK_VERSION=phase4.0
+	export BCMROOT=/opt/toolchains/crosstools-linux-2.6.31_stbgcc-4.4.5-2.0-20110121
+	;;
+	*)
+	BCM_SDK_VERSION=phase4.0
+	export BCMROOT=/opt/toolchains/crosstools-linux-2.6.31_stbgcc-4.4.5-2.0-20110121
+	;;
+  esac
+  
+  export BCM_SDK_VERSION
+
+}
+
+select_mtk_menuconfig()
+{
+	export PATH=:/usr/local/mtk-toolchain/gnuarm-4.4.1/cross-tools/usr/local/bin:/usr/local/mtk-toolchain/gnuarm-4.4.1/cross-tools/arm11/bin:/usr/local/mtk-toolchain/gnuarm-4.4.1/image-tools:$PATH
+	export LD_LIBRARY_PATH=:/mtktools/mtk-toolchain/gnuarm-4.4.1/cross-tools/arm11/i686-pc-linux-gnu/armv6fl-mtk-linux-gnueabi/lib
+}
+
+select_7019compiler_and_build_mode()
+{
+  echo "select toolchain"
+  echo "1)crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508(BCM SDK Phase2.1)"
+  echo "2)stbgcc-4.4.3-1.0(BCM SDK Phase3.0)"
+  echo "3)PN00115-05.36-2B-MIPSSW-LSDE-v5.03.06(toolchain for booter)"
+  read -p "Enter your anwser (default: stbgcc-4.4.3-1.0) => " INPUT_0
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT_0">>$input_catch_file
+  fi
+  case "$INPUT_0" in 
+    1)
+  export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508
+    ;;
+    2)
+	export BCMROOT=/opt/toolchains/stbgcc-4.4.3-1.0
+    ;;
+    3)
+    	export BCMROOT=/opt/SDE/5.03.06/
+	export TOOLCHAIN=CYGWIN_SDE5
+	
+    ;;
+    *)
+	export BCMROOT=/opt/toolchains/stbgcc-4.4.3-1.0
+    ;;
+    esac
+}
+
+select_7231compiler_and_build_mode()
+{
+  echo "select toolchain"
+  echo "1)crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508(BCM SDK Phase2.1)"
+  echo "2)stbgcc-4.4.5-2.0(BCM SDK Phase0.5)"
+  echo "3)PN00115-05.36-2B-MIPSSW-LSDE-v5.03.06(toolchain for booter)"
+  read -p "Enter your anwser (default: stbgcc-4.4.5-2.0) => " INPUT_0
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT_0">>$input_catch_file
+  fi
+  case "$INPUT_0" in 
+    1)
+  export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508
+    ;;
+    2)
+	export BCMROOT=/opt/toolchains/stbgcc-4.4.5-2.0
+    ;;
+    3)
+    	export BCMROOT=/opt/toolchains/PN00115-05.36-2B-MIPSSW-LSDE-v5.03.06
+	export TOOLCHAIN=CYGWIN_SDE5
+	
+    ;;
+    *)
+	export BCMROOT=/opt/toolchains/stbgcc-4.4.5-2.0
+    ;;
+    esac
+}
+
+select_platform()
+{
+  case "$INPUT" in
+    1|linux)    
+      MMCP_PLATFORM=linux
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=i686
+      MMCP_ARCH=
+      CHIP_PROVIDER=
+	  select_jar_link_mode
+      ;;
+
+    2|st5516)
+      MMCP_PLATFORM=st5516
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=os20
+      PLATFORM_CPU=c2
+      MMCP_ARCH=st20
+      CHIP_PROVIDER=st
+      export ST20ROOT=/opt/STM/ST20R2.2.1
+      export STROOT=/opt/STM/ST20R2.2.1
+      export OSPLUS_TOOL1=/opt/STM/ST20-osplusR2.1.2 
+      ;;
+
+    3|st5105)
+      MMCP_PLATFORM=st5105
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=os20
+      PLATFORM_CPU=c1
+      MMCP_ARCH=st20
+      CHIP_PROVIDER=st
+      export ST20ROOT=/opt/STM/ST20R2.2.1
+      export STROOT=/opt/STM/ST20R2.2.1
+      export OSPLUS_TOOL1=/opt/STM/ST20-osplusR2.1.2
+      select_jar_link_mode
+      ;;
+
+    4|st7100)
+      MMCP_PLATFORM=st7100
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=os21
+      PLATFORM_CPU=c2
+      CPU=c2
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st      
+      ##export ST40ROOT=/opt/STM/ST40R4.0.2
+      ##export OSPLUSROOT=/opt/STM/ST40-osplusR2.1.2 ##should select in porting layer
+	select_st40_compiler
+      ;;
+
+    5|bcm7309)
+      MMCP_PLATFORM=bcm7309
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_7309compiler_and_build_mode
+	  select_jar_link_mode
+      ;;
+      
+    6|bcm740x)
+      MMCP_PLATFORM=bcm740x
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_740xcompiler_and_build_mode
+      select_jar_link_mode
+      ;;
+      
+    7|windows)
+      ;;
+    
+    8|st7111)
+      MMCP_PLATFORM=st7111
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=os21
+      PLATFORM_CPU=st40
+      CPU=st40
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st      
+      ##export ST40ROOT=/opt/STM/ST40R4.0.2
+      ##export OSPLUSROOT=/opt/STM/ST40-osplusR2.1.2 ##should select in porting layer
+	select_st40_compiler
+      ;;
+      
+    9|bcm7401)
+      MMCP_PLATFORM=bcm7401
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_7401_menuconfig
+      export BCMROOT=/opt/toolchains/crosstools_sf-linux-2.6.12.0_gcc-3.4.6-21_uclibc-0.9.28-20050817-20070607_mmcp
+	  cd $MMCP_HOME/porting/bcm/$MMCP_PLATFORM/extralibs/
+	  ln -sf BCM97401SRC_7.1/ BCM97401SRC
+	  cd $MMCP_HOME/porting/bcm/$MMCP_PLATFORM/OS/linux/
+	  ln -sf stblinux_4.2/ stblinux
+	  cd $MMCP_HOME/
+      ;;
+      
+     10|st5197)
+      MMCP_PLATFORM=st5197
+      MMCP_PLATFORM_PORTING_DIR=st7111
+      OS=os21
+      PLATFORM_CPU=st40
+      CPU=st40
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st      
+      ##export ST40ROOT=/opt/STM/ST40R4.0.2
+      ##export OSPLUSROOT=/opt/STM/ST40-osplusR2.1.2 ##should select in porting layer
+	  ##select_st40_compiler 4
+	  select_st40_compiler
+	  select_jar_link_mode
+	    ;;
+     
+     11|ali3329)
+      MMCP_PLATFORM=ali3329
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=alios
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=ali
+      export ALIROOT=/cygdrive/c/Ali_SDK/cygwin     
+	;;
+     
+     12|hi3110E)
+      MMCP_PLATFORM=hi3110E
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      export HISIROOT=/opt/hisi-linux/x86-arm/gcc-3.4.3-csl-uClibc-0.9.30-softvfp/bin
+      select_jar_link_mode
+      ;;
+
+     13|st5107)
+      MMCP_PLATFORM=st5107
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=os20
+      PLATFORM_CPU=c1
+      MMCP_ARCH=st20
+      CHIP_PROVIDER=st
+      export ST20ROOT=/opt/STM/ST20R2.2.1
+      export STROOT=/opt/STM/ST20R2.2.1
+      export OSPLUS_TOOL1=/opt/STM/ST20-osplusR2.1.2
+      ;;
+      
+     14|ali3602)
+      MMCP_PLATFORM=ali3602
+      OS=alios
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=ali
+      export ALIROOT=/cygdrive/c/Ali_3602/cygwin
+      ;;
+      
+      15|bcm7406)
+      MMCP_PLATFORM=bcm7406
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_7406compiler_and_build_mode
+      #export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-10ts_uclibc-nptl-0.9.29-20070423_20080721_for_7405
+      select_jar_link_mode
+      ;;
+      
+      16|bcm7002)
+      MMCP_PLATFORM=bcm7002
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      export BCMROOT=/opt/toolchains/bcm7002/uclibc-crosstools_linux-2.6.12.0_gcc-3.4.2_uclibc-0.9.28-20060113
+      ;;
+
+      17|cx24501)
+      MMCP_PLATFORM=cx24501
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=nxp
+      export CNXT_GNU_TOOLCHAIN_ROOT=/opt/nxp/tools-stb_toolchain_1.0-arm11
+      select_jar_link_mode
+      ;;
+      
+      18|ZoranSupraXD-180)
+      MMCP_PLATFORM=SupraXD_180
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsisa32
+      MMCP_ARCH=
+      CHIP_PROVIDER=zoran
+      export ZORANROOT=/opt/timesys/toolchains/mipsisa32-linux
+      select_jar_link_mode
+      ;;
+      
+     19|st5167)
+      MMCP_PLATFORM=st5167
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=os20
+      PLATFORM_CPU=c1
+      MMCP_ARCH=st20
+      CHIP_PROVIDER=st
+      export ST20ROOT=/opt/STM/ST20R2.2.1
+      export STROOT=/opt/STM/ST20R2.2.1
+      export OSPLUS_TOOL1=/opt/STM/ST20-osplusR2.1.2
+      ;;
+      
+     20|st71xxlinux)
+      MMCP_PLATFORM=st71xxlinux
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=st40
+      CPU=st40
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st      
+	  select_jar_link_mode
+	  export ST40ROOT=/opt/STM/STLinux-2.3/devkit/sh4
+	  export STROOT=$ST40ROOT			
+      ;;
+
+      21|bcm75xx)
+      MMCP_PLATFORM=bcm75xx
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_75xxcompiler_and_build_mode      
+      ;;
+      
+      22|bcm7019)
+      MMCP_PLATFORM=bcm7019
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_7019compiler_and_build_mode 
+      ;;
+      
+      23|skyworth_bcm7003)
+      MMCP_PLATFORM=skyworth_bcm7003
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      export BCMROOT=/opt/toolchains/crosstools_sf-linux-2.6.18.0_gcc-4.2-10ts_uclibc-nptl-0.9.29-20070423_20080721
+      ;;
+      
+      24|huawei_bcm7405)
+      MMCP_PLATFORM=huawei_bcm7405
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_7406compiler_and_build_mode
+      #export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508
+      ;;
+      
+      25|bcm7468)
+      MMCP_PLATFORM=bcm7468
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_7468_menuconfig
+      ;;
+
+      26|st5206)
+      MMCP_PLATFORM=st5206
+      MMCP_PLATFORM_PORTING_DIR=st7111
+      OS=os21
+      PLATFORM_CPU=st40
+      CPU=st40
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st
+      ##export ST40ROOT=/opt/STM/ST40R4.0.2
+      ##export OSPLUSROOT=/opt/STM/ST40-osplusR2.1.2 ##should select in porting layer
+      select_st40_compiler 6
+	    ;;
+	    
+      27|skyworth_yinhe_st5197)
+      MMCP_PLATFORM=skyworth_yinhe_st5197
+      MMCP_PLATFORM_PORTING_DIR=st7111
+      OS=os21
+      PLATFORM_CPU=st40
+      CPU=st40
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st      
+      ##export ST40ROOT=/opt/STM/ST40R4.0.2
+      ##export OSPLUSROOT=/opt/STM/ST40-osplusR2.1.2 ##should select in porting layer
+			select_st40_compiler 4
+			select_jar_link_mode
+	    ;;
+	    28|yinhe_st7105_linux)
+      MMCP_PLATFORM=yinhe_st7105_linux
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=st40
+      CPU=st40
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st      
+			export ST40ROOT=/opt/STM/STLinux-2.3/devkit/sh4/
+			export STROOT=$ST40ROOT
+			select_jar_link_mode
+      ;;
+      
+      29|changhong_bcm7405)
+      MMCP_PLATFORM=changhong_bcm7405
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_7406compiler_and_build_mode
+      #export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508
+      ;;
+      
+      30|huawei_bcm7019)
+      MMCP_PLATFORM=huawei_bcm7019
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      export BCMROOT=/opt/toolchains/stbgcc-4.4.3-1.3
+      ;;
+      
+      31|hi3716H)
+      MMCP_PLATFORM=hi3716H
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      select_hi3716Hcompiler_and_build_mode      
+      ;;
+      
+      32|pnx8473)
+      MMCP_PLATFORM=pnx8473
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=nxp
+      export PNX8473_TOOLCHAIN=/opt/nxp/pnx8473/gnu_cortex-a9_tools/usr
+      ;;
+      
+      33|skyworth_bcm7019)
+      MMCP_PLATFORM=skyworth_bcm7019
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      export BCMROOT=/opt/toolchains/stbgcc-4.4.3-1.0
+      ;;
+      34|MSD7C51L)
+      MMCP_PLATFORM=MSD7C51L
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=mstar
+      export MSDROOT=/opt/toolchains/mips-4.3
+      select_jar_link_mode
+      
+      ;;
+      
+      35|hi3716M)
+      MMCP_PLATFORM=hi3716M
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      select_hi3716Mcompiler_and_build_mode      
+      ;;
+      
+      36|bcm7231)
+      MMCP_PLATFORM=bcm7231
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_7231compiler_and_build_mode 
+      ;;
+      
+      37|mtk8652)
+      MMCP_PLATFORM=mtk8652
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=mtk
+      select_mtk_menuconfig
+      ;;
+      
+      38|hi3716M_hisiv200)
+      MMCP_PLATFORM=hi3716M_hisiv200
+      MMCP_PLATFORM_PORTING_DIR=hi3716M
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      select_hi3716M_hisiv200_compiler_and_build_mode      
+      ;;
+      
+      39|htv900d)
+      MMCP_PLATFORM=htv900d
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=htv900d
+      export CYGWINROOT=/cygdrive/c/MSDE   
+	;;
+      40|st71xxos21)
+      MMCP_PLATFORM=st71xxos21
+      MMCP_PLATFORM_PORTING_DIR=st71xxlinux
+      OS=os21
+      PLATFORM_CPU=st40
+      CPU=st40
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st      
+	  select_jar_link_mode
+	  export ST40ROOT=/opt/STM/ST40R4.4.0
+	  export STROOT=$ST40ROOT			
+      ;;
+      
+      41|hi3110E_tianbai)
+      MMCP_PLATFORM=hi3110E_tianbai
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      export HISIROOT=/opt/hisi-linux/x86-arm/gcc-3.4.3-uClibc-0.9.28/bin
+      export HISIROOT=/opt/hisi-linux/x86-arm/gcc-3.4.3-uClibc-0.9.28/usr/bin:$HISIROOT
+      ;;
+      
+      42|tcb_bcm7405)
+      MMCP_PLATFORM=tcb_bcm7405
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_7406compiler_and_build_mode
+      #export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508
+      ;;
+      
+      43|changhong_bcm7405)
+      MMCP_PLATFORM=changhong_bcm7405
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_7406compiler_and_build_mode
+      #export BCMROOT=/opt/toolchains/crosstools_hf-linux-2.6.18.0_gcc-4.2-11ts_uclibc-nptl-0.9.29-20070423_20090508
+      ;;
+      
+      44|hi3716C)
+      MMCP_PLATFORM=hi3716C
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      select_hi3716Ccompiler_and_build_mode      
+      ;;
+      
+      45|hi3716M_tianbai)
+      MMCP_PLATFORM=hi3716M_tianbai
+      MMCP_PLATFORM_PORTING_DIR=hi3716M
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      select_hi3716M_hisiv200_compiler_and_build_mode      
+      ;;
+
+      46|jiangsu_skyworth_st7101)
+      MMCP_PLATFORM=jiangsu_skyworth_st7101
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=os21
+      PLATFORM_CPU=c2
+      CPU=c2
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st      
+      ##export ST40ROOT=/opt/STM/ST40R4.0.2
+      ##export OSPLUSROOT=/opt/STM/ST40-osplusR2.1.2 ##should select in porting layer
+	select_st40_compiler
+      ;;
+
+      47|MSD7812)
+      MMCP_PLATFORM=MSD7812
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=ecos
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=mstar
+      export MSDROOT=/opt/toolchains/mipsisa32-elf-3.4.4
+      select_jar_link_mode
+      ;;
+
+     48|hi3110E_sfp)
+      MMCP_PLATFORM=hi3110E_sfp
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      export HISIROOT=/opt/hisi-linux/x86-arm/gcc-3.4.3-uClibc-0.9.28/usr/bin
+      select_jar_link_mode
+      ;;
+      
+      49|ali_m3701e)
+      MMCP_PLATFORM=ali_m3701e
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=alios
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=ali
+      export ALIROOT==/cygdrive/d/ALi_IDE_2.1/cygwin 
+      ;;
+      
+      50|ali_m3202c)
+      MMCP_PLATFORM=ali_m3202c
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=alios
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=ali
+      export ALIROOT==/cygdrive/d/ALi_IDE_2.1/cygwin 
+      ;;
+      
+      51|Android_Hi3716C)
+      MMCP_PLATFORM=Android_Hi3716C
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      select_android_hi3716Ccompiler_and_build_mode
+      select_jar_link_mode
+      select_memleak_support
+      ;;
+      
+      52|MSD7817)
+      MMCP_PLATFORM=MSD7817
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=mstar
+      MMCP_PLATFORM_PORTING_DIR=MSD7817   
+      OS=ecos
+      export MSDROOT=/opt/toolchains/mipsisa32-elf-3.4.4         
+      select_jar_link_mode
+      ;;
+      
+      53|MSD7817_LINUX)
+      MMCP_PLATFORM=MSD7817_LINUX     
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=mstar
+      MMCP_PLATFORM_PORTING_DIR=MSD7817 
+      OS=linux
+      export MSDROOT=/opt/toolchains/mips-4.3      
+      select_jar_link_mode
+      ;;
+      
+      54|hi3110E_v200)
+      MMCP_PLATFORM=hi3110E_v200
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      select_hi3110E_v200_compiler_and_build_mode
+      ;;
+
+      55|wuhan_kingvon_bcm7019)
+      MMCP_PLATFORM=kingvon_bcm7019
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      export BCMROOT=/opt/toolchains/stbgcc-4.4.3-1.0
+      ;;
+      
+      56|ali_3603)
+      MMCP_PLATFORM=ali_3603
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=alios
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=ali
+      export ALIROOT=/opt/toolchains/mips-4.3-for-ali
+      ;;      
+      
+      57|hi3716M_hisiv200_A10)
+      MMCP_PLATFORM=hi3716M_hisiv200_A10
+      MMCP_PLATFORM_PORTING_DIR=hi3716M
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      select_hi3716M_hisiv200_compiler_and_build_mode      
+      ;;
+      
+      58|ali_3281)
+      MMCP_PLATFORM=ali_3281
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=alios
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=ali
+      export ALIROOT=/opt/toolchains/mips-4.3-for-ali
+      ;;      
+	  
+	  59|stih207_linux)
+      MMCP_PLATFORM=stih207_linux
+      MMCP_PLATFORM_PORTING_DIR=st71xxlinux
+      OS=linux
+      PLATFORM_CPU=st40
+      CPU=st40
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st      
+	  select_jar_link_mode
+	  export ST40ROOT=/opt/STM/STLinux-2.4/devkit/sh4
+	  export STROOT=$ST40ROOT			
+      ;;
+
+      60|ali_m3701c)
+      MMCP_PLATFORM=ali_m3701c
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=ali
+      export ALIROOT=/opt/toolchains/mips-4.4
+      ;;
+      61|hi3716x)
+      MMCP_PLATFORM_PORTING_DIR=hi3716x
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      select_hi3716x_compiler_and_build_mode
+      ;;
+      62|stih237_os21)
+      MMCP_PLATFORM=stih237_os21
+      MMCP_PLATFORM_PORTING_DIR=stih2xx
+      OS=os21
+      PLATFORM_CPU=st40
+      CPU=st40
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st
+      export ST40ROOT=/opt/STM/ST40R5.1.0
+      export STROOT=$ST40ROOT	  
+      ;;
+      63|mstar_7c51c)
+      MMCP_PLATFORM=mstar_7c51c
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=mips
+      MMCP_ARCH=
+      CHIP_PROVIDER=mstar
+      export MSTARROOT=/opt/mips-4.3-51-for-mstar
+      ;;
+            
+      64|mtk5480i)
+      MMCP_PLATFORM=mtk5480i
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=mtk
+			export PATH=:/opt/mtk/vfp_4.5.1_2.6.27_arm11-rhel4/i686/bin:$PATH
+			export LD_LIBRARY_PATH=:/opt/mtk/vfp_4.5.1_2.6.27_arm11-rhel4/i686/armv7a-mediatek-linux-gnueabi/lib
+
+      ;;
+      65|stih237_linux)
+      MMCP_PLATFORM=stih237_linux
+      MMCP_PLATFORM_PORTING_DIR=stih2xx
+      OS=linux
+      PLATFORM_CPU=st40
+      CPU=st40
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st
+      export ST40ROOT=/opt/STM/STLinux-2.4/devkit/sh4
+      export STROOT=$ST40ROOT	  
+      ;;
+	  
+      66|Hi3716C_V200)
+      MMCP_PLATFORM=Hi3716C_V200
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=arm
+      MMCP_ARCH=
+      CHIP_PROVIDER=hisi
+      select_android_Hi3716C_V200_compiler_and_build_mode
+      select_jar_link_mode
+      select_memleak_support
+      ;;
+	  
+     67|st315)
+      MMCP_PLATFORM=st315
+      MMCP_PLATFORM_PORTING_DIR=$MMCP_PLATFORM
+      OS=linux
+      PLATFORM_CPU=armv7
+      CPU=armv7
+      MMCP_ARCH=armv7
+      CHIP_PROVIDER=st      
+	  select_jar_link_mode
+	  export ARMV7ROOT=/opt/STM/STLinux-2.4/devkit/armv7
+	  export STROOT=$ARMV7ROOT			
+      ;;
+
+     *)
+      if [ "x$INPUT" = "x" ]; then
+	MMCP_PLATFORM=linux
+       OS=linux
+       PLATFORM_CPU=i686
+	MMCP_ARCH=
+	CHIP_PROVIDER=
+      else
+        echo "Error: unknown PLATFORM-$INPUT"
+        SET_SUCCESS=false
+      fi
+      ;;      
+  esac
+}
+
+
+select_debugrelease_mode()
+{
+  echo "Please select debug mode:"
+  echo " 1)release[release without log] 2)print[O2,release with log] 3)debug[O0, -g with log]"
+  read -p " Enter your anwser (default: step trace mode) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT">>$input_catch_file
+  fi
+  case "$INPUT" in
+    1)
+      MMCP_COMPILING_MODE=release
+      ;;
+    2)
+      MMCP_COMPILING_MODE=debug
+      ;;
+    3)
+      MMCP_COMPILING_MODE=stepbystep
+      ;;
+    *)
+      MMCP_COMPILING_MODE=stepbystep
+      ;;
+   esac
+}
+
+select_middleware_package()
+{
+  echo "Please select a Middleware Package"
+  echo " 1)dtvm 2)mhp 3)ocap 4)none"
+  read -p " Enter your anwser (default: dtvm) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT">>$input_catch_file
+  fi
+  case "$INPUT" in
+    1)
+      MMCP_MIDDLEWARE=dtvm
+      ;;
+    2)
+      MMCP_MIDDLEWARE=mhp
+      ;;
+     2)
+      MMCP_MIDDLEWARE=ocap
+      ;;
+     *)
+      MMCP_MIDDLEWARE=dtvm
+      ;;
+   esac
+}
+
+select_filesystem()
+{
+  echo "Would u like to select filesystem in details? "
+  echo "$MMCP_NO_THEN_YES_OPTIONS"
+  read -p " Enter your anwser (default: no) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT">>$input_catch_file
+  fi
+  if [ "x$INPUT" = "x2" ]; then
+  
+      MODULE_MMCP_KERNEL_CFS=TRUE
+      
+      echo "filesystem selection - support jffs? $MMCP_YES_THEN_NO_OPTIONS"  
+      read -p " Enter your anwser (default: yes) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT">>$input_catch_file
+  fi
+      if [ "x$INPUT" = "x1" ]; then
+      	   MODULE_MMCP_KERNEL_CFS_JFFS=TRUE
+      fi
+  
+      echo "filesystem selection - support e2fs? $MMCP_YES_THEN_NO_OPTIONS"  
+      read -p " Enter your anwser (default: yes) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT">>$input_catch_file
+  fi
+      if [ "x$INPUT" = "x1" ]; then
+      	   MODULE_MMCP_KERNEL_CFS_E2FS=TRUE
+      fi
+
+      echo "filesystem selection - support fat? $MMCP_YES_THEN_NO_OPTIONS"  
+      read -p " Enter your anwser (default: yes) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT">>$input_catch_file
+  fi
+      if [ "x$INPUT" = "x1" ]; then
+      	   MODULE_MMCP_KERNEL_CFS_FAT=TRUE
+      fi
+
+      echo "filesystem selection - support rom? $MMCP_YES_THEN_NO_OPTIONS"  
+      read -p " Enter your anwser (default: yes) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT">>$input_catch_file
+  fi
+      if [ "x$INPUT" = "x1" ]; then
+      	   MODULE_MMCP_KERNEL_CFS_ROM=TRUE
+      fi
+      
+      echo "filesystem selection - support oc? $MMCP_YES_THEN_NO_OPTIONS"  
+      read -p " Enter your anwser (default: yes) => " INPUT
+	  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+		  echo "$INPUT">>$input_catch_file
+	  fi
+      if [ "x$INPUT" = "x1" ]; then
+      	   MODULE_MMCP_KERNEL_CFS_OC=TRUE
+      fi
+
+      echo "filesystem selection - support usb? $MMCP_YES_THEN_NO_OPTIONS"  
+      read -p " Enter your anwser (default: yes) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+	  echo "$INPUT">>$input_catch_file
+  fi
+      if [ "x$INPUT" = "x1" ]; then
+      	   MODULE_MMCP_KERNEL_CFS_USB=TRUE
+      fi
+  fi
+}
+
+select_ca()
+{
+  echo "Please select a CA"
+  echo " 0)0(FTA) 1)1(Irdeto) 2)2(Tongfang) 3)3(NDS) 4)4(DVT)"
+  read -p " Enter your anwser (default: FTA) => " INPUT
+   if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  fi
+ case "$INPUT" in
+	1)
+	MMCP_CATYPE=1
+	;;
+	2)
+	MMCP_CATYPE=2
+	;;
+	3)
+	MMCP_CATYPE=3
+	;;
+	4)
+	MMCP_CATYPE=4
+	;;
+	*)
+	MMCP_CATYPE=0
+	;;
+   esac
+}
+
+##############################
+##  for select config file  ##
+##############################
+select_config_file()
+{
+  PS3='Please select the config file =>'
+  configfiles=$(ls -rt $MMCP_HOME/build/share/configuration | grep "\.config$")
+  select configfile in $configfiles
+  do
+	if [ "$USE_AUTOMAKE" = true ]; then
+		export MMCP_MENUCONFIG_FILE="$REPLY"  
+	else
+		###support input config file name, $REPLY is the user input, 
+		###we will check whether it is file from configeration
+		if [ "$configfile" = "" ]; then
+			got_correct_input=false
+			configfile_input=$REPLY
+			for configfile_tmp in $configfiles; do		
+				###user input filename is in the configfiles list
+				if [ "-x$configfile_tmp" = "-x$configfile_input" ] ;then					
+					got_correct_input=true
+					break
+				fi
+			done
+			
+			if [ "$got_correct_input" = false ]; then
+				echo "input filename: [$configfile_input]"
+				echo "Sorry,your choice is uncorrect!"
+				echo "Please select a correct config file"
+				select_config_file
+			else
+				echo "ok input filename: [$configfile_input]"
+				configfile=$configfile_input
+				export MMCP_MENUCONFIG_FILE="$configfile"
+				break
+			fi
+			
+      else
+             export MMCP_MENUCONFIG_FILE="$configfile"
+      fi 
+     fi         		
+  break
+  done
+  PS3='#?'
+  
+	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+		echo "$configfile">>$input_catch_file
+	fi
+}
+
+select_memleak_support()
+{
+  echo "would u like to select memleak  for this compile?"
+  echo "1) yes 2) no "
+
+  read -p " Enter your anwser (default: no) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  fi
+  case "$INPUT" in
+	1)
+	MMCP_MEMLEAK_SUPPORT=TRUE
+	;;
+	2)
+	MMCP_MEMLEAK_SUPPORT=FALSE
+	;;
+	*)
+	MMCP_MEMLEAK_SUPPORT=FALSE
+	;;
+   esac
+}
+
+select_boundcheck_support()
+{
+  echo "would u like to select boundcheck  for this compile?"
+  echo "1) yes 2) no "
+
+  read -p " Enter your anwser (default: no) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  fi
+  case "$INPUT" in
+	1)
+	MMCP_BOUNDCHECK_SUPPORT=TRUE
+	;;
+	2)
+	MMCP_BOUNDCHECK_SUPPORT=FALSE
+	;;
+	*)
+	MMCP_BOUNDCHECK_SUPPORT=FALSE
+	;;
+   esac
+}
+
+select_cfgfile_support()
+{
+  echo "would u like to select a config file for this compile?"
+  echo "1) yes 2) no "
+
+  read -p " Enter your anwser (default: no) => " INPUT
+  if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  fi
+  case "$INPUT" in
+	1)
+	NEED_SELECT_CFGFILE=true
+	;;
+	2)
+	NEED_SELECT_CFGFILE=false
+	;;
+	*)
+	NEED_SELECT_CFGFILE=false
+	;;
+   esac
+}
+
+doselect()
+{
+while ([ "x$1" != "x" ])
+do
+  case $1 in
+  -p)
+	shift	
+	INPUT=$1
+	select_platform
+	;;
+  -t)
+	shift
+	;;
+  -s)
+	shift
+	if [ "x$1" = "xdtvm" ]; then
+	  MMCP_MIDDLEWARE=dtvm
+	elif [ "x$1" = "xmhp" ]; then
+	  MMCP_MIDDLEWARE=mhp
+	elif [ "x$1" = "xocap" ]; then
+	  MMCP_MIDDLEWARE=ocap
+	fi
+	shift
+	;;
+  --im)
+  	input_catch_file=$2
+  	input_save=yes
+  	echo "input_catch_file=$input_catch_file"
+	   if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+		 rm -f  $input_catch_file
+	  fi
+	start_interactive_mode -m
+        break
+	;;
+  --ia)
+  	USE_AUTOMAKE=true
+	start_interactive_mode -m
+        break
+	;;
+  *)
+	showusage
+        break
+	;;
+  esac
+done
+
+#
+# Begin to set MMCP environment
+#
+if [ "x$nopara" = "xno" ]; then
+export MMCP_PLATFORM
+export MMCP_PLATFORM_PORTING_DIR
+export MMCP_CATYPE
+export MMCP_ARCH
+export MMCP_ENVIRONMENT
+export MMCP_COMPILING_MODE
+export MMCP_MEMLEAK_SUPPORT
+export CHIP_PROVIDER
+export PLATFORM_CPU
+export TARGET_OS=$MMCP_ARCH$OS
+export TARGET_CPU=$PLATFORM_CPU
+export PLATFORM=$MMCP_PLATFORM
+export TARGET=$MMCP_PLATFORM
+export PLATFORM_JAVAVM=$TARGET_OS-$TARGET_CPU
+
+if [ "x$CHIP_PROVIDER" = "xst" ]; then
+  MMCP_HAS_DL=
+  MMCP_HAS_LL=
+fi
+
+export STROOT STPT_OPTION OSPLUSROOT MMCP_HAS_LL MMCP_HAS_DL
+export MMCP_HAS_GZIP
+export MMCP_CAS_PROVIDER
+
+MMCP_MIDDLEWARE_OPTION=-DMMCP_MIDDLEWARE_DTVM
+export MMCP_MIDDLEWARE MMCP_MIDDLEWARE_OPTION
+
+#
+# Set FS env variable
+export MMCP_FS MMCP_HAS_FS
+export MODULE_MMCP_KERNEL_CFS_JFFS
+export MODULE_MMCP_KERNEL_CFS_DEVICE
+export MODULE_MMCP_KERNEL_CFS_FAT
+export MODULE_MMCP_KERNEL_CFS_E2FS
+export MODULE_MMCP_KERNEL_CFS_OC
+export MODULE_MMCP_KERNEL_CFS_ROM
+export MMCP_LINK_CLASSES_TO_JVM
+
+#
+# We need to test if the env file exists
+if [ -f $MMCP_HOME/porting/$CHIP_PROVIDER/$MMCP_PLATFORM_PORTING_DIR/setenv.sh ]; then
+   if [ "x$MMCP_COMPILING_MODE" = "xstepbystep" ]; then
+	source $MMCP_HOME/porting/$CHIP_PROVIDER/$MMCP_PLATFORM_PORTING_DIR/setenv.sh -D -file $input_catch_file && \
+	echo "source $MMCP_HOME/porting/$CHIP_PROVIDER/$MMCP_PLATFORM_PORTING_DIR/setenv.sh -D executed  ok"
+   else      
+	source $MMCP_HOME/porting/$CHIP_PROVIDER/$MMCP_PLATFORM_PORTING_DIR/setenv.sh -file $input_catch_file && \
+	echo "source $MMCP_HOME/porting/$CHIP_PROVIDER/$MMCP_PLATFORM_PORTING_DIR/setenv.sh executed  ok"
+   fi
+fi
+	
+#
+# Setting JAVA_HOME
+#
+export JAVA_HOME=/opt/java/jdk1.5.0_11
+
+#
+# For MMCP Home directory
+export MMCP_HOME=$PWD
+
+#
+# Setting several PATH
+#
+export PATH1=/usr/bin:/usr/sbin:/bin:/sbin:/usr/local/bin:/usr/X11R6/bin
+export PATH2=$MMCP_HOME/bin:$JAVA_HOME/bin:$HOME/bin
+export PATH3=.:$STROOT/bin:
+export PATH=$PATH:$PATH3:$PATH2:$PATH1:$BCMROOT/bin:$ST20ROOT/bin:$HISIROOT:$CNXT_GNU_TOOLCHAIN_ROOT/bin:$ZORANROOT/bin:$MSDROOT/bin:$ALIROOT/bin:$MSTARROOT/bin
+
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/lib:/usr/lib
+export LD_LIBRARY_PATH=$MMCP_HOME/lib:$JAVA_HOME/jre/lib/i386:$OSPLUSROOT/lib:$STROOT/lib:$LD_LIBRARY_PATH
+
+export CLASSPATH1=$JAVA_HOME/jre/lib:$JAVA_HOME/lib
+export CLASSPATH2=.:$MMCP_HOME/classes:$MMCP_HOME/$MMCP_MIDDLEWARE/classes
+export CLASSPATH=$CLASSPATH2:$CLASSPATH1
+
+#
+# Setting MMCP Version
+#
+V=`cat VERSION`
+export MMCP_VERSION=$V
+
+#
+# Check the version of Linux
+# and use some patches for glibc
+#
+USE_PRELOAD=no
+CUR_KENEL=`uname -r | cut -d'-' -f1`
+V_ONE=`echo $CUR_KENEL | cut -d'.' -f1`
+V_TWO=`echo $CUR_KENEL | cut -d'.' -f2`
+V_THREE=`echo $CUR_KENEL | cut -d'.' -f3`
+if [ $V_ONE -le 2 ]; then
+    if [ $V_TWO -le 4 ]; then
+        if [ $V_THREE -lt 18 ]; then
+            USE_PRELOAD=no
+        fi
+    fi
+fi
+if [ "x$USE_PRELOAD" = "xyes" ]; then
+    export LD_PRELOAD=/usr/lib/libcwait.so
+    export LD_ASSUME_KERNEL=2.2.5
+fi
+export USE_PRELOAD
+
+#
+# Compiling Menu:
+#    
+export MODULE_MMCP_GRAPHICS=TRUE
+export MODULE_MMCP_DTV=TRUE
+export MODULE_MMCP_KERNEL=TRUE
+export MODULE_MMCP_MEDIAPLAYER=TRUE
+export MODULE_MMCP_PROTOCOL=TRUE
+export MODULE_MMCP_PVR=FALSE
+export MODULE_MMCP_GUITOOL=FALSE
+export MODULE_MMCP_PORTING=TRUE
+export MODULE_MMCP_JVM=TRUE
+export MODULE_MMCP_CLASSES=TRUE
+export MODULE_MMCP_DTVM=TRUE
+export MODULE_MMCP_MHP=FALSE
+
+##removed by yangfengguang
+##generateOptions 
+
+[ "x$SET_SUCCESS" = "xtrue" ] && showenv
+
+fi
+}
+############################
+#####                  #####
+#####   Main Section   #####
+#####                  #####  
+############################
+
+PWD=`pwd`
+MMCP_ENVIRONMENT=linux
+MMCP_PLATFORM=linux
+CHIP_PROVIDER=1
+PLATFORM_JAVAVM=linux-i686
+OS=linux
+PLATFORM_CPU=i686
+MMCP_ARCH=
+SET_SUCCESS=true
+MMCP_COMPILING_MODE=stepbystep
+
+NEED_SELECT_CFGFILE=false
+USE_AUTOMAKE=false
+
+##STROOT=
+##STPT_OPTION=
+
+MMCP_MIDDLEWARE=dtvm
+MMCP_MIDDLEWARE_OPTION=
+MMCP_HAS_LL=-DMMCP_SUPPORT_LL
+MMCP_HAS_DL=-DMMCP_SUPPORT_DL
+MMCP_HAS_GZIP=-DMMCP_GZIP
+MMCP_HAS_FS=-DMMCP_SUPPORT_FS
+MMCP_FS=TRUE
+MODULE_MMCP_KERNEL_CFS_JFFS=TRUE
+MODULE_MMCP_KERNEL_CFS_DEVICE=FALSE
+MODULE_MMCP_KERNEL_CFS_FAT=FALSE
+MODULE_MMCP_KERNEL_CFS_E2FS=FALSE
+MODULE_MMCP_KERNEL_CFS_OC=FALSE
+MODULE_MMCP_KERNEL_CFS_ROM=TRUE
+
+MMCP_NO_THEN_YES_OPTIONS=" 1)no 2)yes"
+MMCP_YES_THEN_NO_OPTIONS=" 1)yes 2)no"
+nopara=no
+if [ "x$1" = "x" ]; then
+  showusage
+fi
+
+ 
+#
+# Begin for argument parsing
+#
+INPUT=
+if [ "x$1" != "x" ];then
+  case $1 in
+  -p)
+	doselect $1 $2 $3
+	;;
+  -t)
+	shift
+	;;
+  -s)
+	doselect $1 $2 $3
+	;;
+  --im)
+  	doselect $1 $2 $3
+	;;
+  --ia)
+	if [ "-x$2" = "-x" ];then
+	showusage;
+	else
+	doselect $1 <$2
+	fi
+	;;
+  *)
+	showusage
+	;;
+  esac
+fi
+##

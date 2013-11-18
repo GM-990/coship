@@ -1,0 +1,127 @@
+#! /bin/bash
+#yezhenhong 904305
+#----------------------edit record---------------------------------
+#   20100506 get the earlest library today
+echo -----------------------------------------------------
+dateCurrent=$(date "+%Y%m%d")
+parametersInput=$1
+parameters=(${parametersInput// / })
+mountTrunkPath=${parameters[0]}
+srcIncludePath=${parameters[1]}
+srcJarPath=${parameters[2]}
+srcAPath=${parameters[3]}
+poolIncludePath=${parameters[4]}
+poolJarPath=${parameters[5]}
+poolAPath=${parameters[6]}
+mmcpPath=${parameters[7]}
+
+mountPortingPath=${parameters[8]}
+mountCAPath=${parameters[9]}
+bFixDateFlag=${parameters[10]}
+srcPortingADate=${parameters[11]}
+srcCaADate=${parameters[12]}
+srcPortingAPath=${parameters[13]}
+srcCaAPath=${parameters[14]}
+
+echo mountTrunkPath=${mountTrunkPath}
+echo mountPortingPath=${mountPortingPath}
+echo mountCAPath=${mountCAPath}
+echo srcIncludePath=${srcIncludePath}
+echo srcJarPath=${srcJarPath}
+echo srcAPath=${srcAPath}
+echo bFixDateFlag=${bFixDateFlag}
+echo srcPortingADate=${srcPortingADate}
+echo srcCaADate=${srcCaADate}
+echo srcPortingAPath=${srcPortingAPath}
+echo srcCaAPath=${srcCaAPath}
+echo poolIncludePath=${poolIncludePath}
+echo poolJarPath=${poolJarPath}
+echo poolAPath=${poolAPath}
+
+if [ "${mountTrunkPath}" != "" ]; then 
+   cd ${mmcpPath}/test
+   destPath=testlib
+   mkdir ${destPath}
+
+   mount ${mountTrunkPath} ${destPath}
+   cd ${destPath}/${dateCurrent}*/
+   pwd
+   ls
+   if [ -d "${srcIncludePath}/" ]; then 
+      echo copy src include !!
+      cp ${srcIncludePath}/* ${poolIncludePath} -Rf
+   fi
+   if [ -d "${srcJarPath}/" ]; then 
+      echo copy src jar !!
+      cp ${srcJarPath}/* ${poolJarPath} -Rf
+   fi
+   if [ -d "${srcAPath}/" ]; then 
+      echo copy src .a !!
+      cp ${srcAPath}/* ${poolAPath} -Rf
+   else
+      echo fail to find src.a !!
+   fi
+   cd ${mmcpPath}/test
+   umount ${destPath}
+   rm ${destPath} -Rf
+else
+   echo copyfile trunk error!
+fi
+
+#------------------------srcPortingAPath--------------------------------
+if [ "${mountPortingPath}" != "" ]; then 
+   cd ${mmcpPath}/test
+   destPath=testlib
+   mkdir ${destPath}
+
+   mount ${mountPortingPath} ${destPath}
+   if [ "${bFixDateFlag}" == "true" ];then
+      cd ${destPath}/${srcPortingADate}/
+   else
+      cd ${destPath}/${dateCurrent}*/
+   fi
+   pwd
+   ls
+   if [ -d "${srcPortingAPath}/" ]; then 
+      echo copy porting .a !!
+      cp ${srcPortingAPath}/* ${poolAPath} -Rf
+   else
+      echo fail to find porting.a !!
+   fi
+   cd ${mmcpPath}/test
+   pwd
+   umount ${destPath}
+   rm ${destPath} -Rf
+else
+   echo copyfile porting error!
+fi
+#------------------------srcCaAPath--------------------------------
+if [ "${mountCAPath}" != "" ]; then 
+   cd ${mmcpPath}/test
+   destPath=testlib
+   mkdir ${destPath}
+
+   mount ${mountCAPath} ${destPath}
+   if [ "${bFixDateFlag}" == "true" ];then
+      cd ${destPath}/${srcCaADate}/
+   else
+      cd ${destPath}/${dateCurrent}*/
+   fi
+   pwd
+   if [ -d "${srcCaAPath}/" ]; then 
+      echo copy ca .a !!
+      cp ${srcCaAPath}/* ${poolAPath} -Rf
+   else
+      echo fail to find ca.a !!
+   fi
+   cd ${mmcpPath}/test
+   pwd
+   umount ${destPath}
+   rm ${destPath} -Rf
+else
+   echo copyfile ca.a error!
+fi
+
+echo ------copyfile end!!-----------
+
+

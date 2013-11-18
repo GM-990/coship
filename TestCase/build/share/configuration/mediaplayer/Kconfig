@@ -1,0 +1,71 @@
+# Kconfig options for MediaPlayer
+
+###################################################	  	
+config CITV_IPQAM
+	bool "Define CITV_IPQAM"
+	default y
+	help
+		if need define CITV_IPQAM,please select
+	  	yes,else select no!
+
+##################################################					  		
+###       select plugin for mediaplayer        ###
+##################################################	  	
+choice
+	prompt "Selet Plugin for Mediaplayer"
+	help
+	  Selet Plugin for Mediaplayer.
+
+config MP_ACCESS_PLUGIN_CITV_MAP
+	bool "MP access plugin citv_map"
+	help
+		if MP access plugin citv_map, please
+		select yes,else select no!	
+	
+config MP_ACCESS_PLUGIN_CITV
+	bool "MP access plugin citv"
+	help
+		if MP access plugin citv, please
+		select yes,else select no!
+
+config MP_ACCESS_PLUGIN_SHTEL
+	bool "MP access plugin shtel"
+	help
+		if MP access plugin shtel, please
+		select yes,else select no!
+
+config MP_ACCESS_PLUGIN_SHTEL20
+	bool "MP access plugin shtel2.0"
+	help
+		if MP access plugin shtel2.0, please
+		select yes,else select no!
+	
+config MP_ACCESS_PLUGIN_HW
+	bool "MP access plugin huawei vod"
+	help
+		if MP access plugin huawei vod, please
+		select yes,else select no!	
+
+config MP_ACCESS_PLUGIN_SCTEL
+	bool "MP access plugin sicuantel vod"
+	help
+		if MP access plugin sicuantel vod, please
+		select yes,else select no!			
+		
+config MP_ACCESS_PLUGIN_SEACHANGE
+	bool "MP access plugin seachange vod"
+	help
+		if MP access plugin seachange vod, please
+		select yes,else select no!			
+				
+config MP_ACCESS_PLUGIN_NGOD
+	bool "MP access plugin NGOD vod"
+	help
+		if MP access plugin NGOD vod, please
+		select yes,else select no!
+
+endchoice
+		
+##################################################
+
+	  	  		  	  			 	  				   	  				 	  				  	

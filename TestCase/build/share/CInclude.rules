@@ -1,0 +1,145 @@
+MMCP_MENUCONFIG_DIR  ?= $(MMCP_HOME)/build/share/configuration/
+include $(MMCP_MENUCONFIG_DIR)$(MMCP_MENUCONFIG_FILE)
+
+INCLUDES += -I./ \
+	-I$(MMCP_HOME)/include \
+	-I$(MMCP_HOME)/include/kernel \
+	-I$(MMCP_HOME)/include/kernel/json \
+	-I$(MMCP_HOME)/include/protocol \
+	-I$(MMCP_HOME)/dtvmx/mmcpstandard/davic \
+	-I$(MMCP_HOME)/dtvmx/mmcpstandard/dtvm \
+	-I$(MMCP_HOME)/dtvmx/mmcpstandard/dtvmx \
+	-I$(MMCP_HOME)/dtvmx/mmcpstandard/javatv \
+	-I$(MMCP_HOME)/dtvmx/mmcpstandard/jmf \
+	-I$(MMCP_HOME)/dtvmx/mmcpstandard/mhp \
+	-I$(MMCP_HOME)/dtvmx/deprecated \
+	-I$(MMCP_HOME)/dtvmx/mmcpimpl \
+	-I$(MMCP_HOME)/dtvmx/mmcpstandard/davic \
+	-I$(MMCP_HOME)/dtvmx/mmcpstandard/dtvm \
+	-I$(MMCP_HOME)/dtvmx/mmcpstandard/dtvmx \
+	-I$(MMCP_HOME)/dtvmx/mmcpstandard/javatv \
+	-I$(MMCP_HOME)/dtvmx/mmcpstandard/jmf \
+	-I$(MMCP_HOME)/dtvmx/mmcpstandard/mhp \
+	-I$(MMCP_HOME)/dtvmx/deprecated \
+	-I$(MMCP_HOME)/dtvmx/mmcpimpl \
+	-I$(MMCP_HOME)/include/graphics \
+	-I$(MMCP_HOME)/include/dtv \
+	-I$(MMCP_HOME)/include/dtv/CRC \
+	-I$(MMCP_HOME)/include/dtv/MemoryPool \
+	-I$(MMCP_HOME)/include/dtv/Section \
+	-I$(MMCP_HOME)/include/dtv/Source \
+	-I$(MMCP_HOME)/include/dtv/SI \
+	-I$(MMCP_HOME)/include/dtv/si_cache \
+	-I$(MMCP_HOME)/include/dtv/EPG \
+	-I$(MMCP_HOME)/include/dtv/NVOD \
+	-I$(MMCP_HOME)/include/dtv/DataManager \
+	-I$(MMCP_HOME)/include/dtv/Search \
+	-I$(MMCP_HOME)/include/dtv/Source \
+	-I$(MMCP_HOME)/include/dtv/Subtitle \
+	-I$(MMCP_HOME)/include/dtv/Teletext \
+	-I$(MMCP_HOME)/include/dtv/ServiceManager \
+	-I$(MMCP_HOME)/include/dtv/WorkerManager \
+	-I$(MMCP_HOME)/include/dtv/ads \
+	-I$(MMCP_HOME)/include/dtv/ndsAd \
+	-I$(MMCP_HOME)/include/dtv/pvod \
+	-I$(MMCP_HOME)/include/dtv/RMFS \
+	-I$(MMCP_HOME)/include/dtv/SourceTuner \
+	-I$(MMCP_HOME)/include/dtv/QuickSearch \
+	-I$(MMCP_HOME)/include/thirdparty \
+	-I$(MMCP_HOME)/include/thirdparty/ca \
+	-I$(MMCP_HOME)/include/thirdparty/ca/comvenient \
+	-I$(MMCP_HOME)/include/thirdparty/ca/mediaguard \
+	-I$(MMCP_HOME)/include/thirdparty/ca/nds \
+	-I$(MMCP_HOME)/include/thirdparty/ca/tongfang3 \
+	-I$(MMCP_HOME)/include/thirdparty/ca/dvn \
+	-I$(MMCP_HOME)/include/thirdparty/ca/nagra \
+	-I$(MMCP_HOME)/include/thirdparty/ca/nagratiger \
+	-I$(MMCP_HOME)/include/thirdparty/ca/suantong \
+	-I$(MMCP_HOME)/include/thirdparty/ca/irdeto3 \
+	-I$(MMCP_HOME)/include/thirdparty/ca/shumashixun \
+	-I$(MMCP_HOME)/include/thirdparty/ca/viaccess \
+	-I$(MMCP_HOME)/include/thirdparty/ca/topca \
+	-I$(MMCP_HOME)/include/thirdparty/ca/finesum \
+	-I$(MMCP_HOME)/include/thirdparty/ca/udrm \
+	-I$(MMCP_HOME)/include/thirdparty/ca/tengrui \
+	-I$(MMCP_HOME)/include/thirdparty/ci \
+	-I$(MMCP_HOME)/include/thirdparty/tts \
+	-I$(MMCP_HOME)/include/thirdparty/unionpay \
+	-I$(MMCP_HOME)/include/thirdparty/Encryption \
+	-I$(MMCP_HOME)/include/thirdparty/mis \
+	-I$(MMCP_HOME)/include/thirdparty/msc \
+	-I$(MMCP_HOME)/include/mediaplayer \
+	-I$(MMCP_HOME)/include/graph \
+	-I$(MMCP_HOME)/include/pvr \
+	-I$(MMCP_HOME)/jvm/src \
+ 	-I$(MMCP_HOME)/jvm/src/coship \
+ 	-I$(MMCP_HOME)/jvm/build/coship-common \
+ 	-I$(MMCP_HOME)/jvm/src/share/javavm/export \
+	-I$(MMCP_HOME)/jvm/src/share \
+ 	-I$(MMCP_HOME)/jvm/src/coship-common \
+ 	-I$(MMCP_HOME)/jvm/src/share/native/java/lang \
+	-I$(MMCP_HOME)/include/guitool \
+	-I$(MMCP_HOME)/include/guitool/openssl \
+	-I$(MMCP_HOME)/include/codec/mp3 \
+	-I$(MMCP_HOME)/include/midp \
+	-I$(MMCP_HOME)/include/nes \
+	-I$(MMCP_HOME)/include/shell/public \
+	-I$(MMCP_HOME)/include/shell/private \
+	-I$(MMCP_HOME)/include/shell/java \
+	-I$(MMCP_HOME)/include/shell/config \
+	-I$(MMCP_HOME)/include/jvm  \
+	-I$(MMCP_HOME)/include/jsext \
+	-I$(MMCP_HOME)/include/porting/udi2plus \
+	-I$(MMCP_HOME)/include/porting/udiadapter \
+	-I$(MMCP_HOME)/include/shell/js \
+	-I$(MMCP_HOME)/include/shell/c \
+	-I$(MMCP_HOME)/include/jsext/dvb \
+	-I$(MMCP_HOME)/include/jsext/dvb/svs \
+	-I$(MMCP_HOME)/include/porting \
+	-I$(MMCP_HOME)/include/opengles \
+	-I$(MMCP_HOME)/include/shell/public/plugin/sa	\
+	-I$(MMCP_HOME)/include/shell/public/plugin/cmdserver	\
+	-I$(MMCP_HOME)/include/shell/public/plugin/saition	\
+	-I$(MMCP_HOME)/include/shell/public/plugin/apctrlclient \
+	-I$(MMCP_HOME)/include/bootloader
+
+#############################################################################
+#说明：																																			#
+#release版本统一使用udi2目录下头文件，																			#
+#debug和stepbystep版本时只有中间件各模块使用udi2_proxy目录头文件,						#
+#porting编译时不能包含udi2_proxy目录																				#
+#############################################################################
+
+PORTING_DIR := $(shell pwd | grep "/porting/")
+
+ifeq "$(PORTING_DIR)" ""
+MMCP_UDI2_PROXY := y
+endif
+
+ifeq "$(MMCP_UDI2)" "y"
+ifeq "$(MMCP_COMPILING_MODE)" "release"
+INCLUDES += -I$(MMCP_HOME)/include/porting/udi2
+else
+ifeq "$(MMCP_UDI2_PROXY)" "y"
+#INCLUDES += -I$(MMCP_HOME)/include/porting/udi2_proxy
+INCLUDES += -I$(MMCP_HOME)/include/porting/udi2
+else
+INCLUDES += -I$(MMCP_HOME)/include/porting/udi2
+endif
+endif
+else
+INCLUDES += -I$(MMCP_HOME)/include/porting/udi2
+endif
+
+ifneq "$(MMCP_UDI2)" "y"
+INCLUDES += \
+	-I$(MMCP_HOME)/include/porting/platform \
+	-I$(MMCP_HOME)/include/porting/hdi \
+	-I$(MMCP_HOME)/include/porting/udi \
+	-I$(MMCP_HOME)/include/porting/csplus \
+	-I$(MMCP_HOME)/include/porting/deprecated
+endif
+
+ifeq "$(MMCP_QT)" "y"
+INCLUDES += -I$(MMCP_HOME)/include/webkit
+endif

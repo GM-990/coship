@@ -1,0 +1,43 @@
+# Kconfig options for PROTOCOL
+
+##################################################
+###               select socket                ###
+##################################################
+
+config MODULE_MMCP_PROTOCOL_SOCKET
+	bool "protocol Support socket"
+	default y
+	help
+		if protocol support socket,please select
+	  	yes,else select no!
+	  	
+##################################################					  		
+
+##################################################					  		
+###       select stack for protocol            ###
+##################################################	  	
+choice
+	prompt "Selet protocol type"
+	help
+	  Selet Protocol Type.
+
+config MODULE_MMCP_PROTOCOL_LINUXSTACK
+	bool "protocol Support linuxstack"
+	help
+		if protocol support linuxstack,please 
+		select yes,else select no!
+	  	
+config MODULE_MMCP_PROTOCOL_NGSTACK
+	bool "protocol Support ngstack"
+	help
+		protocol support ngstack,please select
+		yes,else select no!
+		
+config MODULE_MMCP_PROTOCOL_NOSTACK
+	bool "protocol Support nostack"
+	help
+		protocol support nostack,please select
+		yes,else select no!					
+endchoice
+		
+##################################################

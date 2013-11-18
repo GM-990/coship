@@ -1,0 +1,33 @@
+#!/bin/bash
+
+CopyPublicAdditionalFiles()
+{
+	cp $MMCP_HOME/build/doxygencfg/*.png "$1"_document/html -fp
+	cp $MMCP_HOME/build/doxygencfg/*.jpg "$1"_document/html -fp
+	cp $MMCP_HOME/build/doxygencfg/tabs.css "$1"_document/html -fp
+	cp $MMCP_HOME/build/doxygencfg/doxygen.css "$1"_document/html -fp
+}
+
+module="$1"
+
+if [ "x"$module == "xudi" ] \
+		  || [  "x"$module == "xudi2" ]	\
+		  || [  "x"$module == "xudi2_200" ] \
+	 		|| [  "x"$module == "xudi2_210" ] \
+	 		|| [  "x"$module == "xcoshipporting" ] \
+	 		|| [  "x"$module == "xbw200out" ] \
+	 		|| [  "x"$module == "xbw200all" ] \
+	 		|| [  "x"$module == "xudi2_booter" ] \
+	 		|| [  "x"$module == "xudi2_booter_all" ] \
+	 		|| [  "x"$module == "xudi2_loader" ] \
+	 		|| [  "x"$module == "xshell" ] \
+	 		|| [  "x"$module == "xew200" ]; then
+	 $MMCP_HOME/bin/doxygen $MMCP_HOME/build/doxygencfg/$module
+	 CopyPublicAdditionalFiles $module
+else	
+	 		echo "Usage: builddoc modulename"
+			echo "build docment from source code and head files by tools"
+			echo "Support modulenames:udi udi2 coshipporting bw200out bw200all udi2 udi2_200 udi2_210 udi2_booter udi2_booter_all udi2_loader shell ew200"
+fi
+
+

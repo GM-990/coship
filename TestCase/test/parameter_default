@@ -1,0 +1,59 @@
+win32Flag=true
+vcIDE=c:\Program Files\Microsoft Visual Studio 8\Common7\IDE
+win32TestPrj=f:\trunk\test\win32test\win32test.sln
+win32LibPath=\\10.10.96.156\cc_public\08_simulator\mmcp_simulator
+stbip=172.30.50.112
+svnupCopyFlag=false
+copyLibraryFlag=false
+makeCleanFlag=false
+makeFlag=true
+mountTrunkPath=10.10.96.156:/home/pub/cc1_mmcp_all/mmcp_platform_release_bcm740x
+mountPortingPath=10.10.96.156:/home/pub/cc2_cbb/porting_bcm
+mountCAPath=10.10.96.156:/home/pub/cc2_cbb/trunk_ca
+srcIncludePath=lib/include_release
+srcJarPath=lib/lib/dtvmxjar
+srcAPath=lib/lib/bcm740x_def
+bFixDateFlag=true
+srcPortingADate=20100525173431
+srcCaADate=20100601153957
+srcPortingAPath=lib/bcm740x 
+srcCaAPath=lib/bcm740x
+mmcpPath=/home/yezhenhong/trunk
+mmcpEnvCmd=bin/envfile_fortrunk/setenv_bcm740x_debug
+mmcpIncludePath=include
+mmcpJarPath=dtvmx/lib
+mmcpAPath=lib/bcm740x
+testModulePath=test
+testmodel_list=codec pvr mediaplayer protocol kernel dtv
+argv_debugLevel=0
+hmcPath=/home/yezhenhong/HMC_V100R002_HD_tmp
+hmcIncludePath=platform/include
+hmcJarPath=application/javacode/ShareLib/lib
+hmcAPath=platform/lib/bcm740x
+hmcApplicationPath=application/javacode
+hmcProductPath=product/N8606C_TF
+hmcBinExeDefineFile=product/N8606C_TF/code/privateDefine.h
+hmcExecutepath=platform/integration/hmc/javaresources/ROOTFS
+hmcReportpath=platform/integration/hmc/javaresources/JFFS/flash/com_coship_app_dtvm_test_adaper_1.1
+hmcReportCasepath=platform/integration/hmc/javaresources/JFFS/flash/com_coship_app_dtvm_testcase_1.0
+bAutoTestFlag=true
+hmcCommand=main.out 
+time_hour_minute=19:02
+mailSubject=bcm740x_autoTest_report
+mailSender=robot_client_Jack@coship.com
+mailReceiver=wangqilin@coship.com;yezhenhong@coship.com;wangdong@coship.com;tongfulei@coship.com;wangmin@coship.com;luojinhua@coship.com;zhengfen@coship.com;yanghuiyuan@coship.com;chenlin@coship.com;zhaodemin@coship.com;zhangcaihong@coship.com;zhangying@coship.com;wangwenbo@coship.com;zhangyahao@coship.com;xiejun@coship.com;chenrui@coship.com;wanhuiling@coship.com;tanguiyong@coship.com;zhuyaoguang@coship.com;yirui@coship.com;yinjunjie@coship.com;wanglin@coship.com;liuyonggui@coship.com;huangshengjun@coship.com
+mailServerAddress=mailserver.coship.com:25
+mailHead=[
+					Dear all: 
+              C modules include:codec pvr mediaplayer kernel dtv protocol,the output are .txt file.
+          JAVA module is DTVMX, the output is HTML file.
+          each module runs independently,there will be no output report file in case of 
+          compiling problems or the latest version test cases are uncompatible. 
+          all the test result will be recorded in report.xls.
+         ]
+mailTail=[
+ 					your sincerely,
+ 									Kevin Hong
+                  shenzhen coship electronic CO.LTD						
+ 				] 
+

@@ -1,0 +1,464 @@
+#!/bin/sh
+
+###################
+#                 #
+#  Sub Functions  #
+#                 #
+###################
+showusage()
+{
+  echo "Usage : "
+  echo "setupenv [ -op | -p PLATFORM | -s middleware ]"
+  echo "       -p PLATFORM        ; Set environmeat variable for specified PLATFORM, default is linux"
+  echo "       -s [dtvm|mhp|ocap] ; Specify MIDDLEWARE standard, default is dtvm"
+  echo "       -op                ; Use new ST20 Compiler (2.1.2)"
+  echo "       --im               ; interactive mode"
+  nopara=yes
+}
+
+start_interactive_mode()
+{
+  export MMCP_HOME=$PWD
+  export MMCP_NETWORK=true
+  export MMCP_USENW=yes
+  
+  echo "Please select the target execution PLATFORM"
+  echo " 1)linux 2)st5516 3)st5105 4)st710x 5)bcm7309 6)bcm740x 7)windows"
+  read -p " Enter your anwser (default: linux) => " INPUT
+  select_platform
+
+  if [ "x$SET_SUCCESS" = "xtrue" ]; then
+      select_debugrelease_mode
+  fi
+
+  select_filesystem  
+}
+
+select_st40_compiler()
+{
+  echo "Please select your compiler"
+  echo "1)ST40R4.0.2   2)ST40R3.1.1"
+  read -p "Enter your anwser (default: ST40R4.0.2) => " INPUT_1
+  case "$INPUT_1" in 
+    1)
+	ST40TOOLS=/opt/STM/ST40R4.0.2
+    ;;
+    2)
+	ST40TOOLS=/opt/STM/ST40R3.1.1
+    ;;
+    *)
+	ST40TOOLS=/opt/STM/ST40R4.0.2
+    ;;
+    esac
+	ST40ROOT=$ST40TOOLS
+	export ST40ROOT
+}
+
+select_7309compiler_and_build_mode()
+{
+  echo "select toolchain?"
+  echo "1)uclibc-crosstools_linux-2.4.25_gcc-3.3.5_uclibc-20050308-20050502(old,for platform and driver code)"
+  echo "2)uclibc-crosstools_gcc-3.4.6_uclibc-0.9.28-linux-2.4.x(new,for mmcp project)"
+  read -p "Enter your anwser (default: old,for platform and driver code) => " INPUT_0
+  case "$INPUT_0" in 
+    1)
+	export BCMROOT=/opt/toolchains/uclibc-crosstools_linux-2.4.25_gcc-3.3.5_uclibc-20050308-20050502
+    ;;
+    2)
+	export BCMROOT=/opt/toolchains/uclibc-crosstools_gcc-3.4.6_uclibc-0.9.28-linux-2.4.x
+    ;;
+    *)
+	export BCMROOT=/opt/toolchains/uclibc-crosstools_linux-2.4.25_gcc-3.3.5_uclibc-20050308-20050502
+    ;;
+    esac
+
+  cat $MMCP_HOME/porting/bcm/bcm7309/baseenv.sh > $MMCP_HOME/porting/bcm/bcm7309/setenv.sh
+  echo "build bcm7309.o in kernel?"
+  echo "1)no   2)yes"
+  read -p "Enter your anwser (default: no) => " INPUT_1
+  case "$INPUT_1" in 
+    1)
+	echo "export DRIVER_NESTED=n" >> $MMCP_HOME/porting/bcm/bcm7309/setenv.sh
+    ;;
+    2)
+	echo "export DRIVER_NESTED=y" >> $MMCP_HOME/porting/bcm/bcm7309/setenv.sh
+    ;;
+    *)
+	echo "export DRIVER_NESTED=n" >> $MMCP_HOME/porting/bcm/bcm7309/setenv.sh
+    ;;
+    esac
+    	echo "echo DRIVER_NESTED=\${DRIVER_NESTED}" >> $MMCP_HOME/porting/bcm/bcm7309/setenv.sh
+}
+
+select_platform()
+{
+  case "$INPUT" in
+    1|linux)    
+      MMCP_PLATFORM=linux
+      OS=linux
+      PLATFORM_CPU=i686
+      MMCP_ARCH=
+      CHIP_PROVIDER=
+      ;;
+
+    2|st5516)
+      MMCP_PLATFORM=st5516
+      OS=os20
+      PLATFORM_CPU=c2
+      MMCP_ARCH=st20
+      CHIP_PROVIDER=st
+      export ST20ROOT=/opt/STM/ST20R2.2.1
+      export OSPLUS_TOOL1=/opt/STM/ST20-osplusR2.1.2 
+      ;;
+
+    3|st5105)
+      MMCP_PLATFORM=st5105
+      OS=os20
+      PLATFORM_CPU=c1
+      MMCP_ARCH=st20
+      CHIP_PROVIDER=st
+      export ST20ROOT=/opt/STM/ST20R2.2.1
+      export OSPLUS_TOOL1=/opt/STM/ST20-osplusR2.1.2
+      ;;
+
+    4|st7100)
+      MMCP_PLATFORM=st7100
+      OS=os21
+      PLATFORM_CPU=c2
+      CPU=c2
+      MMCP_ARCH=st40
+      CHIP_PROVIDER=st      
+      ##export ST40ROOT=/opt/STM/ST40R4.0.2
+      ##export OSPLUSROOT=/opt/STM/ST40-osplusR2.1.2 ##should select in porting layer
+	select_st40_compiler
+      ;;
+
+    5|bcm7309)
+      MMCP_PLATFORM=bcm7309
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      select_7309compiler_and_build_mode
+      ;;
+      
+    6|bcm740x)
+      MMCP_PLATFORM=bcm740x
+      OS=linux
+      PLATFORM_CPU=mipsel
+      MMCP_ARCH=
+      CHIP_PROVIDER=bcm
+      export BCMROOT=/opt/toolchains/crosstools_sf-linux-2.6.12.0_gcc-3.4.6-20_uclibc-0.9.28-20050817-20070131      
+      ;;
+
+    *)
+      if [ "x$INPUT" = "x" ]; then
+	MMCP_PLATFORM=linux
+       OS=linux
+       PLATFORM_CPU=i686
+	MMCP_ARCH=
+	CHIP_PROVIDER=
+      else
+        echo "Error: unknown PLATFORM-$INPUT"
+        SET_SUCCESS=false
+      fi
+      ;;      
+  esac
+}
+
+
+select_debugrelease_mode()
+{
+  echo "Please select debug mode:"
+  echo " 1)release[no log] 2)debug[O2 with log] 3)step[-g O0 with log]"
+  read -p " Enter your anwser (default: step trace mode) => " INPUT
+  case "$INPUT" in
+    1)
+      MMCP_COMPILING_MODE=release
+      ;;
+    2)
+      MMCP_COMPILING_MODE=debug
+      ;;
+    3)
+      MMCP_COMPILING_MODE=stepbystep
+      ;;
+    *)
+      MMCP_COMPILING_MODE=stepbystep
+      ;;
+   esac
+}
+
+select_middleware_package()
+{
+  echo "Please select a Middleware Package"
+  echo " 1)dtvm 2)mhp 3)ocap 4)none"
+  read -p " Enter your anwser (default: dtvm) => " INPUT
+  case "$INPUT" in
+    1)
+      MMCP_MIDDLEWARE=dtvm
+      ;;
+    2)
+      MMCP_MIDDLEWARE=mhp
+      ;;
+     2)
+      MMCP_MIDDLEWARE=ocap
+      ;;
+     *)
+      MMCP_MIDDLEWARE=dtvm
+      ;;
+   esac
+}
+
+select_filesystem()
+{
+  echo "Would u like to select filesystem in details? "
+  echo "$MMCP_NO_THEN_YES_OPTIONS"
+  read -p " Enter your anwser (default: no) => " INPUT
+  if [ "x$INPUT" = "x2" ]; then
+  
+      MODULE_MMCP_KERNEL_CFS=TRUE
+      
+      echo "filesystem selection - support jffs? $MMCP_YES_THEN_NO_OPTIONS"  
+      read -p " Enter your anwser (default: yes) => " INPUT
+      if [ "x$INPUT" = "x1" ]; then
+      	   MODULE_MMCP_KERNEL_CFS_JFFS=TRUE
+      fi
+  
+      echo "filesystem selection - support e2fs? $MMCP_YES_THEN_NO_OPTIONS"  
+      read -p " Enter your anwser (default: yes) => " INPUT
+      if [ "x$INPUT" = "x1" ]; then
+      	   MODULE_MMCP_KERNEL_CFS_E2FS=TRUE
+      fi
+
+      echo "filesystem selection - support fat? $MMCP_YES_THEN_NO_OPTIONS"  
+      read -p " Enter your anwser (default: yes) => " INPUT
+      if [ "x$INPUT" = "x1" ]; then
+      	   MODULE_MMCP_KERNEL_CFS_FAT=TRUE
+      fi
+
+      echo "filesystem selection - support rom? $MMCP_YES_THEN_NO_OPTIONS"  
+      read -p " Enter your anwser (default: yes) => " INPUT
+      if [ "x$INPUT" = "x1" ]; then
+      	   MODULE_MMCP_KERNEL_CFS_ROM=TRUE
+      fi
+      
+      echo "filesystem selection - support oc? $MMCP_YES_THEN_NO_OPTIONS"  
+      read -p " Enter your anwser (default: yes) => " INPUT
+      if [ "x$INPUT" = "x1" ]; then
+      	   MODULE_MMCP_KERNEL_CFS_OC=TRUE
+      fi
+
+      echo "filesystem selection - support usb? $MMCP_YES_THEN_NO_OPTIONS"  
+      read -p " Enter your anwser (default: yes) => " INPUT
+      if [ "x$INPUT" = "x1" ]; then
+      	   MODULE_MMCP_KERNEL_CFS_USB=TRUE
+      fi
+  fi
+}
+
+############################
+#####                  #####
+#####   Main Section   #####
+#####                  #####  
+############################
+
+PWD=`pwd`
+MMCP_ENVIRONMENT=linux
+MMCP_PLATFORM=linux
+CHIP_PROVIDER=1
+PLATFORM_JAVAVM=linux-i686
+OS=linux
+PLATFORM_CPU=i686
+MMCP_ARCH=
+SET_SUCCESS=true
+MMCP_COMPILING_MODE=stepbystep
+
+##STROOT=
+##STPT_OPTION=
+
+MMCP_MIDDLEWARE=dtvm
+MMCP_MIDDLEWARE_OPTION=
+MMCP_HAS_LL=-DMMCP_SUPPORT_LL
+MMCP_HAS_DL=-DMMCP_SUPPORT_DL
+MMCP_HAS_GZIP=-DMMCP_GZIP
+MMCP_HAS_FS=-DMMCP_SUPPORT_FS
+MMCP_FS=TRUE
+MODULE_MMCP_KERNEL_CFS_JFFS=TRUE
+MODULE_MMCP_KERNEL_CFS_DEVICE=FALSE
+MODULE_MMCP_KERNEL_CFS_FAT=FALSE
+MODULE_MMCP_KERNEL_CFS_E2FS=FALSE
+MODULE_MMCP_KERNEL_CFS_OC=FALSE
+MODULE_MMCP_KERNEL_CFS_ROM=TRUE
+
+MMCP_NO_THEN_YES_OPTIONS=" 1)no 2)yes"
+MMCP_YES_THEN_NO_OPTIONS=" 1)yes 2)no"
+nopara=no
+if [ "x$1" = "x" ]; then
+  showusage
+fi
+
+ 
+#
+# Begin for argument parsing
+#
+INPUT=
+
+while ([ "x$1" != "x" ])
+do
+  case $1 in
+  -p)
+	shift	
+	INPUT=$1
+	select_platform
+	;;
+  -t)
+	shift
+	;;
+  -s)
+	shift
+	if [ "x$1" = "xdtvm" ]; then
+	  MMCP_MIDDLEWARE=dtvm
+	elif [ "x$1" = "xmhp" ]; then
+	  MMCP_MIDDLEWARE=mhp
+	elif [ "x$1" = "xocap" ]; then
+	  MMCP_MIDDLEWARE=ocap
+	fi
+	shift
+	;;
+  --im)
+	start_interactive_mode -m
+        break
+	;;
+  *)
+	showusage
+        break
+	;;
+  esac
+done
+
+#
+# Begin to set MMCP environment
+#
+if [ "x$nopara" = "xno" ]; then
+export MMCP_PLATFORM
+expo
+export MMCP_ENVIRONMENT
+export MMCP_COMPILING_MODE
+export CHIP_PROVIDER
+export PLATFORM_CPU
+export TARGET_OS=$MMCP_ARCH$OS
+export TARGET_CPU=$PLATFORM_CPU
+export PLATFORM=$MMCP_PLATFORM
+export TARGET=$MMCP_PLATFORM
+export PLATFORM_JAVAVM=$TARGET_OS-$TARGET_CPU
+
+if [ "x$CHIP_PROVIDER" = "xst" ]; then
+  MMCP_HAS_DL=
+  MMCP_HAS_LL=
+fi
+
+export STROOT STPT_OPTION OSPLUSROOT MMCP_HAS_LL MMCP_HAS_DL
+export MMCP_HAS_GZIP
+export MMCP_CAS_PROVIDER
+
+MMCP_MIDDLEWARE_OPTION=-DMMCP_MIDDLEWARE_DTVM
+export MMCP_MIDDLEWARE MMCP_MIDDLEWARE_OPTION
+
+#
+# Set FS env variable
+export MMCP_FS MMCP_HAS_FS
+export MODULE_MMCP_KERNEL_CFS_JFFS
+export MODULE_MMCP_KERNEL_CFS_DEVICE
+export MODULE_MMCP_KERNEL_CFS_FAT
+export MODULE_MMCP_KERNEL_CFS_E2FS
+export MODULE_MMCP_KERNEL_CFS_OC
+export MODULE_MMCP_KERNEL_CFS_ROM
+
+#
+# We need to test if the env file exists
+if [ -f $MMCP_HOME/porting/$CHIP_PROVIDER/$MMCP_PLATFORM/setenv.sh ]; then
+   if [ "x$MMCP_COMPILING_MODE" = "xstepbystep" ]; then
+	source $MMCP_HOME/porting/$CHIP_PROVIDER/$MMCP_PLATFORM/setenv.sh -D && \
+	echo "source $MMCP_HOME/porting/$CHIP_PROVIDER/$MMCP_PLATFORM/setenv.sh -D executed  ok"
+   else      
+	source $MMCP_HOME/porting/$CHIP_PROVIDER/$MMCP_PLATFORM/setenv.sh && \
+	echo "source $MMCP_HOME/porting/$CHIP_PROVIDER/$MMCP_PLATFORM/setenv.sh executed  ok"
+   fi
+fi
+	
+#
+# Setting JAVA_HOME
+#
+export JAVA_HOME=/opt/java/jdk1.5.0_11
+
+#
+# For MMCP Home directory
+export MMCP_HOME=$PWD
+
+#
+# Setting several PATH
+#
+export PATH1=/usr/bin:/usr/sbin:/bin:/sbin:/usr/local/bin:/usr/X11R6/bin
+export PATH2=$MMCP_HOME/bin:$JAVA_HOME/bin:$HOME/bin
+export PATH3=.:$STROOT/bin:
+export PATH=$PATH:$PATH3:$PATH2:$PATH1:$BCMROOT/bin:$ST20ROOT/bin
+
+export LD_LIBRARY_PATH=/lib:/usr/lib
+export LD_LIBRARY_PATH=$MMCP_HOME/lib:$JAVA_HOME/jre/lib/i386:$OSPLUSROOT/lib:$STROOT/lib:$LD_LIBRARY_PATH
+
+export CLASSPATH1=$JAVA_HOME/jre/lib:$JAVA_HOME/lib
+export CLASSPATH2=.:$MMCP_HOME/classes:$MMCP_HOME/$MMCP_MIDDLEWARE/classes
+export CLASSPATH=$CLASSPATH2:$CLASSPATH1
+
+#
+# Setting MMCP Version
+#
+V=`cat VERSION`
+export MMCP_VERSION=$V
+
+#
+# Check the version of Linux
+# and use some patches for glibc
+#
+USE_PRELOAD=no
+CUR_KENEL=`uname -r | cut -d'-' -f1`
+V_ONE=`echo $CUR_KENEL | cut -d'.' -f1`
+V_TWO=`echo $CUR_KENEL | cut -d'.' -f2`
+V_THREE=`echo $CUR_KENEL | cut -d'.' -f3`
+if [ $V_ONE -le 2 ]; then
+    if [ $V_TWO -le 4 ]; then
+        if [ $V_THREE -lt 18 ]; then
+            USE_PRELOAD=no
+        fi
+    fi
+fi
+if [ "x$USE_PRELOAD" = "xyes" ]; then
+    export LD_PRELOAD=/usr/lib/libcwait.so
+    export LD_ASSUME_KERNEL=2.2.5
+fi
+export USE_PRELOAD
+
+#
+# Compiling Menu:
+#    
+export MODULE_MMCP_GRAPHICS=TRUE
+export MODULE_MMCP_DTV=TRUE
+export MODULE_MMCP_KERNEL=TRUE
+export MODULE_MMCP_MEDIAPLAYER=TRUE
+export MODULE_MMCP_PROTOCOL=TRUE
+export MODULE_MMCP_PVR=FALSE
+export MODULE_MMCP_GUITOOL=FALSE
+export MODULE_MMCP_PORTING=TRUE
+export MODULE_MMCP_JVM=TRUE
+export MODULE_MMCP_CLASSES=TRUE
+export MODULE_MMCP_DTVM=TRUE
+export MODULE_MMCP_MHP=FALSE
+
+##removed by yangfengguang
+##generateOptions 
+
+[ "x$SET_SUCCESS" = "xtrue" ] && showenv
+
+fi
+
+##

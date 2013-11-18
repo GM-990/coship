@@ -1,0 +1,353 @@
+#!/bin/sh
+
+###################
+#                 #
+#  Sub Functions  #
+#                 #
+###################
+showusage()
+{
+  echo "Usage : "
+  echo "setupenv [ -op | -p PLATFORM | -s middleware ]"
+  echo "       -p PLATFORM        ; Set environmeat variable for specified PLATFORM, default is linux"
+  echo "       -s [dtvm|mhp|ocap] ; Specify MIDDLEWARE standard, default is dtvm"
+  echo "       -op                ; Use new ST20 Compiler (2.1.2)"
+  echo "       --im  [filename]           ; interactive mode,save input to filename,filename is optional"
+  echo "       --ia  (filename)        ;  autiomatic input mode,read input from filename,filename is neccessary"
+  nopara=yes
+}
+
+start_interactive_mode()
+{
+  export MMCP_CATYPE=noca
+  select_ca 取消ca选择，每个平台必须编译所有ca
+  select_udi2
+}
+
+select_ca()
+{
+  echo "Please select a CA"
+  echo " 0)(FTA) 1)(Irdeto) 2)(Tongfang) 3)(NDS) 4)(DVN) 5)(NAGRA) 6)(Mediaguard) 7)(Conax) 8)(Viaccess) 9)(Sumavision) 10)(Suantong) 11)(Comvenient) 12)(CCA)"
+  read -p " Enter your anwser (default: FTA) => " INPUT
+   if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  fi
+ case "$INPUT" in
+	1)
+	MMCP_CATYPE=irdetoca
+	;;
+	2)
+	MMCP_CATYPE=tongfangca
+	echo "Please select CA VERSION"
+  	echo " 0)hisi version  1)other platform"
+  	read -p " Enter your anwser (default: hisi version) => " INPUT
+   	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  	fi
+
+  	case "$INPUT" in
+  		0)CASVER=CASVERHISI
+  		;;
+  		1)CASVER=CASVEROTHER
+  		;;
+  	esac
+	;;
+	3)
+	MMCP_CATYPE=ndsca
+	;;
+	4)
+	MMCP_CATYPE=dvnca
+	echo "Please select dvn version(dvn3 or dvn4)"
+  	echo " 0)DVN4  1)DVN3"
+  	read -p " Enter your anwser (default: DVN4) => " INPUT
+   	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  	fi
+
+  	case "$INPUT" in
+  		0)CASVER=DVN4
+  		;;
+  		1)CASVER=DVN3
+  		;;
+  	esac
+	;;
+	5)
+	MMCP_CATYPE=nagraca
+	echo "Please select CA VERSION"
+  	echo " 0)Common version 1)N8611I version"
+  	read -p " Enter your anwser (default: Common version) => " INPUT
+   	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  	fi
+
+	CASVER=CASVERCOMMON
+
+  	case "$INPUT" in
+  		0)CASVER=CASVERCOMMON
+  		;;
+  		1)CASVER=CASVERN8611I
+  		;;
+  	esac
+	echo "Please select nagra test option"
+  	echo " 0)CAK test 1)DAL test 2)SIMULATION test"
+  	read -p " Enter your anwser (default: CAK test) => " INPUT
+   	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  	fi
+
+	NAGRATEST=CAKTEST
+
+  	case "$INPUT" in
+  		0)NAGRATEST=CAKTEST
+  		;;
+  		1)NAGRATEST=DALTEST
+  		;;
+		2)NAGRATEST=SIMULATIONTEST
+		;;
+  	esac
+	;;
+	6)
+	MMCP_CATYPE=mediaguardca
+	;;
+	7)
+	MMCP_CATYPE=conaxca
+	echo "Please select if support max fingerprint?"
+  	echo " 0)not support  1)support"
+  	read -p " Enter your anwser (default: not support) => " INPUT
+   	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  	fi
+
+  	case "$INPUT" in
+  		0)CASVER=NOT_SUPPORT_MAXFP
+  		;;
+  		1)CASVER=SUPPORT_MAXFP
+  		;;
+  	esac
+	;;
+	8)
+	MMCP_CATYPE=viaccessca
+	;;
+	9)
+	MMCP_CATYPE=sumavisionca
+	echo "Please select CA VERSION"
+  	echo " 0)5200 1)old version"
+  	read -p " Enter your anwser (default: 5200) => " INPUT
+   	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  	fi
+
+	CASVER=CASVER5200
+	
+  	case "$INPUT" in
+  		0)CASVER=CASVER5200
+  		;;
+  		1)CASVER=CASVER5100
+  		;;
+  	esac
+	;;
+	10)
+	MMCP_CATYPE=suantongca
+	echo "Please select CA VERSION"
+  	echo " 0)cti_sec 1)cti_non_sec"
+  	read -p " Enter your anwser (default: cti_sec) => " INPUT
+   	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  	fi
+
+	CASVER=CTI_SEC
+	
+  	case "$INPUT" in
+  		0)CASVER=CTI_SEC
+  		;;
+  		1)CASVER=CTI_NON_SEC
+  		;;
+  	esac
+
+	echo "Please select cti core"
+  	echo " 0)cti_core_word 1)cti_core_enum"
+  	read -p " Enter your anwser (default: cti_core_enum) => " INPUT
+   	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  	fi
+  	
+			CTI_CORE_ENUM=TRUE
+			
+			case "$INPUT" in
+  		0)CTI_CORE_ENUM=FALSE
+  		;;
+  		1)CTI_CORE_ENUM=TRUE
+  		;;
+  	esac
+	;;
+	11)
+	MMCP_CATYPE=comvenientca
+	echo "Please select DATA from"
+  	echo " 0)DATA from NVM  1)DATA from Mem for simulation 2)DATA from Mem for product"
+  	read -p " Enter your anwser (default: nothing) => " INPUT
+   	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  	fi
+
+  	case "$INPUT" in
+  		0)DATAFROM=DATAINNVM
+  		;;
+  		1)DATAFROM=DATAINMEMFORSIMU
+  		;;
+  		2)DATAFROM=DATAINMEMFORPROD
+  		;;
+  	esac
+  	
+  	echo "Please select Lib mode from"
+  	echo " 0)Full lib(with non-smartcard support)  1)Reduce lib(wihtout non-smartcard support) "
+  	read -p " Enter your anwser (default: Full lib) => " INPUT
+   	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  	fi
+  	
+	
+  	case "$INPUT" in
+  		1)COMVENIENT_REDUCEIIB=TRUE
+  		;;
+  		*)COMVENIENT_REDUCEIIB=FALSE
+  		;;
+  	esac
+	;;
+	12)
+	MMCP_CATYPE=CCA
+	echo "Please select CA VERSION"
+  	echo " 0)2.5 version  1)2.7.1 version"
+  	read -p " Enter your anwser (default: 2.5 version) => " INPUT
+   	if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  	fi
+
+  	case "$INPUT" in
+  		0)CASVER=VER250
+  		;;
+  		1)CASVER=VER271
+  		;;
+  	esac
+	;;
+	*)
+	MMCP_CATYPE=noca
+	;;
+   esac
+
+   echo "You have select $MMCP_CATYPE $CASVER"
+}
+
+select_udi2()
+{
+  echo "Please select a udi2 for support company"
+  echo " 0)(coship company) 1)(other company)"
+  read -p " Enter your anwser (default: 0) => " INPUT
+   if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ];then
+	  echo "$INPUT">>$input_catch_file
+  fi
+
+ MMCP_COMPANY=COSHIP_COMPANY
+ 
+ case "$INPUT" in
+	0)
+	MMCP_COMPANY=COSHIP_COMPANY
+	;;
+	1)
+	MMCP_COMPANY=OTHER_COMPANY
+	;;
+   esac
+	
+   echo "You have select $MMCP_COMPANY"
+}
+
+doselect()
+{
+while ([ "x$1" != "x" ])
+do
+  case $1 in
+  -p)
+	shift	
+	INPUT=$1
+	select_platform
+	;;
+  -t)
+	shift
+	;;
+  -s)
+	shift
+	if [ "x$1" = "xdtvm" ]; then
+	  MMCP_MIDDLEWARE=dtvm
+	elif [ "x$1" = "xmhp" ]; then
+	  MMCP_MIDDLEWARE=mhp
+	elif [ "x$1" = "xocap" ]; then
+	  MMCP_MIDDLEWARE=ocap
+	fi
+	shift
+	;;
+  --im)
+  	input_catch_file=$2
+  	input_save=yes
+  	echo "input_catch_file=$input_catch_file"
+	   if [ "-x$input_catch_file" != "-x" -a "-x$input_save" = "-xyes" ] ;then
+		 rm -f  $input_catch_file
+	  fi
+	start_interactive_mode -m
+        break
+	;;
+  --ia)
+	start_interactive_mode -m
+        break
+	;;
+  *)
+	showusage
+        break
+	;;
+  esac
+done
+
+#
+# Begin to set MMCP environment
+#
+export MMCP_CATYPE
+export CASVER
+export NAGRATEST
+export DATAFROM
+export MMCP_COMPANY
+export TARGET_CA=$MMCP_CATYPE
+export COMVENIENT_REDUCEIIB
+export CTI_CORE_ENUM
+}
+ 
+#
+# Begin for argument parsing
+#
+INPUT=
+if [ "x$1" != "x" ];then
+  case $1 in
+  -p)
+	doselect $1 $2 $3
+	;;
+  -t)
+	shift
+	;;
+  -s)
+	doselect $1 $2 $3
+	;;
+  --im)
+  	doselect $1 $2 $3
+	;;
+  --ia)
+	if [ "-x$2" = "-x" ];then
+	showusage;
+	else
+	doselect $1 <$2
+	fi
+	;;
+  *)
+	showusage
+	;;
+  esac
+fi
+##
+
+

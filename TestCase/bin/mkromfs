@@ -1,0 +1,39 @@
+#!/bin/bash
+
+ROMDIR_PATH=$1
+ROMDATA_PATH=$2
+
+if [ "x$ROMDIR_PATH" = "x" ]; then
+  echo "you must give a romdata dir, or give -d option,"
+  echo "it standis for the directory $MMCP_HOME/javaresources"
+  exit 1
+fi
+
+if [ "x$ROMDIR_PATH" = "x-d" ]; then
+    ROMDIR_PATH=$MMCP_HOME/javaresources
+fi
+
+if [ "x$ROMDATA_PATH" = "x" ]; then
+    ROMDATA_PATH=$MMCP_HOME/generated
+fi
+
+
+if [ ! -d $ROMDATA_PATH ]; then
+  mkdir -p $ROMDATA_PATH
+else
+  rm -rf $ROMDATA_PATH/rom*
+fi
+
+if [ "x$MMCP_FSTYPE" = "xosplus"  ]; then
+  echo "----OSPLUS----"
+  gene2romfs $ROMDATA_PATH/romfs.img `du -sb $ROMDIR_PATH|cut -f1`
+  sudo mount -o loop $ROMDATA_PATH/romfs.img /mnt
+  cp -r $ROMDIR_PATH /mnt
+  sudo umount /mnt
+  e2rom2c $ROMDATA_PATH romfs.img romdata
+else
+  echo "genromfs -d $ROMDIR_PATH -f $ROMDATA_PATH/romfs.img"
+  genromfs -d $ROMDIR_PATH -f $ROMDATA_PATH/romfs.img
+  bin2c -D$ROMDATA_PATH romfs.img romdata
+fi
+

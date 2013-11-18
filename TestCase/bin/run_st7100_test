@@ -1,0 +1,61 @@
+#!/bin/sh
+
+if [ -f $MmcpTestExeFile ]; then
+	mv -f $MmcpTestExeFile ./exec/$PLATFORM/main.exe
+fi
+
+if [ "$1" = "-d" ]; then
+if [ "x$DVD_FRONTEND" = "x7109" ]; then
+sh4gdb -nw --directory $MMCP_HOME/porting/st/st7100/config/platform \
+	-x $MMCP_HOME/porting/st/st7100/config/platform/cocoref_v2_7109_start_script_dbg.cmd
+fi
+
+if [ "x$DVD_FRONTEND" = "x7100" ]; then
+sh4gdb -nw --directory $MMCP_HOME/porting/st/st7100/config/platform \
+        -x $MMCP_HOME/porting/st/st7100/config/platform/cocoref_v2_7100_start_script_dbg.cmd
+fi
+
+if [ "x$DVD_FRONTEND" = "x7111" ]; then
+sh4gdb -w --directory $MMCP_HOME/porting/st/st7111/config/platform/7111 \
+        -x $MMCP_HOME/porting/st/st7111/config/platform/7111/sat7111_7111_start_file.cmd -ex start_exec_d
+fi
+
+if [ "x$DVD_FRONTEND" = "x7105" ]; then
+sh4gdb -w --directory $MMCP_HOME/porting/st/st7111/config/platform/7105 \
+        -x $MMCP_HOME/porting/st/st7111/config/platform/7105/sdk7105_7105_start_file.cmd -ex start_exec_d
+fi
+
+if [ "x$DVD_FRONTEND" = "x5289" ]; then
+sh4gdb -w --directory $MMCP_HOME/porting/st/st7111/config/platform/5206 \
+        -x $MMCP_HOME/porting/st/st7111/config/platform/5206/hdk5289_5206_start_file.cmd -ex start_exec_d
+fi
+
+
+else
+
+if [ "x$DVD_FRONTEND" = "x7109" ]; then
+sh4gdb -nw --directory $MMCP_HOME/porting/st/st7100/config/platform \
+	-x $MMCP_HOME/porting/st/st7100/config/platform/cocoref_v2_7109_start_script.cmd
+fi
+
+if [ "x$DVD_FRONTEND" = "x7100" ]; then
+sh4gdb -nw --directory $MMCP_HOME/porting/st/st7100/config/platform \
+        -x $MMCP_HOME/porting/st/st7100/config/platform/cocoref_v2_7100_start_script.cmd
+fi
+
+if [ "x$DVD_FRONTEND" = "x7111" ]; then
+sh4gdb -nw --directory $MMCP_HOME/porting/st/st7111/config/platform/7111 \
+        -x $MMCP_HOME/porting/st/st7111/config/platform/7111/sat7111_7111_start_file.cmd -ex start_exec
+fi
+
+if [ "x$DVD_FRONTEND" = "x7105" ]; then
+sh4gdb -nw --directory $MMCP_HOME/porting/st/st7111/config/platform/7105 \
+        -x $MMCP_HOME/porting/st/st7111/config/platform/7105/sdk7105_7105_start_file.cmd -ex start_exec
+fi
+
+if [ "x$DVD_FRONTEND" = "x5289" ]; then
+sh4gdb -nw --directory $MMCP_HOME/porting/st/st7111/config/platform/5206 \
+        -x $MMCP_HOME/porting/st/st7111/config/platform/5206/hdk5289_5206_start_file.cmd -ex start_exec
+fi
+
+fi

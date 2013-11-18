@@ -1,0 +1,33 @@
+JAVACDEBUGFLAGS := -g
+JAVACRELEASEFLAGS := "-O -g:none"
+MMCP_CLASSPATH := $(MMCP_HOME)/jvm/build/coship-common
+MMCP_BOOTCLASSPATH := $(MMCP_CLASSPATH)/btclasses.zip:$(MMCP_HOME)/dtvmx/lib/junit-3.8.1.jar:$(MMCP_HOME)/dtvmx/lib/test-framework_1.0.0.jar
+MMCP_APP_SECTOR =hmc
+
+#×ªÒå¿Õ¸ñ×Ö·û
+EMPTY:= 
+SPACE:= $(EMPTY) $(EMPTY)
+
+MMCP_STAND_PATH = $(MMCP_HOME)/dtvmx/mmcpstandard
+MMCP_IMP_PATH = $(MMCP_HOME)/dtvmx/mmcpimpl
+MMCP_DEPRECATED_PATH = $(MMCP_HOME)/dtvmx/deprecated
+MMCP_XLET_PATH = $(MMCP_HOME)/dtvmx/widget/xlet
+MMCP_TEST_PATH = $(MMCP_HOME)/dtvmx/test
+MMCP_LWUIT_PATH = $(MMCP_HOME)/lwuit/classes
+MMCP_STANDS_PATH = $(MMCP_DEPRECATED_PATH):$(subst $(SPACE),:,$(wildcard $(MMCP_XLET_PATH)/x*)):$(MMCP_IMP_PATH):$(MMCP_XLET_PATH)/appengine:$(MMCP_XLET_PATH)/autodownloader:$(MMCP_XLET_PATH)/boot:$(MMCP_XLET_PATH)/navigator:$(MMCP_STAND_PATH)/davic:$(MMCP_STAND_PATH)/dtvm:$(MMCP_STAND_PATH)/dtvmx:$(MMCP_STAND_PATH)/javatv:$(MMCP_STAND_PATH)/jmf:$(MMCP_STAND_PATH)/mhp:$(MMCP_LWUIT_PATH):$(MMCP_TEST_PATH)
+MMCP_SYSCLASSPATH = $(MMCP_STANDS_PATH):$(MMCP_HOME)/midp/javacode
+
+
+MMCP_SYSCLASSES = $(MMCP_HOME)/classes/lib/classes.jar:$(MMCP_HOME)/$(MMCP_MIDDLEWARE)/lib/$(MMCP_MIDDLEWARE).jar
+
+
+MMCP_CORECLASSPATH := .:$(MMCP_CLASSPATH):$(MMCP_SYSCLASSPATH):$(MMCP_HOME)/integration/$(MMCP_APP_SECTOR)/javacode
+MMCP_APPSCLASSPATH := .:$(MMCP_SYSCLASSES):$(MMCP_HOME)/integration/$(MMCP_APP_SECTOR)/javacode
+
+MMCP_TESTCLASSPATH := .:$(MMCP_SYSCLASSPATH):$(MMCP_SYSCLASSES):$(MMCP_HOME)/test/packages/javacode:$(MMCP_HOME)/test/jvm/javacode
+MMCP_TESTCLASSPATH := .:$(MMCP_SYSCLASSES):$(MMCP_HOME)/test/dtvm/javacode:$(MMCP_HOME)/test/jvm/javacode
+MMCP_TESTCLASSPATH := .:$(MMCP_SYSCLASSES):$(MMCP_HOME)/test/dtvm/TestDtvm/javacode:$(MMCP_HOME)/test/dtvm/javacode:$(MMCP_HOME)/test/midp/javacode:$(MMCP_SYSCLASSES):$(MMCP_HOME)/midp/javacode:$(MMCP_HOME)/test/jvm/javacode:$(MMCP_CLASSPATH)/btclasses.zip
+
+JAVAC := $(JAVA_HOME)/bin/javac
+JAVAH := $(JAVA_HOME)/bin/javah
+include $(MMCP_HOME)/build/share/CompileEnvironment.defs

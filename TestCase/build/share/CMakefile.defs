@@ -1,0 +1,108 @@
+#
+# Compilation option
+include $(MMCP_HOME)/build/share/COption.rules
+
+COMMONFLAGS := $(MMCP_MIDDLEWARE_OPTION)
+COMMONFLAGS += $(MMCP_HAS_LL) $(MMCP_HAS_DL) 
+COMMONFLAGS += $(MMCP_HAS_FREETYPE) $(MMCP_HAS_FS) $(MMCP_HAS_PVR) 
+COMMONFLAGS += $(MMCP_HAS_NETWORK) $(MMCP_HAS_GUITOOL) $(MMCP_HAS_SECURITY) $(MMCP_HAS_GZIP)
+
+CFLAGS  += -DMMCP_PLATFORM="\"$(MMCP_PLATFORM)\"" -DMMCP_COMPILING_MODE="\"$(MMCP_COMPILING_MODE)\""
+
+ifneq "$(MMCP_COMPILING_MODE)" "release"
+COMMONFLAGS += -D_DEBUG -DDEBUG
+endif
+
+CFLAGS += $(COMMONFLAGS)
+CXXFLAGS += $(COMMONFLAGS)
+
+ifeq "$(MMCP_PLATFORM)" "win32"
+
+define MMCP_BUILD_LIBRARY
+@echo $(AR) $(ARFLAGS) $@ $(filter %.$(LIBSUFFIX),$^)
+$(if $(filter %.$(OBJSUFFIX),$^),@$(AR) $(ARFLAGS) $@ $(filter %.$(OBJSUFFIX),$^))
+$(if $(filter %.$(LIBSUFFIX),$^),@$(AR) $(ARFLAGS) $@ $(filter %.$(LIBSUFFIX),$^))
+@echo end
+endef
+
+else
+ifeq "$(MMCP_PLATFORM)" "st5105"
+
+define MMCP_BUILD_LIBRARY
+@echo $(AR) $(ARFLAGS) $@ $(filter %.$(LIBSUFFIX),$^)
+$(if $(filter %.$(OBJSUFFIX),$^),@$(AR) $(ARFLAGS) $@ $(filter %.$(OBJSUFFIX),$^))
+$(if $(filter %.$(LIBSUFFIX),$^),@$(AR) $(ARFLAGS) $@ $(filter %.$(LIBSUFFIX),$^))
+@echo end
+endef
+
+else
+ifeq "$(MMCP_PLATFORM)" "st5107"
+
+define MMCP_BUILD_LIBRARY
+@echo $(AR) $^ $(ARFLAGS) $@
+$(if $(filter %.$(OBJSUFFIX),$^),@$(AR) $^ $(ARFLAGS) $@)
+$(if $(filter %.$(LIBSUFFIX),$^),@$(AR) $^ $(ARFLAGS) $@)
+@echo end
+endef
+
+else
+ifeq "$(MMCP_PLATFORM)" "st5516"
+
+define MMCP_BUILD_LIBRARY
+@echo $(AR) $(ARFLAGS) $@ $(filter %.$(LIBSUFFIX),$^)
+$(if $(filter %.$(OBJSUFFIX),$^),@$(AR) $(ARFLAGS) $@ $(filter %.$(OBJSUFFIX),$^))
+$(if $(filter %.$(LIBSUFFIX),$^),@$(AR) $(ARFLAGS) $@ $(filter %.$(LIBSUFFIX),$^))
+@echo end
+endef
+
+else
+ifeq "$(MMCP_PLATFORM)" "cnx301"
+
+define MMCP_BUILD_LIBRARY
+@echo MMCP_BUILD_LIBRARY_cnx
+echo $(AR) $(ARFLAGS) $@ $(filter %.$(LIBSUFFIX),$^)
+$(if $(filter %.$(OBJSUFFIX),$^),@$(AR) $(ARFLAGS) $@ $(filter %.$(OBJSUFFIX),$^))
+$(if $(filter %.$(LIBSUFFIX),$^),@$(AR) $(ARFLAGS) $@ $(filter %.$(LIBSUFFIX),$^))
+@echo end
+endef
+
+else
+
+define MMCP_BUILD_LIBRARY
+@echo ***$^***
+-@$(MKDIR) $(dir $@)
+$(if $(wildcard $@),@$(RM) $@)
+$(if $(wildcard $(MMCP_PLATFORM)_$(MMCP_COMPILING_MODE)_ar.mac),@$(RM) $(MMCP_PLATFORM)_$(MMCP_COMPILING_MODE)_ar.mac)
+$(if $(filter %.$(LIBSUFFIX),$^),
+@echo CREATE $@ > $(MMCP_PLATFORM)_$(MMCP_COMPILING_MODE)_ar.mac
+@echo SAVE >> $(MMCP_PLATFORM)_$(MMCP_COMPILING_MODE)_ar.mac
+@echo END >> $(MMCP_PLATFORM)_$(MMCP_COMPILING_MODE)_ar.mac
+@$(AR) -M <$(MMCP_PLATFORM)_$(MMCP_COMPILING_MODE)_ar.mac
+)
+$(if $(filter %.$(OBJSUFFIX),$^),@$(AR) -q $@ $(filter %.$(OBJSUFFIX),$^))
+$(if $(filter %.$(LIBSUFFIX),$^),@echo OPEN $@ > $(MMCP_PLATFORM)_$(MMCP_COMPILING_MODE)_ar.mac
+$(foreach LIB,$(filter %.$(LIBSUFFIX),$^),
+@echo ADDLIB $(LIB) >> $(MMCP_PLATFORM)_$(MMCP_COMPILING_MODE)_ar.mac
+)
+@echo SAVE >> $(MMCP_PLATFORM)_$(MMCP_COMPILING_MODE)_ar.mac
+@echo END >> $(MMCP_PLATFORM)_$(MMCP_COMPILING_MODE)_ar.mac
+@$(AR) -M <$(MMCP_PLATFORM)_$(MMCP_COMPILING_MODE)_ar.mac
+@$(RM) $(MMCP_PLATFORM)_$(MMCP_COMPILING_MODE)_ar.mac
+)
+@$(AR) -s $@
+endef
+
+endif
+endif
+endif
+endif
+endif
+
+##define MMCP_COMPILE_OBJECT
+##endef
+
+##define MMCP_LINK_EXECUTABLE
+##endef
+
+
+include $(MMCP_HOME)/build/share/CompileEnvironment.defs

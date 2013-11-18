@@ -1,0 +1,20 @@
+# Kconfig options for Shell
+
+###################################################	  	
+config SHELL_SUPPORT_OC
+	bool "Shell Support OC"
+	default n
+	help
+		if Shell support coship,please select
+	  	yes,else select no!
+	  	
+##################################################	  	  	  	
+config SHELL_ADD_CITV3
+	bool "Shell Add Citv3"
+	default y
+	help
+		if Shell need add citv3,please select
+	  	yes,else select no!
+	  	
+##################################################	
+	  	  			 	  				   	  				 	  				  	

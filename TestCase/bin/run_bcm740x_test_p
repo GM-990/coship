@@ -1,0 +1,96 @@
+#! /bin/bash
+#yezhenhong 904305
+#----------------------edit record---------------------------------
+
+echo -----------------------------------------------------
+ipmatch=$1
+stbip="$2"
+mmcpPath=$3
+mountpath=$4
+executepath=$5
+
+echo ipmatch is $ipmatch
+echo stbip is $stbip
+echo mmcpPath is $mmcpPath
+echo mountpath is $mountpath
+echo executepath is $executepath
+echo Run bcm740x test...
+
+#get ip addr of stb eth
+ips=$(/sbin/ifconfig | sed -n '/inet addr/p' | awk -F'[: ]+' '{print $4}')
+for ip in $ips
+do
+	ip_match=$(echo $ip | grep $ipmatch)
+	if [ "$ip_match" != "" ]; then
+		break;
+	fi
+done
+
+
+
+if [ "$ip_match" = "" ]; then
+	echo Can not find ip matched $ipmatch.*, exit!
+	exit 0
+fi
+
+#get exec file name
+echo Find local ip: $ip
+echo Run file: $MmcpTestExeFile
+
+tmptty='tty'
+tmptty='basename $tmptty'
+tmpname='whoami'
+stbip=$stbip
+inp1="root"
+#force to reboot set-top-box everytime in case of some modules crash,but there is a better way to avoid it,just treate it simple
+inp2="reboot"
+if [ -d "$mountpath" ];then
+    inp3="mount -t nfs ${ip}:$mountpath /mnt/nfs"
+    inp4="cd /mnt/nfs/$executepath"
+else
+    inp3="mount -t nfs ${ip}:/home /home"
+    #"rmmod bcmdriver.ko;insmod ${mmcpPath}/lib/bcm740x/${MMCP_COMPILING_MODE}/bcmdriver.ko"
+    inp4="cd ${mmcpPath}/test"
+fi
+#execute my order
+inp5="${MmcpTestExeFile}"
+#--------------------------
+cd ${mmcpPath}/test/
+inputfile=in
+outputfile=bcm740x_test_$(date "+%Y%m%d_%H%M").log
+rm -fr $inputfile
+rm -fr $outputfile
+mknod $inputfile p
+touch $outputfile
+
+exec 7<>$outputfile 
+exec 8<>$inputfile
+
+tail -f $outputfile &
+
+telnet $stbip <&8 >&7 & 
+#telnet $stbip <&8 &
+
+sleep 2; echo $inp1 >> $inputfile
+#if [ -d "$mountpath" ];then
+#   sleep 2; echo $inp2 >> $inputfile
+#   sleep 25;telnet $stbip <&8 >&7 & 
+#   sleep 2; echo $inp1 >> $inputfile
+#fi
+sleep 5; echo $inp3 >> $inputfile
+sleep 2; echo $inp4 >> $inputfile
+sleep 2; echo $inp5 >> $inputfile
+
+#while true 
+#do 
+#  read str 
+#  if [ $str = "q" ];then 
+#    break
+#  fi 
+#done
+
+
+#kill all tread when exit
+#ps -ef | grep telnet | grep -v grep | grep -v telnetd | awk '{print " kill -9", $2}' | sh
+#ps -ef | grep tail | grep -v grep | grep -v telnetd | awk '{print " kill -9", $2}' | sh
+
