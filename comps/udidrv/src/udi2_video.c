@@ -22,6 +22,40 @@
 #include "udidrv_log.h"
 
 #include "udi2_video.h"
+#include "generic_include.h"
+
+#include "udi2_os.h"
+#include "tm_osg.h"
+#include "tm_video.h"
+
+#define MODULE_NAME              ("CS_VIDEO")
+
+extern CS_TM_VP_DEVICE_OBJECTS gTmVpDeviceObj;
+extern CS_TM_PIPE_OBJECTS gTmPipeObject;
+extern CNXT_GRAPHICS_HANDLE   gTridGraphicsHandle;
+static CNXT_SEM_ID gUdi2VideoSem;
+extern void CS_CNXT_SD_DRM_Notify(void);
+extern void CS_CNXT_HD_DRM_Notify(void);
+CSUDI_Error_Code TM_internal_SetWinClip(int nVideoIndex, CSUDISCREENType_E eScreenDevice, const CSUDIWinRect_S * psRect);
+CSUDI_Error_Code TM_internal_SetWindowSize(int nVideoIndex, CSUDISCREENType_E eScreenDevice, const CSUDIWinRect_S * pstRect );
+
+extern int cs_tm_get_surface_indx(int VidIndx);
+
+CS_CNXT_WINDOWSIZE  CSCNXTWINDOWSIZES[] =
+{
+	{PIPE_VP_DISPLAY_MODE_NTSC,720,480},
+	{PIPE_VP_DISPLAY_MODE_PAL,720,576},
+	{PIPE_VP_DISPLAY_MODE_480P,720,480},
+	{PIPE_VP_DISPLAY_MODE_576p,720,576},
+	{PIPE_VP_DISPLAY_MODE_720P,1280,720},
+	{PIPE_VP_DISPLAY_MODE_720P_50Hz,1280,720},
+	{PIPE_VP_DISPLAY_MODE_1080I,1920,1080},
+	{PIPE_VP_DISPLAY_MODE_1080I_50Hz,1920,1080}
+};
+
+#define NUM_RESOLUTIONS (sizeof(CSCNXTWINDOWSIZES)/sizeof(CS_CNXT_WINDOWSIZE))
+u_int32 guNumResolutions = NUM_RESOLUTIONS;
+
 
 static CSUDI_Error_Code CS_TRID_GetFullScreenWidowSize(CSUDISCREENType_E eScreenDevice,
 															 CSUDISCREENResolution_E eResolution,
@@ -220,10 +254,9 @@ CSUDI_Error_Code CSUDIVIDEOGetCount(int * pnVideoDecCount)
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	CNXT_STATUS Retcode = CNXT_STATUS_OK;	    
-	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	CNXT_STATUS Status = CNXT_STATUS_OK;	    
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In Function :%s\n",__FUNCTION__);
-	Cnxt_Retcode = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
+	Status = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
 	do
 	{
 		if(pnVideoDecCount == NULL)
@@ -235,8 +268,8 @@ CSUDI_Error_Code CSUDIVIDEOGetCount(int * pnVideoDecCount)
 		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In Function :%s VideoDecCount[%d]\n",__FUNCTION__,*pnVideoDecCount);
 	}while(0);        
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Exit Function :%s\n",__FUNCTION__);
-	Cnxt_Retcode = cnxt_kal_sem_put(gUdi2VideoSem);
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	
+	Status = cnxt_kal_sem_put(gUdi2VideoSem);
+	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Status);	
 	return Retcode;
 }
 
@@ -258,24 +291,32 @@ ENTROPIC COMMENTS ON COSHIP API
 CSUDI_Error_Code CSUDIVIDEOGetCapability(int nVideoIndex, CSUDIVIDEOCapability_S * psCapabilityInfo)
 {
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	CNXT_STATUS Retcode = CNXT_STATUS_OK;	    
-	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
-	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In Function :%s\n",__FUNCTION__);
-	Cnxt_Retcode = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
+	CNXT_STATUS Status = CNXT_STATUS_OK;	    
+	u_int32 indextemp = 0;    
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Into Function :%s\n",__FUNCTION__);
+	Status = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
+	
 	do
 	{
-		if(pnVideoDecCount == NULL)
+		if((nVideoIndex < 0)||(nVideoIndex>=CS_TRID_MAX_DEC))
+		{
+			Retcode = CSUDIVIDEO_ERROR_INVALID_DEVICE_ID;
+			break;
+		}
+		if(psCapabilityInfo == NULL)
 		{
 			Retcode = CSUDIVIDEO_ERROR_BAD_PARAMETER;
 			break;
 		}
-		*pnVideoDecCount = CS_TRID_MAX_DEC;        
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In Function :%s VideoDecCount[%d]\n",__FUNCTION__,*pnVideoDecCount);
-	}while(0);        
-	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Exit Function :%s\n",__FUNCTION__);
-	Cnxt_Retcode = cnxt_kal_sem_put(gUdi2VideoSem);
+		psCapabilityInfo->m_eStreamType[indextemp++] = EM_UDI_VID_STREAM_MPEG1;
+		psCapabilityInfo->m_eStreamType[indextemp++] = EM_UDI_VID_STREAM_MPEG2;
+		psCapabilityInfo->m_eStreamType[indextemp++] = EM_UDI_VID_STREAM_H264;	
+		psCapabilityInfo->m_eStreamType[indextemp] = 0;	
+		
+	}while(0);
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out of Function :%s Retcode[%d]\n",__FUNCTION__,Retcode);    
+	Status = cnxt_kal_sem_put(gUdi2VideoSem);
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -303,7 +344,6 @@ CSUDI_Error_Code CSUDIVIDEOSnapshot(int nVideoIndex, const CSUDIWinRect_S * psSr
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
 	CNXT_GRAPHICS_OP             GraphicsOp;
-	CNXT_STATUS Status;
 	CNXT_RECT             ImageRect;
 	CNXT_RECT_SCALE       DstImageRectScale;
 	CNXT_IMAGE_PAGE_PROPERTIES    ImagePageProp;
@@ -321,10 +361,9 @@ CSUDI_Error_Code CSUDIVIDEOSnapshot(int nVideoIndex, const CSUDIWinRect_S * psSr
 	u_int8 uNumPlanesReturned;
 	u_int32               uPixelAddress[IMAGE_MAX_PLANES]={0};
 	u_int32  uByteWidth,uStride;
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;             
-	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	CNXT_STATUS Status = CNXT_STATUS_OK;
          
-	Cnxt_Retcode = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);
+	Status = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);
     CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In Function :%s  surface :%x src :%x dst :%x\n",__FUNCTION__,phSurface,psSrcRect,psDstRect);
     
 	do
@@ -460,7 +499,7 @@ CSUDI_Error_Code CSUDIVIDEOSnapshot(int nVideoIndex, const CSUDIWinRect_S * psSr
 		}
 	}while(0);
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"EXIT Function :%s  Retcode[%d]\n",__FUNCTION__,Retcode);     
-	Cnxt_Retcode = cnxt_kal_sem_put(gUdi2VideoSem);
+	Status = cnxt_kal_sem_put(gUdi2VideoSem);
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -485,13 +524,12 @@ CSUDI_Error_Code CSUDIVIDEOGetStreamStatus(int nVideoIndex,CSUDIVIDEOStreamStatu
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	CNXT_STATUS Retcode = CNXT_STATUS_OK;	        
-	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;    
-    PIPE_STATUS Status;
+	CNXT_STATUS Status = CNXT_STATUS_OK;	        
+    PIPE_STATUS PStatus;
     static int32 tempcounter=0;
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Into Function :%s\n",__FUNCTION__);
     PIPE_VIDEO_ATTRIB videoAttr;
-	Cnxt_Retcode = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
+	Status = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
 	do
 	{
 		if((nVideoIndex < 0)||(nVideoIndex>=CS_TRID_MAX_DEC))
@@ -504,11 +542,11 @@ CSUDI_Error_Code CSUDIVIDEOGetStreamStatus(int nVideoIndex,CSUDIVIDEOStreamStatu
 			Retcode = CSUDI_FAILURE;
 			break;
 		}
-        Status = gTmPipeObject.hVideoObj[nVideoIndex]->get_attrib(gTmPipeObject.hVideoObj[nVideoIndex],&videoAttr);
-        if(Status != PIPE_STATUS_OK)                
+        PStatus = gTmPipeObject.hVideoObj[nVideoIndex]->get_attrib(gTmPipeObject.hVideoObj[nVideoIndex],&videoAttr);
+        if(PStatus != PIPE_STATUS_OK)                
         {
             Retcode = CSUDI_FAILURE;
-            CSDEBUG(MODULE_NAME,DEBUG_LEVEL,"Error :%s.%d Status[%d]\n",__FUNCTION__,__LINE__,Status);
+            CSDEBUG(MODULE_NAME,DEBUG_LEVEL,"Error :%s.%d Status[%d]\n",__FUNCTION__,__LINE__,PStatus);
             break;            
         }
         
@@ -537,7 +575,7 @@ CSUDI_Error_Code CSUDIVIDEOGetStreamStatus(int nVideoIndex,CSUDIVIDEOStreamStatu
 		
 	}while(0);
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out of Function :%s Retcode[%d]\n",__FUNCTION__,Retcode);
-	Cnxt_Retcode = cnxt_kal_sem_put(gUdi2VideoSem);
+	Status = cnxt_kal_sem_put(gUdi2VideoSem);
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -562,14 +600,13 @@ CSUDI_Error_Code CSUDIVIDEOShow(int nVideoIndex, CSUDI_BOOL bIsShow)
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	    
 	int 	chain=0,surface_indx=0;    
-	PIPE_STATUS Status;
-	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	PIPE_STATUS PStatus;
+	CNXT_STATUS Status = CNXT_STATUS_OK;
 	PIPE_VP_SURFACE_ATTRIB sSDAttrib,sHDAttrib;
 	
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Into Function :%s bIsShow[%d]\n",__FUNCTION__,bIsShow);
-	Cnxt_Retcode = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);  
+	Status = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);  
 	do
 	{
 		if((nVideoIndex < 0)||(nVideoIndex>=CS_TRID_MAX_DEC))
@@ -590,9 +627,9 @@ CSUDI_Error_Code CSUDIVIDEOShow(int nVideoIndex, CSUDI_BOOL bIsShow)
 		
 		// 2011-01-14 TerenceZhang Masked begin
 		cnxt_kal_memset(&sHDAttrib,0,sizeof(sHDAttrib));	   	
-		Status = gTmVpDeviceObj.pHDVideoSurface[surface_indx]->get_attrib(gTmVpDeviceObj.pHDVideoSurface[surface_indx], 
+		PStatus = gTmVpDeviceObj.pHDVideoSurface[surface_indx]->get_attrib(gTmVpDeviceObj.pHDVideoSurface[surface_indx], 
 		                                                                  &sHDAttrib);
-		if (Status != PIPE_STATUS_OK)
+		if (PStatus != PIPE_STATUS_OK)
 		{
 			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line[%d] error\n",__FUNCTION__,__LINE__);
 			Retcode = CSUDI_FAILURE;
@@ -600,9 +637,9 @@ CSUDI_Error_Code CSUDIVIDEOShow(int nVideoIndex, CSUDI_BOOL bIsShow)
 		}
 
 		cnxt_kal_memset(&sSDAttrib,0,sizeof(sSDAttrib));	   	
-		Status = gTmVpDeviceObj.pSDVideoSurface[surface_indx]->get_attrib(gTmVpDeviceObj.pSDVideoSurface[surface_indx], 
+		PStatus = gTmVpDeviceObj.pSDVideoSurface[surface_indx]->get_attrib(gTmVpDeviceObj.pSDVideoSurface[surface_indx], 
 		                                                                  &sSDAttrib);
-		if (Status != PIPE_STATUS_OK)
+		if (PStatus != PIPE_STATUS_OK)
 		{
 			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line[%d] error\n",__FUNCTION__,__LINE__);
 			Retcode = CSUDI_FAILURE;
@@ -613,8 +650,8 @@ CSUDI_Error_Code CSUDIVIDEOShow(int nVideoIndex, CSUDI_BOOL bIsShow)
 		{
 			if((sHDAttrib.bSurfaceEnabled == FALSE)&&(sHDAttrib.Input.Type!=PIPE_VP_SURFACE_INPUT_TYPE_NONE))
 			{
-				Status = gTmVpDeviceObj.pHDVideoSurface[surface_indx]->surface_enable(gTmVpDeviceObj.pHDVideoSurface[surface_indx]);
-				if(Status != PIPE_STATUS_OK)
+				PStatus = gTmVpDeviceObj.pHDVideoSurface[surface_indx]->surface_enable(gTmVpDeviceObj.pHDVideoSurface[surface_indx]);
+				if(PStatus != PIPE_STATUS_OK)
 				{
 					CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line[%d] error\n",__FUNCTION__,__LINE__);
 					Retcode = CSUDI_FAILURE;
@@ -624,8 +661,8 @@ CSUDI_Error_Code CSUDIVIDEOShow(int nVideoIndex, CSUDI_BOOL bIsShow)
 
 			if((sSDAttrib.bSurfaceEnabled == FALSE)&&(sSDAttrib.Input.Type!=PIPE_VP_SURFACE_INPUT_TYPE_NONE))
 			{
-				Status = gTmVpDeviceObj.pSDVideoSurface[surface_indx]->surface_enable(gTmVpDeviceObj.pSDVideoSurface[surface_indx]);
-				if(Status != PIPE_STATUS_OK)
+				PStatus = gTmVpDeviceObj.pSDVideoSurface[surface_indx]->surface_enable(gTmVpDeviceObj.pSDVideoSurface[surface_indx]);
+				if(PStatus != PIPE_STATUS_OK)
 				{
 					CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line[%d] error\n",__FUNCTION__,__LINE__);
 					Retcode = CSUDI_FAILURE;
@@ -637,8 +674,8 @@ CSUDI_Error_Code CSUDIVIDEOShow(int nVideoIndex, CSUDI_BOOL bIsShow)
 		{
 			if((sHDAttrib.bSurfaceEnabled == TRUE)&&(sHDAttrib.Input.Type!=PIPE_VP_SURFACE_INPUT_TYPE_NONE))
 			{
-				Status = gTmVpDeviceObj.pHDVideoSurface[surface_indx]->surface_disable(gTmVpDeviceObj.pHDVideoSurface[surface_indx]);
-				if(Status != PIPE_STATUS_OK)
+				PStatus = gTmVpDeviceObj.pHDVideoSurface[surface_indx]->surface_disable(gTmVpDeviceObj.pHDVideoSurface[surface_indx]);
+				if(PStatus != PIPE_STATUS_OK)
 				{
 					CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line[%d] error\n",__FUNCTION__,__LINE__);
 					Retcode = CSUDI_FAILURE;
@@ -648,8 +685,8 @@ CSUDI_Error_Code CSUDIVIDEOShow(int nVideoIndex, CSUDI_BOOL bIsShow)
 
 			if((sSDAttrib.bSurfaceEnabled == TRUE)&&(sSDAttrib.Input.Type!=PIPE_VP_SURFACE_INPUT_TYPE_NONE))
 			{
-				Status = gTmVpDeviceObj.pSDVideoSurface[surface_indx]->surface_disable(gTmVpDeviceObj.pSDVideoSurface[surface_indx]);
-				if(Status != PIPE_STATUS_OK)
+				PStatus = gTmVpDeviceObj.pSDVideoSurface[surface_indx]->surface_disable(gTmVpDeviceObj.pSDVideoSurface[surface_indx]);
+				if(PStatus != PIPE_STATUS_OK)
 				{
 					CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line[%d] error\n",__FUNCTION__,__LINE__);
 					Retcode = CSUDI_FAILURE;
@@ -662,7 +699,7 @@ CSUDI_Error_Code CSUDIVIDEOShow(int nVideoIndex, CSUDI_BOOL bIsShow)
 
     gTmVpDeviceObj.bShowVideo[surface_indx] = bIsShow;
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out of Function :%s Retcode[%d]\n",__FUNCTION__,Retcode);
-	Cnxt_Retcode = cnxt_kal_sem_put(gUdi2VideoSem);
+	Status = cnxt_kal_sem_put(gUdi2VideoSem);
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -691,15 +728,14 @@ CSUDI_Error_Code CSUDIVIDEOSetAspectRatio(int nVideoIndex,CSUDISCREENType_E eScr
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	CNXT_STATUS Retcode = CNXT_STATUS_OK;	    
 	int 	chain=0;    
     int surface_indx;
-	PIPE_STATUS Status;    
+	PIPE_STATUS PStatus;    
 	PIPE_VP_DEVICE_AR_MODE DeviceAspectRatio=0;    
-	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
-	//    PIPE_VP_SURFACE_AR_MODE AspectRatio;
+	CNXT_STATUS Status = CNXT_STATUS_OK;
+	//PIPE_VP_SURFACE_AR_MODE AspectRatio;
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Into Function :%s\n",__FUNCTION__);
-	Cnxt_Retcode = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
+	Status = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
 	do
 	{
 		if((nVideoIndex < 0)||(nVideoIndex>=CS_TRID_MAX_DEC))
@@ -759,8 +795,8 @@ CSUDI_Error_Code CSUDIVIDEOSetAspectRatio(int nVideoIndex,CSUDISCREENType_E eScr
             if((eAspectRatio != EM_UDIVIDEO_ASPECT_RATIO_AUTO)&&(eAspectRatio != EM_UDIVIDEO_ASPECT_RATIO_UNKNOWN))
             {
                 
-                Status = gTmVpDeviceObj.pHDDevice->set_aspect_ratio(gTmVpDeviceObj.pHDDevice,DeviceAspectRatio);
-			    if(Status != PIPE_STATUS_OK)
+                PStatus = gTmVpDeviceObj.pHDDevice->set_aspect_ratio(gTmVpDeviceObj.pHDDevice,DeviceAspectRatio);
+			    if(PStatus != PIPE_STATUS_OK)
 			    {
                     CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d \n",__FUNCTION__,__LINE__);
 				    Retcode = CSUDI_FAILURE;
@@ -862,13 +898,13 @@ CSUDI_Error_Code CSUDIVIDEOSetAspectRatio(int nVideoIndex,CSUDISCREENType_E eScr
                 CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"CNXT_AR_1_1[%d]CNXT_AR_20_9[%d]pic ar[%d]\n",CNXT_AR_1_1,CNXT_AR_20_9,gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio);
                 if(gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio == CNXT_AR_RAW)
                 {
-                    Status = gTmVpDeviceObj.pHDDevice->set_aspect_ratio(gTmVpDeviceObj.pHDDevice,CNXT_AR_16_9);
+                    PStatus = gTmVpDeviceObj.pHDDevice->set_aspect_ratio(gTmVpDeviceObj.pHDDevice,CNXT_AR_16_9);
                 }
                 else
                 {
-                    Status = gTmVpDeviceObj.pHDDevice->set_aspect_ratio(gTmVpDeviceObj.pHDDevice,gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio);
+                    PStatus = gTmVpDeviceObj.pHDDevice->set_aspect_ratio(gTmVpDeviceObj.pHDDevice,gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio);
                 }
-			    if(Status != PIPE_STATUS_OK)
+			    if(PStatus != PIPE_STATUS_OK)
 			    {
                     CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d \n",__FUNCTION__,__LINE__);
 				    Retcode = CSUDI_FAILURE;
@@ -884,8 +920,8 @@ CSUDI_Error_Code CSUDIVIDEOSetAspectRatio(int nVideoIndex,CSUDISCREENType_E eScr
 			gTmPipeObject.TridCoshipSetup[chain].ARSD = eAspectRatio;
             if((eAspectRatio != EM_UDIVIDEO_ASPECT_RATIO_AUTO)&&(eAspectRatio != EM_UDIVIDEO_ASPECT_RATIO_UNKNOWN))
             {
-                Status = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,DeviceAspectRatio);
-                if(Status != PIPE_STATUS_OK)
+                PStatus = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,DeviceAspectRatio);
+                if(PStatus != PIPE_STATUS_OK)
                 {
                     CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d \n",__FUNCTION__,__LINE__);
                     Retcode = CSUDI_FAILURE;
@@ -994,13 +1030,13 @@ CSUDI_Error_Code CSUDIVIDEOSetAspectRatio(int nVideoIndex,CSUDISCREENType_E eScr
                 CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"CNXT_AR_1_1[%d]CNXT_AR_20_9[%d]system AspectRatio[%d]\n",CNXT_AR_1_1,CNXT_AR_20_9,gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio);
                 if(gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio == CNXT_AR_RAW)
                 {
-                    Status = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,CNXT_AR_16_9);
+                    PStatus = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,CNXT_AR_16_9);
                 }
                 else
                 {
-                    Status = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio);                    
+                    PStatus = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio);                    
                 }
-                if(Status != PIPE_STATUS_OK)
+                if(PStatus != PIPE_STATUS_OK)
                 {
                     CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d \n",__FUNCTION__,__LINE__);
                     Retcode = CSUDI_FAILURE;
@@ -1015,7 +1051,7 @@ CSUDI_Error_Code CSUDIVIDEOSetAspectRatio(int nVideoIndex,CSUDISCREENType_E eScr
 		}
 	}while(0);
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out of Function :%s Retcode[%d]\n",__FUNCTION__,Retcode);
-	Cnxt_Retcode = cnxt_kal_sem_put(gUdi2VideoSem);
+	Status = cnxt_kal_sem_put(gUdi2VideoSem);
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -1042,12 +1078,11 @@ CSUDI_Error_Code CSUDIVIDEOGetAspectRatio(int nVideoIndex,CSUDISCREENType_E eScr
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	CNXT_STATUS Retcode = CNXT_STATUS_OK;       
-	//        PIPE_STATUS Status;            
+	CNXT_STATUS Status = CNXT_STATUS_OK;       
+	//PIPE_STATUS Status;            
 	int     chain=0;    
-	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Into Function :%s\n",__FUNCTION__);
-	Cnxt_Retcode = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
+	Status = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
 	do
 	{
 		if((nVideoIndex < 0)||(nVideoIndex>=CS_TRID_MAX_DEC))
@@ -1083,7 +1118,7 @@ CSUDI_Error_Code CSUDIVIDEOGetAspectRatio(int nVideoIndex,CSUDISCREENType_E eScr
 		}
 	}while(0);
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out of Function :%s Retcode[%d]\n",__FUNCTION__,Retcode);
-	Cnxt_Retcode = cnxt_kal_sem_put(gUdi2VideoSem);
+	Status = cnxt_kal_sem_put(gUdi2VideoSem);
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -1112,16 +1147,15 @@ CSUDI_Error_Code CSUDIVIDEOSetMatchMethod(int nVideoIndex,CSUDISCREENType_E eScr
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	CNXT_STATUS Retcode = CNXT_STATUS_OK;       
+	CNXT_STATUS Status = CNXT_STATUS_OK;       
 	//    PIPE_STATUS Status;            
 	int     chain=0, surface_indx;    
 	PIPE_VP_SURFACE_AR_MODE SurfaceAspectRatio=0;
-	PIPE_STATUS Status;    
+	PIPE_STATUS PStatus;    
     
 	PIPE_VP_DEVICE_AR_MODE DeviceAspectRatio=0;    
-	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Into Function :%s\n",__FUNCTION__);
-	Cnxt_Retcode = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
+	Status = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
 	do
 	{
 		if((nVideoIndex < 0)||(nVideoIndex>=CS_TRID_MAX_DEC))
@@ -1195,8 +1229,8 @@ CSUDI_Error_Code CSUDIVIDEOSetMatchMethod(int nVideoIndex,CSUDISCREENType_E eScr
                     break;
                     
                 }
-                Status = gTmVpDeviceObj.pHDDevice->set_aspect_ratio(gTmVpDeviceObj.pHDDevice,DeviceAspectRatio);
-			    if(Status != PIPE_STATUS_OK)
+                PStatus = gTmVpDeviceObj.pHDDevice->set_aspect_ratio(gTmVpDeviceObj.pHDDevice,DeviceAspectRatio);
+			    if(PStatus != PIPE_STATUS_OK)
 			    {
                     CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d \n",__FUNCTION__,__LINE__);
 				    Retcode = CSUDI_FAILURE;
@@ -1298,13 +1332,13 @@ CSUDI_Error_Code CSUDIVIDEOSetMatchMethod(int nVideoIndex,CSUDISCREENType_E eScr
                 CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"CNXT_AR_1_1[%d]CNXT_AR_20_9[%d]pic ar[%d]\n",CNXT_AR_1_1,CNXT_AR_20_9,gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio);
                 if(gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio == CNXT_AR_RAW)
                 {
-                    Status = gTmVpDeviceObj.pHDDevice->set_aspect_ratio(gTmVpDeviceObj.pHDDevice,CNXT_AR_16_9);
+                    PStatus = gTmVpDeviceObj.pHDDevice->set_aspect_ratio(gTmVpDeviceObj.pHDDevice,CNXT_AR_16_9);
                 }
                 else
                 {
-                    Status = gTmVpDeviceObj.pHDDevice->set_aspect_ratio(gTmVpDeviceObj.pHDDevice,gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio);
+                    PStatus = gTmVpDeviceObj.pHDDevice->set_aspect_ratio(gTmVpDeviceObj.pHDDevice,gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio);
                 }
-			    if(Status != PIPE_STATUS_OK)
+			    if(PStatus != PIPE_STATUS_OK)
 			    {
                     CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d \n",__FUNCTION__,__LINE__);
 				    Retcode = CSUDI_FAILURE;
@@ -1343,8 +1377,8 @@ CSUDI_Error_Code CSUDIVIDEOSetMatchMethod(int nVideoIndex,CSUDISCREENType_E eScr
                     break;
                     
                 }
-                Status = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,DeviceAspectRatio);
-                if(Status != PIPE_STATUS_OK)
+                PStatus = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,DeviceAspectRatio);
+                if(PStatus != PIPE_STATUS_OK)
                 {
                     CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d \n",__FUNCTION__,__LINE__);
                     Retcode = CSUDI_FAILURE;
@@ -1453,13 +1487,13 @@ CSUDI_Error_Code CSUDIVIDEOSetMatchMethod(int nVideoIndex,CSUDISCREENType_E eScr
                 CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"CNXT_AR_1_1[%d]CNXT_AR_20_9[%d]system AspectRatio[%d]\n",CNXT_AR_1_1,CNXT_AR_20_9,gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio);
                 if(gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio == CNXT_AR_RAW)
                 {
-                    Status = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,CNXT_AR_16_9);
+                    PStatus = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,CNXT_AR_16_9);
                 }
                 else
                 {
-                    Status = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio);                    
+                    PStatus = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio);                    
                 }
-                if(Status != PIPE_STATUS_OK)
+                if(PStatus != PIPE_STATUS_OK)
                 {
                     CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d \n",__FUNCTION__,__LINE__);
                     Retcode = CSUDI_FAILURE;
@@ -1473,8 +1507,8 @@ CSUDI_Error_Code CSUDIVIDEOSetMatchMethod(int nVideoIndex,CSUDISCREENType_E eScr
                     &&(gTmPipeObject.TridVideoSubSystem[0].PictureInfo.Size.uHeight > 576))
                 {
                     CSUDIWinRect_S TempRect;
-                    Status = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,PIPE_VP_DEVICE_AR_4_3);
-                    if(Status != PIPE_STATUS_OK)
+                    PStatus = gTmVpDeviceObj.pSDDevice->set_aspect_ratio(gTmVpDeviceObj.pSDDevice,PIPE_VP_DEVICE_AR_4_3);
+                    if(PStatus != PIPE_STATUS_OK)
                     {
                         CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d \n",__FUNCTION__,__LINE__);
                         Retcode = CSUDI_FAILURE;
@@ -1498,7 +1532,7 @@ CSUDI_Error_Code CSUDIVIDEOSetMatchMethod(int nVideoIndex,CSUDISCREENType_E eScr
         
 	}while(0);
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out of Function :%s Retcode[%d]\n",__FUNCTION__,Retcode);
-	Cnxt_Retcode = cnxt_kal_sem_put(gUdi2VideoSem);
+	Status = cnxt_kal_sem_put(gUdi2VideoSem);
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -1523,12 +1557,11 @@ CSUDI_Error_Code CSUDIVIDEOGetMatchMethod(int nVideoIndex,CSUDISCREENType_E eScr
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	CNXT_STATUS Retcode = CNXT_STATUS_OK;       
 	//    PIPE_STATUS Status;            
 	int     chain=0,surface_indx;    
-	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	CNXT_STATUS Status = CNXT_STATUS_OK;
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Into Function :%s\n",__FUNCTION__);
-	Cnxt_Retcode = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
+	Status = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
 	do
 	{
 		if((nVideoIndex < 0)||(nVideoIndex>=CS_TRID_MAX_DEC))
@@ -1565,7 +1598,7 @@ CSUDI_Error_Code CSUDIVIDEOGetMatchMethod(int nVideoIndex,CSUDISCREENType_E eScr
 			
 		}
 	}while(0);
-	Cnxt_Retcode = cnxt_kal_sem_put(gUdi2VideoSem);
+	Status = cnxt_kal_sem_put(gUdi2VideoSem);
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -1590,7 +1623,6 @@ CSUDI_Error_Code CSUDIVIDEOSetStopMode(int nVideoIndex, CSUDIVIDEOStopMode_E eSt
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	CNXT_STATUS Retcode = CNXT_STATUS_OK;       
 	int     chain=0;    
 	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Into Function :%s\n",__FUNCTION__);
@@ -1638,7 +1670,6 @@ CSUDI_Error_Code CSUDIVIDEOGetStopMode(int nVideoIndex, CSUDIVIDEOStopMode_E *pe
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	CNXT_STATUS Retcode = CNXT_STATUS_OK;       
 	int     chain=0;    
 	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Into Function :%s\n",__FUNCTION__);
@@ -1682,7 +1713,6 @@ CSUDI_Error_Code CSUDIVIDEOSetWindowSize(int nVideoIndex, CSUDISCREENType_E eScr
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	CNXT_STATUS Retcode = CNXT_STATUS_OK;       
 	int     chain=0, surface_indx=0;
 	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Into Function :%s eScreenDevice[%d]\n",__FUNCTION__,eScreenDevice);
@@ -1981,7 +2011,6 @@ CSUDI_Error_Code CSUDIVIDEOSetWinClip(int nVideoIndex, CSUDISCREENType_E eScreen
 //	uint16 setCounter=0;
 //	uint16 i;
 //	CNXT_RECT_SCALE		stSrcScale;
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;    
 	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
 	PIPE_VP_SURFACE_POSITION hdPosition;
 	PIPE_VP_SURFACE_POSITION sdPosition;
@@ -2151,7 +2180,6 @@ CSUDI_Error_Code CSUDIVIDEOGetWinClip(int nVideoIndex, CSUDISCREENType_E eScreen
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
 	CSUDIWinRect_S *pstSrcRect=NULL;
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
 	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
 	Cnxt_Retcode = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
 	do

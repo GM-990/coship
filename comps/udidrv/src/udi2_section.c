@@ -26,8 +26,26 @@
 
 #define MODULE_NAME "CS_SECTION"
 
+static SECTION_REQUEST           gSectionTable[MAX_SECTION_FILTERS];
+static PIPE_DEMUX_FILTER_OBJECT *gDmxFltObj[MAX_SECTION_FILTERS] = {NULL, };
+static CNXT_SEM_ID  gSectionSem;
 u_int32     guSectionFilterCount[MAX_NUM_TSI_DEMUX+1]={0};
+u_int8      *gCbufSection;
 
+u_int32 cntDmxFilterInInjectMode = 0;
+u_int32 uGlobaltag = 0; 
+
+extern CNXT_STATUS cnxt_cbuf_read_data_mmapped_dest(
+                            CNXT_CBUF_HANDLE hHandle,
+                            void *pData,
+                            u_int32 uNumBytes,
+                            u_int32 *pNumBytesRead);
+
+extern CS_TM_PIPE_OBJECTS gTmPipeObject;
+
+extern CNXT_QUEUE_ID injectDataQueue;
+
+extern bool bPlayerStarted;
 
 /**
 @brief 请求Filter过滤数据
@@ -176,7 +194,7 @@ CSUDI_Error_Code CSUDIFILTERAllocate(const CSUDISECTIONRequestInfo_S * psRequest
            gSectionTable[FilterID].DmxFilterCfg.FilterCfg.SectionFilter.uFilterMask[2]   = 0;
            gSectionTable[FilterID].DmxFilterCfg.FilterCfg.SectionFilter.uNegativeMask[2] = 0;
 		   
-           gSectionTable[FilterID].DmxFilterCfg.pTag = uGlobaltag;
+           //gSectionTable[FilterID].DmxFilterCfg.pTag = uGlobaltag; //commented by frank.zhou
 		   
 		   uGlobaltag++;
    

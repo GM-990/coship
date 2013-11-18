@@ -43,6 +43,11 @@
 #include "string.h"
 #include "cbuf.h"
 #include "cnxtfb.h"
+
+#include "drm.h"
+#include "string.h"
+#include "cbuf.h"
+#include "cnxtfb.h"
 #include "tm_osg.h"
 
 
@@ -78,6 +83,12 @@ static CNXT_IMAGE_HANDLE          gImageHandle_hd;
 static CNXT_IMAGE_HANDLE          gImageHandle_sd;
 static bool   blit_done[2] = {FALSE,FALSE};
 CNXT_SEM_ID gOsg_sem[2];
+static unsigned int uStartTimeMs_start,uStartTimeMs_end;
+static unsigned int s_cnt = 0;
+static unsigned int s_TotalTime_full = 0;
+static unsigned int s_TotalTime_small = 0;
+static int osg_fd=-1;
+
 
 void CS_CNXT_SD_DRM_Notify(void)
 {
@@ -114,7 +125,7 @@ void CS_CNXT_SD_DRM_Notify(void)
 		/* Enable hardware connection to the DRM for the still video region */
 
 		iDisplayPage = (uDisplayPage[0])%2;
-		Retcode = pgSDOSDSurface->set_graphics_page(pgSDOSDSurface,iDisplayPage);
+		Retcode = pgSDOSDSurface->set_graphics_page(pgSDOSDSurface,TRUE, iDisplayPage); //modify by frank
 		if(Retcode != CNXT_STATUS_OK)
 		{
 			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"cnxt_drm_rgn_set_options :%d at line :%d\n",Retcode,__LINE__);
@@ -182,7 +193,7 @@ void CS_CNXT_SD_DRM_Notify(void)
 			
 		iDisplayPage = uDisplayPage[1]%2;
 
-		Retcode = pgHDOSDSurface->set_graphics_page(pgHDOSDSurface,iDisplayPage);
+		Retcode = pgHDOSDSurface->set_graphics_page(pgHDOSDSurface, TRUE, iDisplayPage);
 
 		if(Retcode != CNXT_STATUS_OK)
 		{
@@ -392,8 +403,8 @@ CNXT_STATUS CS_TRID_OSG_init(CSUDIOSGPixelFormat_E ePixelFormat)
 		pgSDOSDSurface->set_notifier(pgSDOSDSurface,CS_CNXT_SD_DRM_Notify,NULL);
 //		pgHDOSDSurface->set_notifier(pgSDOSDSurface,CS_CNXT_HD_DRM_Notify,NULL);
 		
-		pgSDOSDSurface->set_graphics_page(pgSDOSDSurface,0);
-		pgHDOSDSurface->set_graphics_page(pgHDOSDSurface,0);
+		pgSDOSDSurface->set_graphics_page(pgSDOSDSurface, TRUE, 0);
+		pgHDOSDSurface->set_graphics_page(pgHDOSDSurface, TRUE, 0);
 
 		for(i = 0; i< MAX_SURFACE_NUM;i++)
 		{
@@ -451,11 +462,13 @@ void CSOSGTermFB_P()
 			CSDEBUG(MODULE_NAME, ERROR_LEVEL, " %s: fail to stop display for fb\n", __FUNCTION__);
 	        	return ;
 		}		
+		#if 0	 //commented by frank.zhou
 		if (ioctl(osg_fd, FBIO_CLOSESURFACE, NULL) < 0) 
 		{
 			CSDEBUG(MODULE_NAME, ERROR_LEVEL, " %s: fail to close surface for fb\n", __FUNCTION__);
 	       	return ;
 		}
+		#endif
 	}
 
 	return ;
@@ -488,8 +501,8 @@ CSUDI_Error_Code CSUDIOSGCreateSurface(CSUDIOSGPixelFormat_E ePixelFormat, int n
 	CNXT_IMAGE_HANDLE	ImageHandle = 0;
 	CNXT_PIXEL_MODE       pixel_mode;
 	int i;
-	CNXT_STATUS     Retcode = CNXT_STATUS_OK;
-	CSUDI_Error_Code status = CSUDI_SUCCESS;
+	CNXT_STATUS     Status = CNXT_STATUS_OK;
+	//CSUDI_Error_Code status = CSUDI_SUCCESS;
 	
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,  "Enter function %s in nWidth=%d nHeight=%d\n",__FUNCTION__,nWidth,nHeight);
 	if (!bOsdInitialised)
@@ -539,25 +552,25 @@ CSUDI_Error_Code CSUDIOSGCreateSurface(CSUDIOSGPixelFormat_E ePixelFormat, int n
 		if( pixel_mode == PIXEL_NOT_SUPPORT )
 		{
 			CSDEBUG(MODULE_NAME, ERROR_LEVEL,  "PIXEL_NOT_SUPPORT.\n");
-			status= CSUDIOSG_ERROR_FEATURE_NOT_SUPPORTED;
+			Retcode= CSUDIOSG_ERROR_FEATURE_NOT_SUPPORTED;
 			break;
 		}               
 
 		
-		Retcode = CS_OSG_FillImageCaps(pixel_mode, (u_int16)nWidth, (u_int16)nHeight, &ImageCaps);
-		if(Retcode != CNXT_STATUS_OK)
+		Status = CS_OSG_FillImageCaps(pixel_mode, (u_int16)nWidth, (u_int16)nHeight, &ImageCaps);
+		if(Status != CNXT_STATUS_OK)
 		{
 			CSDEBUG(MODULE_NAME, ERROR_LEVEL,  "Unable to fill in Destination image caps. Retcode = %d.\n", Retcode);
-			status =   CSUDIOSG_ERROR_UNKNOWN_ERROR;//????
+			Retcode =   CSUDIOSG_ERROR_UNKNOWN_ERROR;//????
 			break;
 		}
-		Retcode = cnxt_image_open(&ImageHandle, &ImageCaps, NULL, NULL);
+		Status = cnxt_image_open(&ImageHandle, &ImageCaps, NULL, NULL);
 		
-		if(Retcode != CNXT_STATUS_OK)
+		if(Status != CNXT_STATUS_OK)
 		{
 			
 			CSDEBUG(MODULE_NAME, ERROR_LEVEL,  "Error open a destination image. IMAGEStatus = %d.\n", Retcode);
-			status =   CSUDIOSG_ERROR_UNKNOWN_ERROR;//????
+			Retcode =   CSUDIOSG_ERROR_UNKNOWN_ERROR;//????
 			break;
 		}
 		
@@ -586,8 +599,8 @@ CSUDI_Error_Code CSUDIOSGDestroySurface(CSUDI_HANDLE hSurface)
 {	
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
 	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);	 
-	CNXT_STATUS 		Retcode = CNXT_STATUS_OK;
-	CSUDI_Error_Code    status = CSUDI_SUCCESS;
+	CNXT_STATUS 		Status = CNXT_STATUS_OK;
+	//CSUDI_Error_Code    status = CSUDI_SUCCESS;
 	PIPE_VP_SURFACE_INPUT Input;
 	TM_Image_Surface *SurfaceTmp;
 	
@@ -599,7 +612,7 @@ CSUDI_Error_Code CSUDIOSGDestroySurface(CSUDI_HANDLE hSurface)
 		if(!bOsdInitialised)
 		{
 			CSDEBUG(MODULE_NAME, ERROR_LEVEL, "In Function :%s osd hasn't been initialised error\n",__FUNCTION__);
-			status = CSUDIOSG_ERROR_UNKNOWN_ERROR;
+			Retcode = CSUDIOSG_ERROR_UNKNOWN_ERROR;
 			break;
 		}
 		
@@ -609,7 +622,7 @@ CSUDI_Error_Code CSUDIOSGDestroySurface(CSUDI_HANDLE hSurface)
 		{
 			CSDEBUG(MODULE_NAME, ERROR_LEVEL,  "In Function :%s Error check image handle. \n",__FUNCTION__);
 
-			status = CSUDIOSG_ERROR_BAD_PARAMETER;
+			Retcode = CSUDIOSG_ERROR_BAD_PARAMETER;
 			break;
 		}
 
@@ -621,7 +634,7 @@ CSUDI_Error_Code CSUDIOSGDestroySurface(CSUDI_HANDLE hSurface)
 		{
 			CSDEBUG(MODULE_NAME, ERROR_LEVEL,  "In Function :%s Error check image handle. line=%d \n",__FUNCTION__,__LINE__ );
 			
-			status = CSUDIOSG_ERROR_BAD_PARAMETER;
+			Retcode = CSUDIOSG_ERROR_BAD_PARAMETER;
 			break;
 		}
 
@@ -636,14 +649,14 @@ CSUDI_Error_Code CSUDIOSGDestroySurface(CSUDI_HANDLE hSurface)
 				if( pgSDOSDSurface->set_input (pgSDOSDSurface, &Input ) != PIPE_STATUS_OK )
 				{
 					CSDEBUG(MODULE_NAME, ERROR_LEVEL, "In Function :%s pgSDOSDSurface->set_input error \n",__FUNCTION__);
-					status = CSUDIOSG_ERROR_UNKNOWN_ERROR;
+					Retcode = CSUDIOSG_ERROR_UNKNOWN_ERROR;
 					break;
 				} 
-				Retcode = cnxt_image_close(SurfaceTmp->pImageHandle);
-				if(Retcode != CNXT_STATUS_OK)
+				Status = cnxt_image_close(SurfaceTmp->pImageHandle);
+				if(Status != CNXT_STATUS_OK)
 				{
 					CSDEBUG(MODULE_NAME, ERROR_LEVEL, "In Function :%s cnxt_image_close error \n",__FUNCTION__);
-					status = CSUDIOSG_ERROR_UNKNOWN_ERROR;
+					Retcode = CSUDIOSG_ERROR_UNKNOWN_ERROR;
 					break; 
 				}
 				
@@ -651,7 +664,7 @@ CSUDI_Error_Code CSUDIOSGDestroySurface(CSUDI_HANDLE hSurface)
 				if( pgSDOSDSurface->surface_disable(pgSDOSDSurface) != PIPE_STATUS_OK )
 				{
 					CSDEBUG(MODULE_NAME, ERROR_LEVEL, "In Function :%s surface_disable \n",__FUNCTION__);
-					status = CSUDIOSG_ERROR_UNKNOWN_ERROR;
+					Retcode = CSUDIOSG_ERROR_UNKNOWN_ERROR;
 					break; 
 				}
 
@@ -670,12 +683,12 @@ CSUDI_Error_Code CSUDIOSGDestroySurface(CSUDI_HANDLE hSurface)
 					break; 
 				}
 				
-				Retcode = cnxt_image_close(SurfaceTmp->pImageHandle);	
-				if(Retcode != CNXT_STATUS_OK)
+				Status = cnxt_image_close(SurfaceTmp->pImageHandle);	
+				if(Status != CNXT_STATUS_OK)
 				{
 					
 					CSDEBUG(MODULE_NAME, ERROR_LEVEL, "In Function :%s cnxt_image_close error \n",__FUNCTION__);
-					status = CSUDIOSG_ERROR_UNKNOWN_ERROR;
+					Retcode = CSUDIOSG_ERROR_UNKNOWN_ERROR;
 					break;
 					
 				}
@@ -683,7 +696,7 @@ CSUDI_Error_Code CSUDIOSGDestroySurface(CSUDI_HANDLE hSurface)
 				if( pgHDOSDSurface->surface_disable(pgHDOSDSurface) != PIPE_STATUS_OK )
 				{
 					CSDEBUG(MODULE_NAME, ERROR_LEVEL, "In Function :%s cnxt_image_close error \n",__FUNCTION__);
-					status = CSUDIOSG_ERROR_UNKNOWN_ERROR;
+					Retcode = CSUDIOSG_ERROR_UNKNOWN_ERROR;
 					break;
 				}
 			}
@@ -703,11 +716,11 @@ CSUDI_Error_Code CSUDIOSGDestroySurface(CSUDI_HANDLE hSurface)
 		else
 		{
 			
-			Retcode = cnxt_image_close(SurfaceTmp->pImageHandle);
-			if(Retcode != CNXT_STATUS_OK)
+			Status = cnxt_image_close(SurfaceTmp->pImageHandle);
+			if(Status != CNXT_STATUS_OK)
 			{
 				CSDEBUG(MODULE_NAME, ERROR_LEVEL,  "Error closing image handle. IMAGEStatus = %d.\n", Retcode);
-				status = CSUDIOSG_ERROR_UNKNOWN_ERROR;//????
+				Retcode = CSUDIOSG_ERROR_UNKNOWN_ERROR;//????
 				break;
 			}
 		}
@@ -796,8 +809,8 @@ CSUDI_Error_Code CSUDIOSGGetSurfaceInfo(CSUDI_HANDLE hSurface, CSUDIOSGSurfaceIn
 {	
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
 	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);    
-	CNXT_STATUS 				  Retcode;
-	CSUDI_Error_Code			  status = CSUDI_FAILURE;
+	CNXT_STATUS 				  Status;
+	//CSUDI_Error_Code			  status = CSUDI_FAILURE;
 	TM_Image_Surface			  *pImageSurface;
 	CNXT_IMAGE_PAGE_PROPERTIES	  ImagePageProp;
 
@@ -842,41 +855,40 @@ CSUDI_Error_Code CSUDIOSGGetSurfaceInfo(CSUDI_HANDLE hSurface, CSUDIOSGSurfaceIn
 				nhSurfaceType = 1;
 			}
 			
-			Retcode = cnxt_kal_sem_get(gOsg_sem[ nhSurfaceType ], CNXT_KAL_WAIT_FOREVER);
-			if (Retcode != CNXT_STATUS_OK)
+			Status = cnxt_kal_sem_get(gOsg_sem[ nhSurfaceType ], CNXT_KAL_WAIT_FOREVER);
+			if (Status != CNXT_STATUS_OK)
 			{
 				CSDEBUG(MODULE_NAME, ERROR_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
-				status = CSUDIOSG_ERROR_UNKNOWN_ERROR;
+				Retcode = CSUDIOSG_ERROR_UNKNOWN_ERROR;
 				break ;
 			}
 			
-			Retcode = cnxt_image_get_page_properties(pImageSurface->pImageHandle,uDisplayPage[nhSurfaceType]%2, &ImagePageProp);
-			if (Retcode != CNXT_STATUS_OK)
+			Status = cnxt_image_get_page_properties(pImageSurface->pImageHandle,uDisplayPage[nhSurfaceType]%2, &ImagePageProp);
+			if (Status != CNXT_STATUS_OK)
 			{
 				CSDEBUG(MODULE_NAME, ERROR_LEVEL, "Error get page properties of a source image. IMAGEStatus = %d.\n",Retcode);
-				status = CSUDIOSG_ERROR_UNKNOWN_ERROR;
+				Retcode = CSUDIOSG_ERROR_UNKNOWN_ERROR;
 				Retcode = cnxt_kal_sem_put(gOsg_sem[ nhSurfaceType]);
 				break;
 			}
 			
 			
-			Retcode = cnxt_kal_sem_put(gOsg_sem[ nhSurfaceType]);
-			if ( Retcode != CNXT_STATUS_OK )
+			Status = cnxt_kal_sem_put(gOsg_sem[ nhSurfaceType]);
+			if ( Status != CNXT_STATUS_OK )
 			{
 				CSDEBUG(MODULE_NAME, ERROR_LEVEL,"KAL_SEM_PUT FAILED %d \n", Retcode);
-                status = CSUDIOSG_ERROR_UNKNOWN_ERROR;
+                Retcode = CSUDIOSG_ERROR_UNKNOWN_ERROR;
 				break ;
 			}
 		}
 		/*<!-- Modify by lengwenhua,2010/09/10 09:40:20: */
 		else
 		{
-			Retcode = cnxt_image_get_page_properties(pImageSurface->pImageHandle,0, &ImagePageProp);
-			if (Retcode != CNXT_STATUS_OK)
+			Status = cnxt_image_get_page_properties(pImageSurface->pImageHandle,0, &ImagePageProp);
+			if (Status != CNXT_STATUS_OK)
 			{
 				CSDEBUG(MODULE_NAME, ERROR_LEVEL, "Error get page properties of a source image. IMAGEStatus = %d.\n",Retcode);
-				status = CSUDIOSG_ERROR_UNKNOWN_ERROR;
-				
+				Retcode = CSUDIOSG_ERROR_UNKNOWN_ERROR;				
 				break;
 			}
 		}
@@ -893,7 +905,7 @@ CSUDI_Error_Code CSUDIOSGGetSurfaceInfo(CSUDI_HANDLE hSurface, CSUDIOSGSurfaceIn
 		//psSurfaceInfo->m_pvPalette	  = (void *)ImagePalette.pPalEntry;//??vijay m_ePixelFormat specified when the color palette for the EM_UDIOSG_PIXEL_FORMAT_PALETTE8 data area, there is no palette Surface, structure, reserved for the palette, so to use void */
 		psSurfaceInfo->m_pvPalette		= NULL;
 
-		status = CSUDI_SUCCESS;
+		Retcode = CSUDI_SUCCESS;
 	}while(0);
 	return Retcode;
 }
