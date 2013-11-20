@@ -74,6 +74,7 @@ extern bool bInjectIframe;
 extern bool bPlayerStatus ;
 extern CNXT_QUEUE_ID injectDataQueue;
 extern CSUDI_Error_Code TM_AOUTSetMute(CSUDIAOUTDevices_E eAudioDevice,CSUDI_BOOL bMute);
+extern bool bIsEncDataRequired(PIPE_AUDIO_FORMAT AudioFormat);
 
 u_int8 *pRecordData;
 

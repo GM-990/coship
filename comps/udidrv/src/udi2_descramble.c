@@ -25,6 +25,48 @@
 #include "udidrv_log.h"
 
 #include "udi2_descramble.h"
+#include "generic_include.h"
+
+#define MODULE_NAME ("CS_DESC")
+
+#define UDI_MAX_DESC 32        /* Check with PIPE team */
+
+typedef struct udi_desc_handle
+{
+    int      DescId;
+    u_int16  uDescPid;
+    bool     bAllocDesc;
+    int      demux_unit;
+    
+} UDI_DESC_HANDLE;
+
+static UDI_DESC_HANDLE         gDescHandle[UDI_MAX_DESC];
+
+static CNXT_SEM_ID      gDescSem;
+
+CSUDI_Error_Code tm_desc_init(void)
+{
+    u_int16 i;
+    int Result;
+    
+    for(i = 0; i < UDI_MAX_DESC; i++ )
+    {
+       gDescHandle[i].DescId      = 0xFFFF;
+       gDescHandle[i].uDescPid    = 0x1FFF;
+       gDescHandle[i].bAllocDesc  = FALSE;
+       gDescHandle[i].demux_unit  = ~0;
+    }
+
+    Result = cnxt_kal_sem_create(1, NULL, &gDescSem);
+    if(CNXT_STATUS_OK != Result)
+    {
+         CSDebug(MODULE_NAME, ERROR_LEVEL," Failed to Create Semaphore\n");
+         return  CSUDI_FAILURE;
+    }
+    
+    return CSUDI_SUCCESS;
+}
+//frank.zhou---------------------------------------------------------------------------------------------------
 /**
 @brief 分配一个解扰通道，返回解扰通道句柄
 

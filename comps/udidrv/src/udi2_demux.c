@@ -29,7 +29,7 @@
 
 #define MODULE_NAME ("CS_DEMUX")
 
-extern CNXT_SEM_ID  gSectionSem;
+static CNXT_SEM_ID  gSectionSem;
 extern CS_TM_PIPE_OBJECTS gTmPipeObject;
 extern u_int32 guSectionFilterCount[MAX_NUM_TSI_DEMUX+1];
 

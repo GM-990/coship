@@ -56,6 +56,361 @@ CS_CNXT_WINDOWSIZE  CSCNXTWINDOWSIZES[] =
 #define NUM_RESOLUTIONS (sizeof(CSCNXTWINDOWSIZES)/sizeof(CS_CNXT_WINDOWSIZE))
 u_int32 guNumResolutions = NUM_RESOLUTIONS;
 
+static void CS_TRID_Vp_HD_notifier(PIPE_VP_DEVICE_OBJECT *pVPDevice,
+                                        void *pUserData,
+                                        PIPE_VP_NOTIFY_EVENT Event,
+                                        void *pData,
+                                        void *pTag)
+{
+	//PIPE_VP_SURFACE_OBJECT *pSurface = NULL;    
+	do
+	{
+		if (gTmVpDeviceObj.pHDDevice != pVPDevice)
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "pVPDevice is illegal\n" );
+			break;
+		}
+		switch (Event)
+		{
+		case CNXT_VPP_EVENT_VSYNC:
+			//CSDEBUG(MODULE_NAME,ERROR_LEVEL, "CNXT_VPP_EVENT_VSYNC Received for SD\n");
+			CS_CNXT_HD_DRM_Notify();
+			break;
+		case PIPE_VP_EVENT_DISPLAY_UNBLANK:
+			//CSDEBUG(MODULE_NAME,ERROR_LEVEL, "PIPE_VP_EVENT_DISPLAY_UNBLANK Received for HD. pdata=%d \n",(PIPE_VP_SURFACE_TYPE)pData);
+			// 2011-01-13 TerenceZhang Masked begin:
+			#if 0
+			if (pVPDevice == gTmVpDeviceObj.pHDDevice)
+			{
+				pSurface = gTmVpDeviceObj.pHDDevice->Surface[(PIPE_VP_SURFACE_TYPE)pData];
+				if (pSurface == NULL)
+				{
+					break;
+				}
+				/* Enable the Surfaces. */
+				if( pSurface->surface_enable(pSurface)!= PIPE_STATUS_OK )
+				{
+					CSDEBUG(MODULE_NAME,ERROR_LEVEL, " HD VIDEO - surface_enable- failed Type is %d\n",(PIPE_VP_SURFACE_TYPE)pData);
+					break;      
+				}                           
+			}  
+			#endif
+			// 2011-01-13 TerenceZhang Masked end
+			break;
+		default:
+			break;
+		}
+	}while(0);
+}
+
+static void CS_TRID_Vp_SD_notifier(PIPE_VP_DEVICE_OBJECT *pVPDevice,
+                                        void *pUserData,
+                                        PIPE_VP_NOTIFY_EVENT Event,
+                                        void *pData,
+                                        void *pTag)
+{
+
+	//PIPE_VP_SURFACE_OBJECT *pSurface = NULL;    
+	do
+	{
+		if (gTmVpDeviceObj.pSDDevice != pVPDevice)
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "pVPDevice is illegal\n" );
+			break;
+		}
+		switch (Event)
+		{
+		case CNXT_VPP_EVENT_VSYNC:
+			//CSDEBUG(MODULE_NAME,ERROR_LEVEL, "CNXT_VPP_EVENT_VSYNC Received for SD\n");
+			CS_CNXT_SD_DRM_Notify();
+			break;
+		case PIPE_VP_EVENT_DISPLAY_UNBLANK:
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "PIPE_VP_EVENT_DISPLAY_UNBLANK Received for SD. pdata=%d \n",(PIPE_VP_SURFACE_TYPE)pData);              
+			if (pVPDevice == gTmVpDeviceObj.pSDDevice)
+			{
+				// 2011-01-13 TerenceZhang Masked begin:
+				#if 0
+				pSurface = gTmVpDeviceObj.pSDDevice->Surface[(PIPE_VP_SURFACE_TYPE)pData];
+				if (pSurface == NULL)
+				{
+					break;
+				}
+				/* Unblank the VP HD surface */
+				if( pSurface->surface_enable(pSurface)!= PIPE_STATUS_OK )
+				{
+					CSDEBUG(MODULE_NAME,ERROR_LEVEL, " SD VIDEO - surface_enable- failed Type is %d\n",(PIPE_VP_SURFACE_TYPE)pData);
+					break;      
+				}
+				#endif
+				// 2011-01-13 TerenceZhang Masked end				
+				{
+					
+					PIPE_VIDEO_OBJECT        *pVidObject=NULL;
+					PIPE_VIDEO_ATTRIB         VideoAttrib;
+					
+					pVidObject = gTmPipeObject.hVideoObj[0];
+					pVidObject->get_attrib(pVidObject,&VideoAttrib);
+					CSDEBUG(MODULE_NAME,ERROR_LEVEL,"pVidObject->get_attrib>>>AspectRatio[%d]PictureWidth[%d]PictureHeight[%d]\n", \
+																			VideoAttrib.PictureInfo.AspectRatio,
+																			VideoAttrib.PictureInfo.PictureSize.uWidth,
+																			VideoAttrib.PictureInfo.PictureSize.uHeight);
+				
+					gTmPipeObject.TridVideoSubSystem[0].PictureInfo.AspectRatio = VideoAttrib.PictureInfo.AspectRatio;
+                    gTmPipeObject.TridVideoSubSystem[0].PictureInfo.Size.uWidth = VideoAttrib.PictureInfo.PictureSize.uWidth;
+                    gTmPipeObject.TridVideoSubSystem[0].PictureInfo.Size.uHeight = VideoAttrib.PictureInfo.PictureSize.uHeight;
+				}
+			}	 
+			break;
+		default:
+			break;
+		}
+	}while(0);
+}   
+
+CNXT_STATUS CS_TRID_Video_init(void)
+{
+	CNXT_STATUS Retcode = CNXT_STATUS_OK;	
+	PIPE_VP_DEVICE_CFG				   VPDeviceCfg;	
+	PIPE_VP_SURFACE_CFG 			  VPSurfaceCfg;    
+	PIPE_VP_SURFACE_POSITION position;
+	int 	chain=0;
+	u_int32 EventMask=0;
+	char sem_name[20];
+	int i=0;
+    
+	sprintf(sem_name,"Udi2VideoSem0");
+	CSDEBUG(MODULE_NAME,ERROR_LEVEL, ">>>>>>>>>CS_TRID_Video_init\n" );
+	if ( gTmVpDeviceObj.pHDDevice == NULL )
+	{
+		gTmVpDeviceObj.pHDDevice = pipe_vp_device_open (PIPE_VP_DEVICE_TYPE_HD);
+		if ( gTmVpDeviceObj.pHDDevice == NULL )
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Cannot open VP HD Device\n" );
+			return CNXT_STATUS_FAILURE;
+		} 
+	}
+	
+	if ( gTmVpDeviceObj.pSDDevice == NULL )
+	{
+		gTmVpDeviceObj.pSDDevice = pipe_vp_device_open (PIPE_VP_DEVICE_TYPE_SD);
+		if ( gTmVpDeviceObj.pSDDevice == NULL )
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Cannot open VP SD Device\n" );
+			return CNXT_STATUS_FAILURE;
+		}    
+	}  
+	
+	do
+	{
+		if(gTmVpDeviceObj.pHDDevice == NULL ||(gTmVpDeviceObj.pSDDevice == NULL))
+		{
+			
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "VP HD Device or VP SD Device is NOT init\n" );
+			Retcode = CNXT_STATUS_FAILURE;	        
+			break;			
+		}
+		
+		Retcode=cnxt_kal_sem_create(1, sem_name, &(gUdi2VideoSem));
+		if(CNXT_STATUS_OK!=Retcode)
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL, "sem_create  failed\n");
+			Retcode = CNXT_STATUS_FAILURE;	        
+			break;			
+		}
+		/* Configure the VP device. */
+		VPDeviceCfg.DisplayMode = PIPE_VP_DISPLAY_MODE_1080I_50Hz;
+		VPDeviceCfg.BackgroundColor.ColorType = PIPE_VP_COLOR_TYPE_RGB;
+		VPDeviceCfg.BackgroundColor.Color.RGB.uRed = 0;
+		VPDeviceCfg.BackgroundColor.Color.RGB.uGreen = 0;
+		VPDeviceCfg.BackgroundColor.Color.RGB.uBlue = 0;
+		VPDeviceCfg.BackgroundColor.Color.RGB.uAlpha = 0;
+		
+		if(gTmVpDeviceObj.pHDDevice->set_display_mode(gTmVpDeviceObj.pHDDevice, VPDeviceCfg.DisplayMode)!= PIPE_STATUS_OK )
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to set HD video\n" );
+			Retcode = CNXT_STATUS_FAILURE; 		   
+			break;		   
+			
+		}  
+		
+		VPDeviceCfg.DisplayMode = PIPE_VP_DISPLAY_MODE_PAL;
+		if(gTmVpDeviceObj.pSDDevice->set_display_mode(gTmVpDeviceObj.pSDDevice, VPDeviceCfg.DisplayMode)!= PIPE_STATUS_OK )
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to set SD video\n" );
+			Retcode = CNXT_STATUS_FAILURE; 		   
+			break;		   
+		}
+		gTmPipeObject.TmDisplaySubSys[chain].uHDVidStandard = PIPE_VP_DISPLAY_MODE_1080I;
+		gTmPipeObject.TmDisplaySubSys[chain].uSDVidStandard = PIPE_VP_DISPLAY_MODE_PAL;
+		gTmPipeObject.TmDisplaySubSys[chain].uHDResolution  = EM_UDISCREEN_RESOLUTION_1080I_50HZ;    
+		gTmPipeObject.TmDisplaySubSys[chain].uSDResolution = EM_UDISCREEN_RESOLUTION_PAL;
+//        gTmPipeObject.TmDisplaySubSys[chain].AspectRatio = CNXT_AR_4_3;
+		gTmPipeObject.TridVideoSubSystem[chain].bVidFullImageHD = TRUE;
+		gTmPipeObject.TridVideoSubSystem[chain].bVidFullImageSD = TRUE;
+		gTmPipeObject.TridVideoSubSystem[chain].bVidFullScreenHD = TRUE;
+		gTmPipeObject.TridVideoSubSystem[chain].bVidFullScreenSD = TRUE;
+        gTmPipeObject.TridVideoSubSystem[chain].PictureInfo.Size.uWidth = 720;
+        gTmPipeObject.TridVideoSubSystem[chain].PictureInfo.Size.uHeight = 576;
+        gTmPipeObject.TridVideoSubSystem[chain].PictureInfo.AspectRatio = CNXT_AR_4_3;
+        gTmPipeObject.TridCoshipSetup[chain].eStopMode = EM_UDIVIDEO_STOPMODE_FREEZE;
+        gTmPipeObject.TridCoshipSetup[chain].eDecAoutDevice = EM_UDIAOUT_RCA|EM_UDIAOUT_SPDIF|EM_UDIAOUT_HDMI;
+        gTmPipeObject.TridCoshipSetup[chain].eBypassAoutDevice = 0;
+        gTmPipeObject.TridCoshipSetup[chain].eAoutMode = EM_UDIAOUT_DECODE;
+        gTmPipeObject.TridCoshipSetup[chain].AudioMute = 0;
+        gTmPipeObject.TridCoshipSetup[chain].AoutRCAmute  = 0;
+        gTmPipeObject.TridCoshipSetup[chain].AoutHDMImute = 0;
+        gTmPipeObject.TridCoshipSetup[chain].Aoutspdifmute = 0;
+        gTmPipeObject.TridCoshipSetup[chain].eChannelType = EM_UDIAUDIO_CHANNEL_STEREO;
+	 for (i=0;i<MAX_PCM_INSTANCES;i++)
+	 {
+		 gTmPipeObject.TridCoshipSetup[chain].unPcmVolume[i] = 20;
+		 gTmPipeObject.TridCoshipSetup[chain].bPcmMute[i] = FALSE;
+	 }
+		if( gTmVpDeviceObj.pHDDevice->set_notifier(gTmVpDeviceObj.pHDDevice, CS_TRID_Vp_HD_notifier, NULL)
+				!= PIPE_STATUS_OK )
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to set notify for SD video \n" );
+			Retcode = CNXT_STATUS_FAILURE;
+			break;
+		}
+		
+		if( gTmVpDeviceObj.pSDDevice->set_notifier(gTmVpDeviceObj.pSDDevice, CS_TRID_Vp_SD_notifier, NULL)
+				!= PIPE_STATUS_OK )
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to set notify for SD video \n" );
+			Retcode = CNXT_STATUS_FAILURE;
+			break;
+		}  
+		/* Subcribe events for VP HD device */
+		EventMask = (1 << (PIPE_VP_EVENT_DISPLAY_UNBLANK & 0xFFFFFF));
+		
+		if (gTmVpDeviceObj.pHDDevice->subscribe_event(gTmVpDeviceObj.pHDDevice, EventMask)!= PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to subscribe event for VP HD device\n" );
+			Retcode = CNXT_STATUS_FAILURE;		
+			break;
+		}	 
+		
+		if (gTmVpDeviceObj.pSDDevice->subscribe_event(gTmVpDeviceObj.pSDDevice, EventMask)!= PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to subscribe event for VP SD device\n" );
+			Retcode = CNXT_STATUS_FAILURE;	
+			break;
+		}
+
+		/* create the primary HD Surface Configuration */
+		if ( gTmVpDeviceObj.pHDDevice->surface_open ( gTmVpDeviceObj.pHDDevice, 
+					PIPE_VP_VIDEO_PRIMARY_SURFACE ) != PIPE_STATUS_OK )
+		{
+			pipe_vp_device_close ( gTmVpDeviceObj.pHDDevice );
+			pipe_vp_device_close ( gTmVpDeviceObj.pSDDevice );
+			gTmVpDeviceObj.pHDDevice = NULL;
+			gTmVpDeviceObj.pSDDevice = NULL;
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to create the primary HD video Surface.\n" );
+			Retcode = CNXT_STATUS_FAILURE; 		   
+			break;		   
+		}
+		gTmVpDeviceObj.pHDVideoSurface[0] = gTmVpDeviceObj.pHDDevice->Surface[PIPE_VP_VIDEO_PRIMARY_SURFACE];
+		/* create the primary SD Surface Configuration */
+		if ( gTmVpDeviceObj.pSDDevice->surface_open ( gTmVpDeviceObj.pSDDevice, 
+					PIPE_VP_VIDEO_PRIMARY_SURFACE ) != PIPE_STATUS_OK )
+		{
+			pipe_vp_device_close ( gTmVpDeviceObj.pHDDevice );
+			pipe_vp_device_close ( gTmVpDeviceObj.pSDDevice );
+			gTmVpDeviceObj.pHDDevice = NULL;
+			gTmVpDeviceObj.pSDDevice = NULL;
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to create the primary SD video Surface.\n" );
+			Retcode = CNXT_STATUS_FAILURE; 		   
+			break;		   
+		}
+		gTmVpDeviceObj.pSDVideoSurface[0] = gTmVpDeviceObj.pSDDevice->Surface[PIPE_VP_VIDEO_PRIMARY_SURFACE];	 
+		/* create the second HD Surface Configuration */
+		if ( gTmVpDeviceObj.pHDDevice->surface_open ( gTmVpDeviceObj.pHDDevice, 
+					PIPE_VP_VIDEO_SECONDARY_SURFACE ) != PIPE_STATUS_OK )
+		{
+			pipe_vp_device_close ( gTmVpDeviceObj.pHDDevice );
+			pipe_vp_device_close ( gTmVpDeviceObj.pSDDevice );
+			gTmVpDeviceObj.pHDDevice = NULL;
+			gTmVpDeviceObj.pSDDevice = NULL;
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to create the second HD video Surface.\n" );
+			Retcode = CNXT_STATUS_FAILURE; 		   
+			break;		   
+		}
+		gTmVpDeviceObj.pHDVideoSurface[1] = gTmVpDeviceObj.pHDDevice->Surface[PIPE_VP_VIDEO_SECONDARY_SURFACE];		
+		/* create the second SD Surface Configuration */
+		if ( gTmVpDeviceObj.pSDDevice->surface_open ( gTmVpDeviceObj.pSDDevice, 
+					PIPE_VP_VIDEO_SECONDARY_SURFACE ) != PIPE_STATUS_OK )
+		{
+			pipe_vp_device_close ( gTmVpDeviceObj.pHDDevice );
+			pipe_vp_device_close ( gTmVpDeviceObj.pSDDevice );
+			gTmVpDeviceObj.pHDDevice = NULL;
+			gTmVpDeviceObj.pSDDevice = NULL;
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to create the second SD video Surface.\n" );
+			Retcode = CNXT_STATUS_FAILURE; 		   
+			break;		   
+		}
+		gTmVpDeviceObj.pSDVideoSurface[1] = gTmVpDeviceObj.pSDDevice->Surface[PIPE_VP_VIDEO_SECONDARY_SURFACE];	 
+		for(chain=0; chain<2;chain++)
+		{
+			/* config surfaces */
+			
+			if ( gTmVpDeviceObj.pHDVideoSurface[chain]->config ( gTmVpDeviceObj.pHDVideoSurface[chain], 
+						&VPSurfaceCfg ) != PIPE_STATUS_OK )
+			{
+				pipe_vp_device_close ( gTmVpDeviceObj.pHDDevice );
+				pipe_vp_device_close ( gTmVpDeviceObj.pSDDevice );
+				gTmVpDeviceObj.pHDDevice = NULL;
+				gTmVpDeviceObj.pSDDevice = NULL;
+				CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to config the HD video Surface.\n" );
+				Retcode = CNXT_STATUS_FAILURE;
+				break;
+			}
+			position.uFlags = PIPE_VP_SURFACE_SRC_FULL_IMAGE|PIPE_VP_SURFACE_DEST_FULL_SCREEN;
+			if( gTmVpDeviceObj.pHDVideoSurface[chain]->set_position( gTmVpDeviceObj.pHDVideoSurface[chain], &position ) != PIPE_STATUS_OK )
+			{
+				CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to set the video Surface position.\n" );
+				pipe_vp_device_close ( gTmVpDeviceObj.pHDDevice );
+				pipe_vp_device_close ( gTmVpDeviceObj.pSDDevice );
+				gTmVpDeviceObj.pHDDevice = NULL;
+				gTmVpDeviceObj.pSDDevice = NULL;
+				Retcode = CNXT_STATUS_FAILURE;
+				break;
+			}
+			
+			if ( gTmVpDeviceObj.pSDVideoSurface[chain]->config ( gTmVpDeviceObj.pSDVideoSurface[chain], 
+						&VPSurfaceCfg ) != PIPE_STATUS_OK )
+			{
+				pipe_vp_device_close ( gTmVpDeviceObj.pHDDevice );
+				pipe_vp_device_close ( gTmVpDeviceObj.pSDDevice );
+				gTmVpDeviceObj.pHDDevice = NULL;
+				gTmVpDeviceObj.pSDDevice = NULL;
+				CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to config the SD video Surface\n" );
+				Retcode = CNXT_STATUS_FAILURE;			
+				break;
+			}
+			position.uFlags = PIPE_VP_SURFACE_SRC_FULL_IMAGE|PIPE_VP_SURFACE_DEST_FULL_SCREEN;
+			if( gTmVpDeviceObj.pSDVideoSurface[chain]->set_position( gTmVpDeviceObj.pSDVideoSurface[chain], &position ) != PIPE_STATUS_OK )
+			{
+				CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Failed to set the video Surface position.\n" );
+				pipe_vp_device_close ( gTmVpDeviceObj.pHDDevice );
+				pipe_vp_device_close ( gTmVpDeviceObj.pSDDevice );
+				gTmVpDeviceObj.pHDDevice = NULL;
+				gTmVpDeviceObj.pSDDevice = NULL;
+				Retcode = CNXT_STATUS_FAILURE;            
+				break;
+			}          		   		   
+		}  
+		
+#ifdef DUAL_VIDEO_SURFACE  
+		gTmVpDeviceObj.bShowVideo[0]  = FALSE;     
+		gTmVpDeviceObj.eImgattachpoint = CNXT_IDLE_IMG_ATTACH;
+#endif		
+	}while(0);
+	
+	CSDEBUG(MODULE_NAME,ERROR_LEVEL, "CS_TRID_Video_init>>>>>>>>\n" );
+	return Retcode;
+}
+
 
 static CSUDI_Error_Code CS_TRID_GetFullScreenWidowSize(CSUDISCREENType_E eScreenDevice,
 															 CSUDISCREENResolution_E eResolution,
@@ -126,6 +481,196 @@ static CSUDI_Error_Code CS_TRID_GetFullScreenWidowSize(CSUDISCREENType_E eScreen
  return enRet;
 }
 
+CSUDI_Error_Code TM_internal_SetWindowSize(int nVideoIndex, CSUDISCREENType_E eScreenDevice, const CSUDIWinRect_S * pstRect )
+{
+	
+	CNXT_STATUS Retcode = CNXT_STATUS_OK;   
+    CSUDI_Error_Code nRet = CSUDI_SUCCESS;
+	int     chain=0, surface_indx=0;
+//	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Into Function :%s eScreenDevice[%d]\n",__FUNCTION__,eScreenDevice);
+//	Cnxt_Retcode = cnxt_kal_sem_get(gUdi2VideoSem, CNXT_KAL_WAIT_FOREVER);    
+	do
+	{
+		if((nVideoIndex < 0)||(nVideoIndex>=CS_TRID_MAX_DEC))
+		{
+			nRet = CSUDI_FAILURE;
+			break;
+		}
+		chain = nVideoIndex; 
+        /*Get surface index from player*/
+        surface_indx = cs_tm_get_surface_indx(nVideoIndex);
+		if((gTmVpDeviceObj.pHDVideoSurface[surface_indx]== NULL) ||
+            (gTmVpDeviceObj.pHDVideoSurface[surface_indx]== NULL))
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error :%s line: %d error\n",__FUNCTION__,__LINE__);
+			nRet = CSUDI_FAILURE;
+			break;
+		}
+		if(pstRect != NULL)
+		{
+			if((pstRect->m_nWidth <= 0 ) || (pstRect->m_nHeight <= 0))
+			{
+				CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d\n",__FUNCTION__,__LINE__);
+				nRet = CSUDIVIDEO_ERROR_BAD_PARAMETER;
+				break;
+			}
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"pstRect>>>>m_nX[%d]m_nY[%d]m_nWidth[%d]m_nHeight[%d]\n",pstRect->m_nX,pstRect->m_nY,pstRect->m_nWidth,pstRect->m_nHeight);
+		}
+		
+		
+		if(!((eScreenDevice&EM_UDI_VOUT_DEVICE_HD) == EM_UDI_VOUT_DEVICE_HD || (eScreenDevice&EM_UDI_VOUT_DEVICE_SD) == EM_UDI_VOUT_DEVICE_SD ))
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error :%s line: %d error\n",__FUNCTION__,__LINE__);
+			nRet = CSUDIVIDEO_ERROR_BAD_PARAMETER;
+			break;
+		}
+		if((eScreenDevice&EM_UDI_VOUT_DEVICE_HD) == EM_UDI_VOUT_DEVICE_HD)
+		{
+			PIPE_VP_SURFACE_POSITION hdPosition;
+			CSUDIWinRect_S hdSrcRect;
+			memset(&hdPosition, 0,sizeof(PIPE_VP_SURFACE_POSITION));
+			memset(&hdSrcRect,0,sizeof(CSUDIWinRect_S));            
+			
+			if(pstRect != NULL)
+			{
+				//gTmPipeObject.TridVideoSubSystem[chain].bVidFullScreenHD = FALSE;
+				gTmPipeObject.TridVideoSubSystem[chain].RectHD = *pstRect;
+				CS_TRID_GetFullScreenWidowSize(EM_UDI_VOUT_DEVICE_HD,gTmPipeObject.TmDisplaySubSys[chain].uHDResolution,&hdSrcRect);
+				if(gTmPipeObject.TridVideoSubSystem[chain].bVidFullImageHD == TRUE)
+				{
+					hdPosition.uFlags |= PIPE_VP_SURFACE_SRC_FULL_IMAGE;
+				}
+				else
+				{                    
+					hdPosition.SrcRectOrScale.SrcRect.nX = (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleHD.m_nX*0x4000)/hdSrcRect.m_nWidth;
+					hdPosition.SrcRectOrScale.SrcRect.nY= (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleHD.m_nY*0x4000)/hdSrcRect.m_nHeight;
+					hdPosition.SrcRectOrScale.SrcRect.nSizeX = (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleHD.m_nWidth*0x4000)/hdSrcRect.m_nWidth;
+					hdPosition.SrcRectOrScale.SrcRect.nSizeY = (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleHD.m_nHeight*0x4000)/hdSrcRect.m_nHeight;
+				}
+				hdPosition.DstRect.nX = pstRect->m_nX;
+				hdPosition.DstRect.nY= pstRect->m_nY;
+				hdPosition.DstRect.nSizeX= pstRect->m_nWidth;
+				hdPosition.DstRect.nSizeY = pstRect->m_nHeight;
+                hdPosition.uFlags &= (~PIPE_VP_SURFACE_DEST_FULL_SCREEN);
+			}
+			else
+			{
+				CS_TRID_GetFullScreenWidowSize(EM_UDI_VOUT_DEVICE_HD,gTmPipeObject.TmDisplaySubSys[chain].uHDResolution,&hdSrcRect);
+				if(gTmPipeObject.TridVideoSubSystem[chain].bVidFullImageHD == TRUE)
+				{
+					hdPosition.uFlags |= PIPE_VP_SURFACE_SRC_FULL_IMAGE;
+				}
+				else
+				{                    
+					hdPosition.SrcRectOrScale.SrcRect.nX = (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleHD.m_nX*0x4000)/hdSrcRect.m_nWidth;
+					hdPosition.SrcRectOrScale.SrcRect.nY= (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleHD.m_nY*0x4000)/hdSrcRect.m_nHeight;
+					hdPosition.SrcRectOrScale.SrcRect.nSizeX = (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleHD.m_nWidth*0x4000)/hdSrcRect.m_nWidth;
+					hdPosition.SrcRectOrScale.SrcRect.nSizeY = (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleHD.m_nHeight*0x4000)/hdSrcRect.m_nHeight;
+				}
+				//gTmPipeObject.TridVideoSubSystem[chain].bVidFullScreenHD = TRUE;
+				if(TRUE == gTmPipeObject.TridVideoSubSystem[chain].bVidFullScreenHD)
+				{
+				    hdPosition.uFlags |= PIPE_VP_SURFACE_DEST_FULL_SCREEN;
+			    }
+                else
+                {
+                    hdPosition.DstRect.nX = gTmPipeObject.TridVideoSubSystem[chain].RectHD.m_nX;
+                    hdPosition.DstRect.nY= gTmPipeObject.TridVideoSubSystem[chain].RectHD.m_nY;
+                    hdPosition.DstRect.nSizeX= gTmPipeObject.TridVideoSubSystem[chain].RectHD.m_nWidth;
+                    hdPosition.DstRect.nSizeY = gTmPipeObject.TridVideoSubSystem[chain].RectHD.m_nHeight;
+                    hdPosition.uFlags &= (~PIPE_VP_SURFACE_DEST_FULL_SCREEN);
+                }
+            }
+			
+			gTmVpDeviceObj.pHDVideoSurface[surface_indx]->set_position(gTmVpDeviceObj.pHDVideoSurface[surface_indx],&hdPosition);
+		}
+		else if((eScreenDevice&EM_UDI_VOUT_DEVICE_SD) == EM_UDI_VOUT_DEVICE_SD)
+		{
+			PIPE_VP_SURFACE_POSITION sdPosition;            
+			CSUDIWinRect_S sdSrcRect;
+			memset(&sdPosition, 0,sizeof(PIPE_VP_SURFACE_POSITION));            
+			memset(&sdSrcRect,0,sizeof(CSUDIWinRect_S));            
+			
+			if(pstRect != NULL)
+			{
+				
+				//gTmPipeObject.TridVideoSubSystem[chain].bVidFullScreenSD = FALSE;
+				gTmPipeObject.TridVideoSubSystem[chain].RectSD = *pstRect;
+				CS_TRID_GetFullScreenWidowSize(EM_UDI_VOUT_DEVICE_SD,gTmPipeObject.TmDisplaySubSys[chain].uSDResolution,&sdSrcRect);                
+				if(gTmPipeObject.TridVideoSubSystem[chain].bVidFullImageSD == TRUE)
+				{
+					sdPosition.uFlags |= PIPE_VP_SURFACE_SRC_FULL_IMAGE;
+				}
+				else
+				{
+					sdPosition.SrcRectOrScale.SrcRect.nX = (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleSD.m_nX*0x4000)/sdSrcRect.m_nWidth;
+					sdPosition.SrcRectOrScale.SrcRect.nY= (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleSD.m_nY*0x4000)/sdSrcRect.m_nHeight;
+					sdPosition.SrcRectOrScale.SrcRect.nSizeX = (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleSD.m_nWidth*0x4000)/sdSrcRect.m_nWidth;
+					sdPosition.SrcRectOrScale.SrcRect.nSizeY = (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleSD.m_nHeight*0x4000)/sdSrcRect.m_nHeight;
+				}
+				sdPosition.DstRect.nX = pstRect->m_nX;
+				sdPosition.DstRect.nY = pstRect->m_nY;
+				sdPosition.DstRect.nSizeX = pstRect->m_nWidth;
+				sdPosition.DstRect.nSizeY = pstRect->m_nHeight;
+                sdPosition.uFlags &= (~PIPE_VP_SURFACE_DEST_FULL_SCREEN);
+
+			}
+			else
+			{
+				CS_TRID_GetFullScreenWidowSize(EM_UDI_VOUT_DEVICE_SD,gTmPipeObject.TmDisplaySubSys[chain].uSDResolution,&sdSrcRect);                
+				if(gTmPipeObject.TridVideoSubSystem[chain].bVidFullImageSD == TRUE)
+				{
+					sdPosition.uFlags |= PIPE_VP_SURFACE_SRC_FULL_IMAGE;
+				}
+				else
+				{
+					sdPosition.SrcRectOrScale.SrcRect.nX = (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleSD.m_nX*0x4000)/sdSrcRect.m_nWidth;
+					sdPosition.SrcRectOrScale.SrcRect.nY= (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleSD.m_nY*0x4000)/sdSrcRect.m_nHeight;
+					sdPosition.SrcRectOrScale.SrcRect.nSizeX = (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleSD.m_nWidth*0x4000)/sdSrcRect.m_nWidth;
+					sdPosition.SrcRectOrScale.SrcRect.nSizeY = (gTmPipeObject.TridVideoSubSystem[chain].SrcRectScaleSD.m_nHeight*0x4000)/sdSrcRect.m_nHeight;
+				}
+				//gTmPipeObject.TridVideoSubSystem[chain].bVidFullScreenSD = TRUE;
+				if(TRUE == gTmPipeObject.TridVideoSubSystem[chain].bVidFullScreenSD)
+				{
+				    sdPosition.uFlags |= PIPE_VP_SURFACE_DEST_FULL_SCREEN;
+				}
+                else
+                {
+                    sdPosition.DstRect.nX = gTmPipeObject.TridVideoSubSystem[chain].RectSD.m_nX;
+                    sdPosition.DstRect.nY= gTmPipeObject.TridVideoSubSystem[chain].RectSD.m_nY;
+                    sdPosition.DstRect.nSizeX= gTmPipeObject.TridVideoSubSystem[chain].RectSD.m_nWidth;
+                    sdPosition.DstRect.nSizeY = gTmPipeObject.TridVideoSubSystem[chain].RectSD.m_nHeight;
+                    sdPosition.uFlags &= (~PIPE_VP_SURFACE_DEST_FULL_SCREEN);
+                }
+				
+			}
+			CSDEBUG(MODULE_NAME,DEBUG_LEVEL,"sdPosition.DstRect>>>>nX[%d]nY[%d]nSizeX[%d]nSizeY[%d]\n",sdPosition.DstRect.nX,
+																				   sdPosition.DstRect.nY, 
+																				   sdPosition.DstRect.nSizeX,
+																				   sdPosition.DstRect.nSizeY); 
+			
+			CSDEBUG(MODULE_NAME,DEBUG_LEVEL,"sdPosition.SrcRectOrScale.SrcRec>>>>nX[%d]nY[%d]nSizeX[%d]nSizeY[%d]\n",sdPosition.SrcRectOrScale.SrcRect.nX, 
+																									sdPosition.SrcRectOrScale.SrcRect.nY, 
+																									sdPosition.SrcRectOrScale.SrcRect.nSizeX,
+																									sdPosition.SrcRectOrScale.SrcRect.nSizeY);            
+			gTmVpDeviceObj.pSDVideoSurface[surface_indx]->set_position(gTmVpDeviceObj.pSDVideoSurface[surface_indx],&sdPosition);            
+		}
+		else
+		{
+			
+		}
+		
+		
+	}while(0);
+	
+	//Cnxt_Retcode = cnxt_kal_sem_put(gUdi2VideoSem);
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out of Function :%s Retcode[%d]\n",__FUNCTION__,nRet);
+	return nRet;
+
+}
+
+//frank.zhou---------------------------------------------------------------------------------------------------
 /**
 @brief  注册指定事件类型的回调函数
 

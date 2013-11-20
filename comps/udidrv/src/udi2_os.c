@@ -1290,6 +1290,7 @@ CSUDI_Error_Code CSUDIOSGetCPUCount(unsigned int * puCpuCount)
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	*puCpuCount = sysconf(_SC_NPROCESSORS_ONLN);	
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }

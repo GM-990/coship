@@ -55,6 +55,17 @@ static bool cs_tm_iframe_stop(CS_TM_Player_SubSystem *pPlayerSubsystem);
 #endif
 #endif
 
+#define IS_VALID_INJECTER(phndl)  \
+	do                                                   \
+	{                                                      \
+		if( phndl == NULL )                     \
+		{                                                \
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL, "%s 0x%x NULL HNDL\n", __FUNCTION__, phndl); \
+			return CSUDIINJECTER_ERROR_INVALID_HANDLE; \
+		}                                                       \
+	} while( 0 )
+
+
 bool bPlayerStarted = FALSE;
 bool bPlayerStatus = FALSE;
 bool bInjectIframe = FALSE;
@@ -87,6 +98,23 @@ bool gFristFlag = 1;
 
 static char IPVOD_buf[IPVOD_BUF_SIZE];
 static int IPVOD_buf_rpos=0,IPVOD_buf_wpos=0,IPVOD_buf_used=0,IPVOD_buf_count=0;
+
+
+
+
+
+int cs_tm_get_free_inject_handle(void)
+{
+	int i=0;
+	for(i=0; i<MAX_INJECT_HANDLES;i++)
+	{
+		if(g_sCSInjectConfig.hInjectHandle[i].bInUse == FALSE)
+		{
+			break;
+		}
+	}
+	return i;
+}
 
 void IPVOD_buf_reset(void)
 {
@@ -526,6 +554,1460 @@ void cs_tm_playback_notify( PIPE_PIPELINE_OBJECT *pPipeline,
 		break;
 	}
         //cs_tm_notify_player(UDIEvent);
+}
+#endif
+
+CNXT_STATUS cs_tm_inject_init(void)
+{
+	CNXT_STATUS Retcode = CNXT_STATUS_OK;
+	char sem_name[20];
+	int count;
+	CNXT_IMAGE_CAPS          imageCaps;
+#ifdef DUAL_VIDEO_SURFACE
+	PIPE_VP_SURFACE_INPUT Input;
+    
+	PIPE_STATUS PmStatus = PIPE_STATUS_OK;	
+#endif
+
+	sprintf(sem_name,"UDIInjectSem");
+	Retcode=cnxt_kal_sem_create(1, sem_name, &gInjecterSem);
+	if(CNXT_STATUS_OK!=Retcode)
+	{
+		return Retcode;
+	}
+#if 0	
+	Retcode = cnxt_kal_qu_create(100, NULL, &injectDataQueue);
+	if(Retcode != CNXT_STATUS_OK)
+	{
+	   printf(" Queue creation failed...\n\r" );
+	}
+#endif
+	for(count =0;count<MAX_INJECT_HANDLES;count++)
+	{
+		s_aInjectHndl[count].uIndx = 0xFF;
+		s_aInjectHndl[count].bInjecterOpen = FALSE;
+	}
+
+    if(FALSE== CSPcmClip_Init(0))
+    {
+        return CNXT_STATUS_INTERNAL_ERROR;
+    }
+#ifdef EXTERNAL_IMAGE_ATTACH    
+    {
+        imageCaps.PalTable.ColorType      = YCC;
+        imageCaps.PalTable.uNumPalEntries = 0;
+        imageCaps.PalTable.pPalEntry      = NULL;
+        imageCaps.PoolId[0]     = CNXT_POOL_ID_DEFAULT_UNCACHED; //;
+        imageCaps.PoolId[1]     = CNXT_POOL_ID_DEFAULT_UNCACHED; //;
+        imageCaps.pPage         = NULL;
+        imageCaps.uOrgW         = 2048;
+        imageCaps.uOrgH         = 1088;
+        imageCaps.PixelMode     = PIXEL_FORMAT_NV12;
+        imageCaps.uNumPages     = 1;
+        imageCaps.uMaxNumPages  = imageCaps.uNumPages;
+        imageCaps.ColorSpace    = YCC_HD_BT709;
+        imageCaps.bCached       = FALSE;
+        imageCaps.bIsContiguous = TRUE;
+        imageCaps.ImageType     = CNXT_IMAGE_STILL_GRAPHICS;
+        Retcode = cnxt_image_open(&gStillImageHandle, &imageCaps, NULL, NULL);
+        if ( Retcode != CNXT_STATUS_OK )
+        {
+           CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to open image, err = %d\n", Retcode);
+           return PIPE_STATUS_DRIVER_ERROR;
+        }
+     }
+#endif        
+#ifdef DUAL_VIDEO_SURFACE
+	if(gStillImageHandle==NULL)
+	{
+		cnxt_kal_memset(&imageCaps,0,sizeof(imageCaps));
+
+		imageCaps.PalTable.ColorType      = YCC;
+		imageCaps.PalTable.uNumPalEntries = 0;
+		imageCaps.PalTable.pPalEntry      = NULL;
+		imageCaps.PoolId[0]     = CNXT_POOL_ID_DEFAULT_UNCACHED; //;
+		imageCaps.PoolId[1]     = CNXT_POOL_ID_DEFAULT_UNCACHED; //;
+		imageCaps.pPage         = NULL;
+		imageCaps.uOrgW         = 2048;
+		imageCaps.uOrgH         = 1088;
+		imageCaps.PixelMode     = PIXEL_FORMAT_NV12;
+		imageCaps.uNumPages     = 1;
+		imageCaps.uMaxNumPages  = imageCaps.uNumPages;
+		imageCaps.ColorSpace    = YCC_HD_BT709;
+		imageCaps.bCached       = FALSE;
+		imageCaps.bIsContiguous = TRUE;
+		imageCaps.ImageType     = CNXT_IMAGE_STILL_GRAPHICS;
+		Retcode = cnxt_image_open(&gStillImageHandle, &imageCaps, NULL, NULL);
+		if ( Retcode != CNXT_STATUS_OK )
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to open image, err = %d\n", Retcode);
+			return CNXT_STATUS_INTERNAL_ERROR;
+		}
+	}
+
+	cnxt_kal_memset(&Input,0,sizeof(Input));
+
+	Input.Type = PIPE_VP_SURFACE_INPUT_TYPE_IMAGE;
+	Input.pPipe = NULL;
+	Input.hImageHandle = gStillImageHandle;
+
+	PmStatus = cs_pipe_vpm_attach(Input, PIPE_VP_VIDEO_SECONDARY_SURFACE, NULL);
+	if (PmStatus != PIPE_STATUS_OK)
+	{
+		CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to ATTACH image,err=%d\n", PmStatus);
+		return CNXT_STATUS_INTERNAL_ERROR;
+	}
+#endif
+
+    
+    return Retcode;
+}
+
+int get_inject_handle_indx(int nAudIndx)
+{
+    int InjectIndx=0;
+	CS_CNXT_Inject_SubSystem *pInjectHandle = NULL;
+	for(InjectIndx=0;InjectIndx<MAX_INJECT_HANDLES;InjectIndx++)
+    {
+		pInjectHandle = &g_sCSInjectConfig.hInjectHandle[InjectIndx];
+        if(pInjectHandle->nAudIndx == nAudIndx)
+            break;
+    }   
+    return InjectIndx;
+}
+
+bool bIsInjecteropen(u_int32 hInjecter, const CSUDIINJECTERChnl_S * psInjecterChnl, 
+                            const CSUDIINJECTEROpenParam_S * psOpenParams)
+{
+	int i=0;
+	for(i=0;i<MAX_INJECT_HANDLES;i++)
+	{        
+		if(hInjecter == (u_int32)&s_aInjectHndl[i])
+		{
+			if(s_aInjectHndl[i].bInjecterOpen == TRUE)
+			{
+				CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Injecteropen hndl 0x%x 0x%x\n", hInjecter, &s_aInjectHndl[i]);
+				return TRUE;
+			}
+		}	  
+		if(s_aInjectHndl[i].bInjecterOpen == TRUE)
+		{
+			int InjectIndx=0;		
+			CS_CNXT_Inject_SubSystem *pInjectHandle = NULL;
+			InjectIndx = s_aInjectHndl[i].uIndx;
+			pInjectHandle = &g_sCSInjectConfig.hInjectHandle[InjectIndx];
+			if((pInjectHandle->nAudIndx == psInjecterChnl->m_nAudioDecoder )&&
+					(pInjectHandle->nDmxIndx== psInjecterChnl->m_nDemux )&&
+					(pInjectHandle->nVidIndx== psInjecterChnl->m_nVideoDecoder)&&
+					(pInjectHandle->eContentType == psOpenParams->m_eContentType)&&
+					(pInjectHandle->eInjecterType == psOpenParams->m_eInjecterType))
+			{	
+				CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Injecter Exists with same config \n");
+				return TRUE;
+			}
+		}
+	}
+	return FALSE;
+}
+
+BOOL CSUDIINJECTERTerm()
+{
+	int count = 0;
+
+	//printf("start %s\n",__FUNCTION__);
+	
+	for(count =0;count<MAX_INJECT_HANDLES;count++)
+	{
+		if (s_aInjectHndl[count].bInjecterOpen)
+		{
+			if (CSUDI_SUCCESS != CSUDIINJECTERClose(&s_aInjectHndl[count]))
+			{
+				CSDEBUG(MODULE_NAME,ERROR_LEVEL,"fail to close injecter\n");
+				break;
+			}
+		}
+	}
+
+	//printf("exit %s\n",__FUNCTION__);
+
+	return (count == MAX_INJECT_HANDLES);
+}
+
+#ifdef DUAL_VIDEO_SURFACE
+#ifdef STATIC_IFRAME_DECODE
+bool cs_tm_iframe_release(void)
+{	
+	PIPE_STATUS PmStatus = PIPE_STATUS_OK;	
+	
+	PIPE_VP_SURFACE_INPUT Input;
+	CNXT_IMAGE_CAPS          imageCaps;
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);
+
+	if(gTmPipeObject.hVideoObj[1] == NULL)
+	{
+		gTmPipeObject.hVideoObj[1] = PIPE_OBJ_CREATE ( video ); 
+		if(gTmPipeObject.hVideoObj[1] == NULL)
+		{
+			cnxt_kal_trace ( TL_ERROR, "Still decode: PIPE_OBJ_CREATE ( video ) FAIL\n");
+			return FALSE;
+		}
+
+		if(gStillImageHandle!=NULL)
+		{
+
+			cnxt_kal_memset(&Input,0,sizeof(Input));
+			Input.Type = PIPE_VP_SURFACE_INPUT_TYPE_NONE;
+			PmStatus = cs_pipe_vpm_attach(Input, PIPE_VP_VIDEO_SECONDARY_SURFACE, NULL);
+			if (PmStatus != PIPE_STATUS_OK)
+			{
+				CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to ATTACH image,err=%d\n", PmStatus);
+				return FALSE;
+			}
+		
+		
+			if (CNXT_STATUS_OK != cnxt_image_close(gStillImageHandle))
+			{
+				CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to open image\n");
+				return FALSE;
+			}
+			
+			gStillImageHandle = NULL;
+		}
+
+
+		cnxt_kal_memset(&imageCaps,0,sizeof(imageCaps));
+
+		imageCaps.PalTable.ColorType      = YCC;
+		imageCaps.PalTable.uNumPalEntries = 0;
+		imageCaps.PalTable.pPalEntry      = NULL;
+		imageCaps.PoolId[0]     = CNXT_POOL_ID_DEFAULT_UNCACHED;
+		imageCaps.PoolId[1]     = CNXT_POOL_ID_DEFAULT_UNCACHED;
+		imageCaps.pPage         = NULL;
+		imageCaps.uOrgW         = 2048;
+		imageCaps.uOrgH         = 1088;
+		imageCaps.PixelMode     = PIXEL_FORMAT_NV12;
+		imageCaps.uNumPages     = 1;
+		imageCaps.uMaxNumPages  = imageCaps.uNumPages;
+		imageCaps.ColorSpace    = YCC_HD_BT709;
+		imageCaps.bCached       = FALSE;
+		imageCaps.bIsContiguous = TRUE;
+		imageCaps.ImageType     = CNXT_IMAGE_STILL_GRAPHICS;
+		
+		if (CNXT_STATUS_OK != cnxt_image_open(&gStillImageHandle, &imageCaps, NULL, NULL))
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to open image\n");
+			return FALSE;
+		}
+
+		//printf("###############gStillImageHandle =%lx###############\n",gStillImageHandle);
+		cnxt_kal_memset(&Input,0,sizeof(Input));
+		Input.Type = PIPE_VP_SURFACE_INPUT_TYPE_IMAGE;
+		Input.pPipe = NULL;
+		Input.hImageHandle = gStillImageHandle;
+		PmStatus = cs_pipe_vpm_attach(Input, PIPE_VP_VIDEO_SECONDARY_SURFACE, NULL);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to ATTACH image,err=%d\n", PmStatus);
+			return FALSE;
+		}
+		
+	}
+	else
+	{
+		cs_tm_iframe_stop();
+	}
+
+
+	////////////////////////////////////////////////////////////////////////////
+	/// Create pipeline releated objects.
+
+	gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT] = PIPE_OBJ_CREATE(demux);
+	if(gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT]== NULL )
+	{
+	      CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Cannot create demux objects\n" );
+	      return FALSE;
+	}
+
+
+	if(gTmPipeObject.hPipeObj[ES_VIDEO_OBJECT]== NULL )
+	{
+	      CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Cannot create pipeline objects\n" );
+	      return FALSE;
+	}
+		
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out: %s %d \n", __FUNCTION__, __LINE__);
+	return TRUE;	
+}
+
+
+bool cs_tm_iframe_stop(void)
+{
+	PIPE_STATUS PmStatus = PIPE_STATUS_OK; 
+	PIPE_PIPELINE_OBJECT *hPipeObj=NULL;
+	PIPE_DEMUX_OBJECT    *pDmxObject=NULL;
+	PIPE_VIDEO_OBJECT    *pVidObject=NULL;
+
+	BOOL eErrCode=TRUE;
+
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);
+	
+	hPipeObj = gTmPipeObject.hPipeObj[ES_VIDEO_OBJECT];
+	pDmxObject =  gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT];
+	pVidObject =  gTmPipeObject.hVideoObj[1];
+
+	do
+	{
+
+		if(gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT]==NULL)break;
+
+
+		PmStatus = hPipeObj->delete_device(hPipeObj, (PIPE_OBJ_HANDLE)pVidObject);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			eErrCode = FALSE;
+			break;
+		}
+	
+		PmStatus = hPipeObj->delete_device(hPipeObj, (PIPE_OBJ_HANDLE)pDmxObject);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			eErrCode = FALSE;
+			break;
+		}
+
+		
+		PmStatus = PIPE_OBJ_DESTROY ( demux, pDmxObject);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			eErrCode = FALSE;
+			break;
+		}
+	}while(0);
+	
+	gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT] = NULL;
+	
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: %s %d eErrCode %d \n", __FUNCTION__, __LINE__, eErrCode);   
+	return eErrCode;
+}
+
+bool cs_tm_iframe_start(void)
+{
+	PIPE_STATUS PmStatus = PIPE_STATUS_OK;
+
+	PIPE_DEMUX_OBJECT        *pDmxObject=NULL;
+	PIPE_VIDEO_OBJECT        *pVidObject=NULL;
+	PIPE_PIPELINE_OBJECT 	*hPipeObj = NULL;
+	PIPE_MEDIA_DATA_INFO MediaDataInfo;
+	PIPE_PIPELINE_CFG PipeCfg;
+	PIPE_DEMUX_CFG demuxConfig;
+	PIPE_VIDEO_CFG VideoConfig;
+	
+	BOOL eErrCode=TRUE;
+
+	u_int32   uEventMask        = 0;
+    
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);
+    
+	bFinishedIframeDec = FALSE;
+	do
+	{  	    
+		hPipeObj = gTmPipeObject.hPipeObj[ES_VIDEO_OBJECT];
+		pDmxObject = gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT];
+		pVidObject = gTmPipeObject.hVideoObj[1];
+
+		////////////////////////////////////////////////////////////////////////
+		/// configure the pipeline
+
+		/* config pipe */
+		cnxt_kal_memset(&PipeCfg, 0, sizeof(PipeCfg));		
+		PipeCfg.Type = PIPE_PIPELINE_NONE_TS_TYPE;
+		PipeCfg.uStcIndex = 1;
+		PipeCfg.bPipPipe = FALSE;
+		PipeCfg.SyncMaster = PIPE_SYNC_NO_SYNC;
+
+		PmStatus = hPipeObj->config(hPipeObj, &PipeCfg);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d %d \n", __FUNCTION__, __LINE__, PmStatus);
+			eErrCode = FALSE;
+			break;
+		}
+
+		/* config demux */
+		cnxt_kal_memset(&demuxConfig, 0, sizeof(demuxConfig));
+		demuxConfig.Type = PIPE_DEMUX_VIDEO_ES;
+		demuxConfig.DescramblerType   = PIPE_DEMUX_DESCRAMBLE_NONE;
+
+		PmStatus = pDmxObject->config(pDmxObject, &demuxConfig);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			eErrCode = FALSE;
+			break;
+		}
+
+		/* config video */
+
+		uEventMask = ((1 << (PIPE_EVENT_VIDEO_STARTED & 0xFFFFFF)) |
+		          (1 << (PIPE_EVENT_VIDEO_PLAYING & 0xFFFFFF))|
+		          (1 << (PIPE_EVENT_VIDEO_BUFFER_EMPTY & 0xFFFFFF))|                      
+		          (1 << (PIPE_EVENT_VIDEO_DECODE_COMPLETE & 0xFFFFFF))|
+		          (1<<(PIPE_EVENT_VIDEO_STREAM_CHANGE & 0xFFFFFF)));
+		
+		pVidObject->subscribe_event(pVidObject, uEventMask);                 
+
+	 
+		cnxt_kal_memset(&VideoConfig, 0, sizeof(VideoConfig));
+		VideoConfig.DecodingType  =    PIPE_VIDEO_MOTION_STILL;
+		VideoConfig.uCBuffSize    =    1024*1024 + 1; /*pInjectHandle->iFrameParams.m_nDataLen*/
+		VideoConfig.uImageWidth   =    2048;
+		VideoConfig.uImageHeight  =    1088;
+		VideoConfig.Format        =    PIPE_VIDEO_FORMAT_MPEG2;
+		VideoConfig.Definition    =    PIPE_VIDEO_HD;
+		VideoConfig.bHwAccelerate   = TRUE;
+		VideoConfig.bPrimaryDecoder = TRUE;
+		VideoConfig.uUserDataEnableMap = 0;
+		//VideoConfig.StillImageHandle = gStillImageHandle; //commented by frank.zhou
+		PmStatus = pVidObject->config(pVidObject, &VideoConfig);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			eErrCode = FALSE;
+			break;
+		}
+
+		cnxt_kal_thread_time_sleep(10);
+
+		////////////////////////////////////////////////////////////////////////
+		/// add device
+		  
+		PmStatus = hPipeObj->add_device(hPipeObj, (PIPE_OBJ_HANDLE)pDmxObject);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			eErrCode = FALSE;
+			break;
+		}
+		PmStatus = hPipeObj->add_device(hPipeObj, (PIPE_OBJ_HANDLE)pVidObject);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			eErrCode = FALSE;
+			break;
+		}
+
+		////////////////////////////////////////////////////////////////////////
+		/// flush the resources and attach video decoding to his surface
+		
+		PmStatus = hPipeObj->flush(hPipeObj, PIPE_FULL_FLUSH);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			eErrCode = FALSE;
+			break;
+		}
+        
+		
+		////////////////////////////////////////////////////////////////////////
+		/// start decoder	  
+		PmStatus = pDmxObject->demux_play_ctrl(pDmxObject, TRUE);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			eErrCode = FALSE;
+			break;
+		}
+		PmStatus = pVidObject->decoder_ctrl(pVidObject, TRUE);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			eErrCode = FALSE;
+			break;
+		}
+
+		PmStatus = hPipeObj->set_decoding_speed(hPipeObj, PIPE_PLAY_CONTINUOUS_MODE, 1024);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			eErrCode = FALSE;
+			break;
+		}
+
+		////////////////////////////////////////////////////////////////////////
+		/// inject media data  
+		if(pIframeBuff == NULL)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			eErrCode = FALSE;
+			break;
+		}	 
+
+
+#ifdef LOOPINJECT
+        {
+            int uNumWritten,uTotalWritten, uNumW,uNumLeft;
+            uNumWritten = uTotalWritten = uNumW= uNumLeft =0;
+
+            cnxt_kal_memset(&MediaDataInfo,0,sizeof(MediaDataInfo));
+            MediaDataInfo.Type = PIPE_MEDIA_VIDEO_ES_DATA;
+            MediaDataInfo.uOverlap = 0;
+            MediaDataInfo.uPts	  = 0;
+
+            uNumLeft =   uIframeLen;
+
+            MediaDataInfo.pData  = pIframeBuff;
+
+            do
+            {
+
+                    if(uNumLeft>=64*1024)
+                    {
+                        MediaDataInfo.uLength = 64*1024;
+                    }
+                    else
+                    {
+                        MediaDataInfo.uLength = uNumLeft+1;
+                    }
+                
+                    PmStatus = hPipeObj->inject_media_data(hPipeObj, &MediaDataInfo);
+                    if (PmStatus != PIPE_STATUS_OK)
+                    {
+                        CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+                        eErrCode = FALSE;
+                        break;
+                    }
+        
+
+                    uNumLeft -=MediaDataInfo.uLength;
+
+                    if(uNumLeft<=0)
+                        break;
+
+                    MediaDataInfo.pData +=MediaDataInfo.uLength;
+                    cnxt_kal_thread_time_sleep(5);
+
+            }while(uNumLeft>0);
+        }
+
+#else
+		cnxt_kal_memset(&MediaDataInfo,0,sizeof(MediaDataInfo));
+
+		MediaDataInfo.Type = PIPE_MEDIA_VIDEO_ES_DATA;
+		MediaDataInfo.pData   = pIframeBuff;
+		MediaDataInfo.uLength = uIframeLen+1;
+
+        MediaDataInfo.uOverlap = 0;
+        MediaDataInfo.uPts	  = 0;
+
+		PmStatus = hPipeObj->inject_media_data(hPipeObj, &MediaDataInfo);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			eErrCode = FALSE;
+			break;
+		}
+#endif
+	  
+	}while(0);
+      
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: %s %d eErrCode %d \n", __FUNCTION__, __LINE__, eErrCode);
+	return eErrCode;
+}
+
+
+
+bool CS_Open_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem, int nVidIndex)
+{
+	bool bRet =0;
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);  
+
+	if(nVidIndex!=0)
+	{
+		CSDEBUG(MODULE_NAME,ERROR_LEVEL, "do not support video index malloc.\n" );
+		return FALSE;
+	}	
+
+	bRet = cs_tm_iframe_release();
+	if(bRet==FALSE)
+	{
+		CSDEBUG(MODULE_NAME,ERROR_LEVEL, "do not support video index malloc.\n" );
+		return FALSE;
+	}	
+
+	pPlayerSubsystem->pPipeObj = gTmPipeObject.hPipeObj[ES_VIDEO_OBJECT];
+	pPlayerSubsystem->pDemuxObj = gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT];
+	pPlayerSubsystem->pVideoObj = gTmPipeObject.hVideoObj[1];
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out: %s %d \n", __FUNCTION__, __LINE__);  
+	return bRet;
+}
+
+bool CS_Close_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem)
+{	
+	//CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);  
+	//CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out: %s %d \n", __FUNCTION__, __LINE__);  
+	return TRUE;
+}
+
+bool CS_stop_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem)
+{
+	bool bRet =TRUE;
+	PIPE_STATUS PmStatus = PIPE_STATUS_OK; 
+	PIPE_DEMUX_OBJECT    *pDmxObject=NULL;
+	PIPE_VIDEO_OBJECT    *pVidObject=NULL;
+
+	PIPE_VIDEO_ATTRIB sAttrib;
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);
+	pDmxObject =  gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT];
+	pVidObject =  gTmPipeObject.hVideoObj[1];
+
+	do{
+		
+		PmStatus = pVidObject->get_attrib(pVidObject, &sAttrib);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			bRet = FALSE;
+			break;
+		}
+
+		if(sAttrib.State!=PIPE_VIDEO_RUNNING)break;
+
+		PmStatus = pVidObject->decoder_ctrl(pVidObject, FALSE);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			bRet = FALSE;
+			break;
+		}
+
+		PmStatus = pDmxObject->demux_play_ctrl(pDmxObject, FALSE);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			bRet = FALSE;
+			break;
+		}
+
+	}while(0);
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out: %s %d \n", __FUNCTION__, __LINE__);  
+	return bRet;
+}
+
+bool CS_start_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem)
+{
+	bool bRet =0;
+	int iTimeOutCnt =0;
+	
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);  
+	
+	bRet = cs_tm_iframe_start();
+	
+	while((bFinishedIframeDec==FALSE)&&((iTimeOutCnt++)<50))
+	{
+		cnxt_kal_thread_time_sleep(5);
+	}
+	if(iTimeOutCnt>=50)
+	{
+		CSDEBUG(MODULE_NAME, ERROR_LEVEL,"In: %s %d: I FRAME DECODE TIME OUT! \n", __FUNCTION__, __LINE__);  
+		bRet = FALSE;		              
+	}
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out: %s %d \n", __FUNCTION__, __LINE__);  
+	
+	return bRet;
+}
+
+#else  //#ifdef STATIC_IFRAME_DECODE
+static bool cs_tm_iframe_stop(CS_TM_Player_SubSystem *pPlayerSubsystem)
+{
+	PIPE_STATUS PmStatus = PIPE_STATUS_OK; 
+	PIPE_PIPELINE_OBJECT *hPipeObj=NULL;
+	PIPE_DEMUX_OBJECT    *pDmxObject=NULL;
+	PIPE_VIDEO_OBJECT    *pVidObject=NULL;
+
+	BOOL retCode=TRUE;
+	int nVidIndx =0;
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);
+	
+	pDmxObject = pPlayerSubsystem->pDemuxObj;	       
+	pVidObject = pPlayerSubsystem->pVideoObj;
+	hPipeObj = pPlayerSubsystem->pPipeObj;
+	nVidIndx = pPlayerSubsystem->VideoIndx;
+
+	do
+	{
+		PmStatus = pVidObject->decoder_ctrl(pVidObject, FALSE);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d \n", __FUNCTION__, __LINE__);
+            retCode = FALSE;
+			break;
+		}
+		PmStatus = pDmxObject->demux_play_ctrl(pDmxObject, FALSE);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+            retCode = FALSE;
+            break;
+		} 
+
+		PmStatus = hPipeObj->delete_device(hPipeObj, (PIPE_OBJ_HANDLE)pVidObject);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+            retCode = FALSE;
+			break;
+		}
+		PmStatus = hPipeObj->delete_device(hPipeObj, (PIPE_OBJ_HANDLE)pDmxObject);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+            retCode = FALSE;
+			break;
+		}
+
+	#ifdef VDOBJ_MALLOC
+
+        printf("\n########DESTROY video obj###%lx##########\n",pVidObject);
+
+        
+		PmStatus = PIPE_OBJ_DESTROY(video,pVidObject);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+            retCode = FALSE;
+			break;
+		}
+
+	#endif
+		
+		PmStatus = PIPE_OBJ_DESTROY ( demux, pDmxObject);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+            retCode = FALSE;
+			break;
+		}
+	}while(0);
+
+    #ifdef VDOBJ_MALLOC
+	gTmPipeObject.hVideoObj[1] = NULL;
+	#endif
+	
+	gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT+nVidIndx] = NULL;
+	
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: %s %d \n", __FUNCTION__, __LINE__);   
+	return retCode;
+}
+
+static bool cs_tm_iframe_start(CS_TM_Player_SubSystem *pPlayerSubsystem)
+{
+	PIPE_STATUS PmStatus = PIPE_STATUS_OK;
+	PIPE_DEMUX_OBJECT        *pDmxObject=NULL;
+	PIPE_VIDEO_OBJECT        *pVidObject=NULL;
+	PIPE_PIPELINE_OBJECT 	*hPipeObj = NULL;
+	PIPE_MEDIA_DATA_INFO MediaDataInfo;
+	PIPE_PIPELINE_CFG PipeCfg;
+	PIPE_DEMUX_CFG demuxConfig;
+	PIPE_VIDEO_CFG VideoConfig;
+	
+	BOOL retCode=TRUE;
+	int nVidIndx=0;
+	u_int32  uEventMask = 0;
+    
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);
+    
+	nVidIndx = pPlayerSubsystem->VideoIndx;
+	bFinishedIframeDec = FALSE;
+	do
+	{  	    
+		////////////////////////////////////////////////////////////////////////////
+		/// Create pipeline releated objects.
+
+		gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT+ nVidIndx] = PIPE_OBJ_CREATE(demux);
+		if(gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT+ nVidIndx]== NULL )
+		{
+		      CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Cannot create demux objects\n" );
+		      return FALSE;
+		}
+
+		#ifdef VDOBJ_MALLOC
+		gTmPipeObject.hVideoObj[1] = PIPE_OBJ_CREATE ( video ); 
+		if( gTmPipeObject.hVideoObj[1] == NULL )
+		{
+		      CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Cannot create video objects\n" );
+		      return FALSE;
+		}
+
+        printf("\n########create video obj###%lx##########\n",gTmPipeObject.hVideoObj[1]);
+		#endif
+		
+		hPipeObj = pPlayerSubsystem->pPipeObj = gTmPipeObject.hPipeObj[ES_VIDEO_OBJECT+nVidIndx];
+		pDmxObject = pPlayerSubsystem->pDemuxObj = gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT+ nVidIndx];
+		pVidObject = pPlayerSubsystem->pVideoObj = gTmPipeObject.hVideoObj[1];
+
+		////////////////////////////////////////////////////////////////////////
+		/// configure the pipeline
+
+		/* config pipe */
+		cnxt_kal_memset(&PipeCfg, 0, sizeof(PipeCfg));		
+		PipeCfg.Type = PIPE_PIPELINE_NONE_TS_TYPE;
+		PipeCfg.uStcIndex = 1;
+		PipeCfg.bPipPipe = FALSE;
+		PipeCfg.SyncMaster = PIPE_SYNC_NO_SYNC;
+
+		PmStatus = hPipeObj->config(hPipeObj, &PipeCfg);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d %d \n", __FUNCTION__, __LINE__, PmStatus);
+			retCode = FALSE;
+			break;
+		}
+
+		/* config demux */
+		cnxt_kal_memset(&demuxConfig, 0, sizeof(demuxConfig));
+		demuxConfig.Type = PIPE_DEMUX_VIDEO_ES;
+		demuxConfig.DescramblerType   = PIPE_DEMUX_DESCRAMBLE_NONE;
+
+		PmStatus = pDmxObject->config(pDmxObject, &demuxConfig);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			retCode = FALSE;
+			break;
+		}
+
+		/* config video */
+
+		uEventMask = ((1 << (PIPE_EVENT_VIDEO_STARTED & 0xFFFFFF)) |
+		          (1 << (PIPE_EVENT_VIDEO_PLAYING & 0xFFFFFF))|
+		          (1 << (PIPE_EVENT_VIDEO_BUFFER_EMPTY & 0xFFFFFF))|                      
+		          (1 << (PIPE_EVENT_VIDEO_DECODE_COMPLETE & 0xFFFFFF))|
+		          (1<<PIPE_EVENT_VIDEO_STREAM_CHANGE & 0xFFFFFF));
+		
+		pVidObject->subscribe_event(pVidObject, uEventMask);                 
+
+	 
+		cnxt_kal_memset(&VideoConfig, 0, sizeof(VideoConfig));
+		VideoConfig.DecodingType  =    PIPE_VIDEO_MOTION_STILL;
+		VideoConfig.uCBuffSize    =    1024*1024 + 1; /*pInjectHandle->iFrameParams.m_nDataLen*/
+		VideoConfig.uImageWidth   =    2048;
+		VideoConfig.uImageHeight  =    1088;
+		VideoConfig.Format        =    PIPE_VIDEO_FORMAT_MPEG2;
+		VideoConfig.Definition    =    PIPE_VIDEO_HD;
+		VideoConfig.bHwAccelerate   = TRUE;
+		VideoConfig.bPrimaryDecoder = TRUE;
+		VideoConfig.uUserDataEnableMap = 0;
+		VideoConfig.StillImageHandle = gStillImageHandle;
+		PmStatus = pVidObject->config(pVidObject, &VideoConfig);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			retCode = FALSE;
+			break;
+		}
+
+		cnxt_kal_thread_time_sleep(10);
+
+		////////////////////////////////////////////////////////////////////////
+		/// add device
+		  
+		PmStatus = hPipeObj->add_device(hPipeObj, (PIPE_OBJ_HANDLE)pDmxObject);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			retCode = FALSE;
+			break;
+		}
+		PmStatus = hPipeObj->add_device(hPipeObj, (PIPE_OBJ_HANDLE)pVidObject);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			retCode = FALSE;
+			break;
+		}
+
+		////////////////////////////////////////////////////////////////////////
+		/// flush the resources and attach video decoding to his surface
+		
+		PmStatus = hPipeObj->flush(hPipeObj, PIPE_FULL_FLUSH);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			retCode = FALSE;
+			break;
+		}
+        
+	  	#if 0
+
+		//Retcode = cnxt_cbuf_flush(hCbuf, CNXT_CBUF_RESET_FLUSH);
+
+
+		cnxt_kal_memset(&Input,0,sizeof(Input));
+		Input.Type = PIPE_VP_SURFACE_INPUT_TYPE_IMAGE;
+        
+		Input.hImageHandle = gStillImageHandle;
+	
+		uSurfaceIdx=  cs_tm_get_surface_indx(nVidIndx);
+		
+		PmStatus = cs_pipe_vpm_attach(Input, uSurfaceIdx, NULL);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+			break;
+		}
+		#endif
+		
+		////////////////////////////////////////////////////////////////////////
+		/// start decoder	  
+		PmStatus = pDmxObject->demux_play_ctrl(pDmxObject, TRUE);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			retCode = FALSE;
+			break;
+		}
+		PmStatus = pVidObject->decoder_ctrl(pVidObject, TRUE);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			retCode = FALSE;
+			break;
+		}
+
+		PmStatus = hPipeObj->set_decoding_speed(hPipeObj, PIPE_PLAY_CONTINUOUS_MODE, 1024);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+			retCode = FALSE;
+			break;
+		}
+
+		////////////////////////////////////////////////////////////////////////
+		/// inject media data  
+		if(pIframeBuff == NULL)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			retCode = FALSE;
+			break;
+		}	 
+
+
+#ifdef LOOPINJECT
+        {
+
+            int uNumWritten,uTotalWritten, uNumW,uNumLeft;
+            uNumWritten = uTotalWritten = uNumW= uNumLeft =0;
+
+            cnxt_kal_memset(&MediaDataInfo,0,sizeof(MediaDataInfo));
+            MediaDataInfo.Type = PIPE_MEDIA_VIDEO_ES_DATA;
+            MediaDataInfo.uOverlap = 0;
+            MediaDataInfo.uPts	  = 0;
+
+            uNumLeft =   uIframeLen;
+
+            MediaDataInfo.pData  = pIframeBuff;
+
+            do
+            {
+
+                if(uNumLeft>=64*1024)
+                {
+                    MediaDataInfo.uLength = 64*1024;
+                }
+                else
+                {
+                    MediaDataInfo.uLength = uNumLeft+1;
+                }
+
+                PmStatus = hPipeObj->inject_media_data(hPipeObj, &MediaDataInfo);
+                if (PmStatus != PIPE_STATUS_OK)
+                {
+                    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+                    break;
+                }
+
+
+                uNumLeft -= MediaDataInfo.uLength;
+                
+                CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"=================DATA INJ = %lx uNumLeft = %lx====\n",MediaDataInfo.uLength,uNumLeft);
+
+                if(uNumLeft<=0)
+                {
+                    break;
+                }
+                MediaDataInfo.pData +=MediaDataInfo.uLength;
+                cnxt_kal_thread_time_sleep(5);
+
+            }while(uNumLeft>0);
+        }
+
+#else
+		cnxt_kal_memset(&MediaDataInfo,0,sizeof(MediaDataInfo));
+
+		MediaDataInfo.Type = PIPE_MEDIA_VIDEO_ES_DATA;
+		MediaDataInfo.pData   = pIframeBuff;
+		MediaDataInfo.uLength = uIframeLen+1;
+
+        MediaDataInfo.uOverlap = 0;
+        MediaDataInfo.uPts	  = 0;
+
+		PmStatus = hPipeObj->inject_media_data(hPipeObj, &MediaDataInfo);
+		if (PmStatus != PIPE_STATUS_OK)
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+			break;
+		}
+#endif
+	  
+	}while(0);
+      
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: %s %d  \n", __FUNCTION__, __LINE__);
+	return retCode;
+}
+
+
+
+bool CS_Open_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem, int nVidIndex)
+{	
+	PIPE_STATUS PmStatus = PIPE_STATUS_OK;		
+	PIPE_VP_SURFACE_INPUT Input;
+	CNXT_IMAGE_CAPS          imageCaps;
+	
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);
+
+	if(gTmPipeObject.hVideoObj[1] == NULL)
+	{
+		gTmPipeObject.hVideoObj[1] = PIPE_OBJ_CREATE ( video ); 
+		if(gTmPipeObject.hVideoObj[1] == NULL)
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL, "Still decode: PIPE_OBJ_CREATE ( video ) FAIL\n");
+			return FALSE;
+		}
+
+		if(gStillImageHandle!=NULL)
+		{
+
+			cnxt_kal_memset(&Input,0,sizeof(Input));
+			Input.Type = PIPE_VP_SURFACE_INPUT_TYPE_NONE;
+			PmStatus = cs_pipe_vpm_attach(Input, PIPE_VP_VIDEO_SECONDARY_SURFACE, NULL);
+			if (PmStatus != PIPE_STATUS_OK)
+			{
+				CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to ATTACH image,err=%d\n", PmStatus);
+				return FALSE;
+			}
+		
+		
+			if (CNXT_STATUS_OK != cnxt_image_close(gStillImageHandle))
+			{
+				CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to open image\n");
+				return FALSE;
+			}
+			
+			gStillImageHandle = NULL;
+		}
+
+		if(gStillImageHandle==NULL)
+		{
+			cnxt_kal_memset(&imageCaps,0,sizeof(imageCaps));
+
+			imageCaps.PalTable.ColorType      = YCC;
+			imageCaps.PalTable.uNumPalEntries = 0;
+			imageCaps.PalTable.pPalEntry      = NULL;
+			imageCaps.PoolId[0]     = CNXT_POOL_ID_DEFAULT_UNCACHED;
+			imageCaps.PoolId[1]     = CNXT_POOL_ID_DEFAULT_UNCACHED;
+			imageCaps.pPage         = NULL;
+			imageCaps.uOrgW         = 2048;
+			imageCaps.uOrgH         = 1088;
+			imageCaps.PixelMode     = PIXEL_FORMAT_NV12;
+			imageCaps.uNumPages     = 1;
+			imageCaps.uMaxNumPages  = imageCaps.uNumPages;
+			imageCaps.ColorSpace    = YCC_HD_BT709;
+			imageCaps.bCached       = FALSE;
+			imageCaps.bIsContiguous = TRUE;
+			imageCaps.ImageType     = CNXT_IMAGE_STILL_GRAPHICS;
+			
+			if (CNXT_STATUS_OK != cnxt_image_open(&gStillImageHandle, &imageCaps, NULL, NULL))
+			{
+				CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to open image\n");
+				return FALSE;
+			}
+
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"###############gStillImageHandle =%lx###############\n",gStillImageHandle);
+
+
+			cnxt_kal_memset(&Input,0,sizeof(Input));
+			Input.Type = PIPE_VP_SURFACE_INPUT_TYPE_IMAGE;
+			Input.pPipe = NULL;
+			Input.hImageHandle = gStillImageHandle;
+			PmStatus = cs_pipe_vpm_attach(Input, PIPE_VP_VIDEO_SECONDARY_SURFACE, NULL);
+			if (PmStatus != PIPE_STATUS_OK)
+			{
+				CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to ATTACH image,err=%d\n", PmStatus);
+				return FALSE;
+			}
+		
+		}
+	}
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out: %s %d \n", __FUNCTION__, __LINE__);
+	return TRUE;	
+}
+
+bool CS_Close_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem)
+{	
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);  
+	return TRUE;
+}
+
+bool CS_stop_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem)
+{
+	bool bRet =0;
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);  
+
+	bRet = cs_tm_iframe_stop(pPlayerSubsystem);	
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out: %s %d \n", __FUNCTION__, __LINE__);  
+	
+	return bRet;
+}
+
+bool CS_start_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem)
+{
+	bool bRet =0;
+	int iTimeOutCnt =0;
+	
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);  
+	
+	bRet = cs_tm_iframe_start(pPlayerSubsystem);
+	
+	while((bFinishedIframeDec==FALSE)&&((iTimeOutCnt++)<50))
+	{
+		cnxt_kal_thread_time_sleep(5);
+	}
+	if(iTimeOutCnt>=50)
+	{
+		CSDEBUG(MODULE_NAME, ERROR_LEVEL,"In: %s %d: I FRAME DECODE TIME OUT! \n", __FUNCTION__, __LINE__);  
+		bRet = FALSE;		              
+	}
+	
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Out: %s %d \n", __FUNCTION__, __LINE__);  
+	
+	return bRet;
+}
+#endif  //#ifdef STATIC_IFRAME_DECODE
+#else
+bool CS_Open_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem, int nVidIndex)
+{	
+	u_int32   uEventMask        = 0;
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);
+	if(nVidIndex >= 0)
+	{
+		/*For multiple ES case. i.e. 1 PES video and 1 still video...DOES THIS HAPPEN????*/
+		pPlayerSubsystem->pPipeObj = gTmPipeObject.hPipeObj[ES_VIDEO_OBJECT+nVidIndex];
+		//pInjectHandle->pDmxObject = pDmxObject = gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT+nVidIndex] = PIPE_OBJ_CREATE(demux);
+
+		pPlayerSubsystem->pVideoObj = gTmPipeObject.hVideoObj[1] = PIPE_OBJ_CREATE ( video ); 
+		 /*We are restricting videoobj 1 for I-frame*/
+		if( gTmPipeObject.hVideoObj[1] == NULL )
+		{
+		      CSDEBUG(MODULE_NAME,ERROR_LEVEL, "Cannot create video objects\n" );
+		      return FALSE;
+		}
+
+		// 2011-01-13 TerenceZhang begin:add event PIPE_EVENT_VIDEO_DECODE_COMPLETE.
+		uEventMask = (1 << (PIPE_EVENT_VIDEO_STARTED & 0xFFFFFF)) |
+					(1 << (PIPE_EVENT_VIDEO_DECODE_COMPLETE & 0xFFFFFF)) |
+					(1 << (PIPE_EVENT_VIDEO_DISPLAY_UPDATE & 0xFFFFFF)) |
+					(1 << (PIPE_EVENT_VIDEO_PLAYING & 0xFFFFFF))|
+					(1 << (PIPE_EVENT_VIDEO_BUFFER_EMPTY & 0xFFFFFF));
+		// 2011-01-13 TerenceZhang end	
+
+		gTmPipeObject.hVideoObj[1]->subscribe_event(gTmPipeObject.hVideoObj[1], uEventMask);                 
+	}   
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: %s %d \n", __FUNCTION__, __LINE__);
+	return TRUE;
+}
+
+bool CS_Close_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem)
+{
+	PIPE_DEMUX_OBJECT        *pDmxObject=NULL;
+	PIPE_VIDEO_OBJECT        *pVidObject=NULL;
+	PIPE_PIPELINE_OBJECT 	*hPipeObj = NULL;
+	PIPE_VP_SURFACE_INPUT Input;
+    PIPE_STATUS PmStatus = PIPE_STATUS_OK;
+    
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);
+    
+    pVidObject = pPlayerSubsystem->pVideoObj;
+    pDmxObject = pPlayerSubsystem->pDemuxObj;
+    hPipeObj = pPlayerSubsystem->pPipeObj;
+
+#ifdef EXTERNAL_IMAGE_ATTACH          
+    Input.Type = PIPE_VP_SURFACE_INPUT_TYPE_NONE;
+    Input.hImageHandle = gStillImageHandle;
+#else
+    Input.Type = PIPE_VP_SURFACE_INPUT_TYPE_NONE;
+    Input.pPipe = hPipeObj;
+#endif
+    PmStatus = cs_pipe_vpm_attach(Input, PIPE_VP_VIDEO_PRIMARY_SURFACE,(ES_VIDEO_OBJECT+pPlayerSubsystem->VideoIndx));
+    if (PmStatus != PIPE_STATUS_OK)
+    {
+        CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Err: %s %d \n", __FUNCTION__, __LINE__);
+    }
+    PIPE_OBJ_DESTROY(video,pVidObject);
+
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: %s %d \n", __FUNCTION__, __LINE__);
+
+    return TRUE;
+}
+bool CS_start_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem)
+{
+      CSUDI_Error_Code eErrCode = CSUDI_SUCCESS;
+      PIPE_STATUS PmStatus = PIPE_STATUS_OK;
+  	  PIPE_VP_SURFACE_INPUT Input;
+      PIPE_DEMUX_OBJECT        *pDmxObject=NULL;
+      PIPE_VIDEO_OBJECT        *pVidObject=NULL;
+  	  PIPE_PIPELINE_OBJECT 	*hPipeObj = NULL;
+      PIPE_MEDIA_DATA_INFO MediaDataInfo;
+      PIPE_PIPELINE_CFG PipeCfg;
+      PIPE_DEMUX_CFG demuxConfig;
+  	  PIPE_VIDEO_CFG VideoConfig;
+      BOOL retCode=TRUE;
+      int nInjIndx = 0,nVidIndx=0;
+      u_int32   uEventMask        = 0;
+    
+      CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);
+    
+      nVidIndx = pPlayerSubsystem->VideoIndx;
+      pPlayerSubsystem->pDemuxObj = gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT+ nVidIndx] = PIPE_OBJ_CREATE(demux);
+      do
+      {  	    
+          /*configure the pipeline*/
+          pDmxObject = pPlayerSubsystem->pDemuxObj;          
+          pVidObject = pPlayerSubsystem->pVideoObj;
+          hPipeObj = pPlayerSubsystem->pPipeObj;
+          /* config pipe */
+          PipeCfg.Type = PIPE_PIPELINE_NONE_TS_TYPE;
+          PipeCfg.uStcIndex = 1;
+          PipeCfg.bPipPipe = FALSE;
+          PipeCfg.SyncMaster = PIPE_SYNC_NO_SYNC;
+
+          PmStatus = hPipeObj->config(hPipeObj, &PipeCfg);
+          if (PmStatus != PIPE_STATUS_OK)
+          {
+              CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d %d \n", __FUNCTION__, __LINE__, PmStatus);
+              eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+              break;
+          }
+          /* config demux */
+          cnxt_kal_memset(&demuxConfig, 0, sizeof(demuxConfig));
+          demuxConfig.Type = PIPE_DEMUX_VIDEO_ES;
+          demuxConfig.DescramblerType   = PIPE_DEMUX_DESCRAMBLE_NONE;
+
+          PmStatus = pDmxObject->config(pDmxObject, &demuxConfig);
+          if (PmStatus != PIPE_STATUS_OK)
+          {
+              CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+              eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+              break;
+          }
+          cnxt_kal_memset(&VideoConfig, 0, sizeof(VideoConfig));
+          VideoConfig.DecodingType  =    PIPE_VIDEO_MOTION_STILL;
+          VideoConfig.uCBuffSize    =    1024*1024 + 1; /*pInjectHandle->iFrameParams.m_nDataLen*/
+          VideoConfig.uImageWidth   =    2048;
+          VideoConfig.uImageHeight  =    1088;
+          VideoConfig.Format        =    PIPE_VIDEO_FORMAT_MPEG2;
+          VideoConfig.Definition    =    PIPE_VIDEO_HD;
+          VideoConfig.bHwAccelerate   = TRUE;
+          VideoConfig.bPrimaryDecoder = TRUE;
+          VideoConfig.uUserDataEnableMap = 0;
+#ifdef EXTERNAL_IMAGE_ATTACH          
+          VideoConfig.StillImageHandle = gStillImageHandle;
+#else
+          VideoConfig.StillImageHandle =NULL;
+#endif
+          /* config video */
+          PmStatus = pVidObject->config(pVidObject, &VideoConfig);
+          if (PmStatus != PIPE_STATUS_OK)
+          {
+              CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+              eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+                break;
+          }
+          PmStatus = hPipeObj->add_device(hPipeObj, (PIPE_OBJ_HANDLE)pDmxObject);
+          if (PmStatus != PIPE_STATUS_OK)
+          {
+              CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+              eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+                break;
+          }
+          PmStatus = hPipeObj->add_device(hPipeObj, (PIPE_OBJ_HANDLE)pVidObject);
+          if (PmStatus != PIPE_STATUS_OK)
+          {
+              CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+              eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+                break;
+          }
+          //2011-01-18 TerenceZhang begin:moved here from the end of this function.
+          PmStatus = hPipeObj->flush(hPipeObj, PIPE_FULL_FLUSH);
+          if (PmStatus != PIPE_STATUS_OK)
+          {
+              CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+              eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+              break;
+          }
+          //2011-01-18 TerenceZhang end
+          
+#ifdef EXTERNAL_IMAGE_ATTACH          
+          Input.Type = PIPE_VP_SURFACE_INPUT_TYPE_IMAGE;
+          Input.hImageHandle = gStillImageHandle;
+#else          
+          Input.Type = PIPE_VP_SURFACE_INPUT_TYPE_PIPELINE;
+          Input.pPipe = hPipeObj;
+          Input.hImageHandle = NULL; //2011-01-18 TerenceZhang Added
+#endif          
+          PmStatus = cs_pipe_vpm_attach(Input, PIPE_VP_VIDEO_PRIMARY_SURFACE, (ES_VIDEO_OBJECT+nVidIndx));
+          if (PmStatus != PIPE_STATUS_OK)
+          {
+              CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+              eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+              break;
+          }
+          
+          PmStatus = pDmxObject->demux_play_ctrl(pDmxObject, TRUE);
+          if (PmStatus != PIPE_STATUS_OK)
+          {
+                CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+                eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+                break;
+          }
+          /*start decoder*/
+          PmStatus = pVidObject->decoder_ctrl(pVidObject, TRUE);
+          if (PmStatus != PIPE_STATUS_OK)
+          {
+              CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+              eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+              break;
+          }
+          PmStatus = hPipeObj->set_decoding_speed(hPipeObj, PIPE_PLAY_CONTINUOUS_MODE, 1024);
+          if (PmStatus != PIPE_STATUS_OK)
+          {
+                CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+                eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+                break;
+          }
+
+          if(pIframeBuff == NULL)
+          {
+              CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+              eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+              break;
+          }	 				
+		   
+          MediaDataInfo.Type = PIPE_MEDIA_VIDEO_ES_DATA;
+          MediaDataInfo.pData   = pIframeBuff;
+          MediaDataInfo.uLength = uIframeLen;
+        
+          PmStatus = hPipeObj->inject_media_data(hPipeObj, &MediaDataInfo);
+          if (PmStatus != PIPE_STATUS_OK)
+          {
+                CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+                eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+                break;
+          }
+          //2011-01-18 TerenceZhang begin:moved up
+          #if 0
+          cnxt_kal_thread_time_sleep(100);
+          /*stop decoder*/
+          PmStatus = hPipeObj->flush(hPipeObj, PIPE_FULL_FLUSH);
+          if (PmStatus != PIPE_STATUS_OK)
+          {
+              CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+              //eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+            //break;
+          }
+          #endif
+          //2011-01-18 TerenceZhang end
+    }while(0);
+      
+    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: %s %d eErrCode %d \n", __FUNCTION__, __LINE__, eErrCode);
+    return retCode;
+}
+bool CS_stop_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem)
+{
+    PIPE_STATUS PmStatus = PIPE_STATUS_OK; 
+    PIPE_PIPELINE_OBJECT *hPipeObj=NULL;
+    PIPE_DEMUX_OBJECT    *pDmxObject=NULL;
+    PIPE_VIDEO_OBJECT    *pVidObject=NULL;
+    CSUDI_Error_Code eErrCode = CSUDI_SUCCESS;
+	PIPE_VP_SURFACE_INPUT Input;
+    BOOL retCode=TRUE;
+    int nInjIndx = 0;
+
+    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);
+    
+	pDmxObject = pPlayerSubsystem->pDemuxObj;	       
+    pVidObject = pPlayerSubsystem->pVideoObj;
+    hPipeObj = pPlayerSubsystem->pPipeObj;
+    do
+    {
+        PmStatus = pVidObject->decoder_ctrl(pVidObject, FALSE);
+        if (PmStatus != PIPE_STATUS_OK)
+        {
+            CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d \n", __FUNCTION__, __LINE__);
+    	    eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+       	    break;
+        }
+        PmStatus = pDmxObject->demux_play_ctrl(pDmxObject, FALSE);
+        if (PmStatus != PIPE_STATUS_OK)
+        {
+            CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+    	    eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+        	break;
+        } 
+
+    	PmStatus = hPipeObj->delete_device(hPipeObj, (PIPE_OBJ_HANDLE)pVidObject);
+        if (PmStatus != PIPE_STATUS_OK)
+        {
+            CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d PmStatus %d \n", __FUNCTION__, __LINE__, PmStatus);
+    	    eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+       	    break;
+        }
+        PmStatus = hPipeObj->delete_device(hPipeObj, (PIPE_OBJ_HANDLE)pDmxObject);
+        if (PmStatus != PIPE_STATUS_OK)
+        {
+            CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+            eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+        	break;
+        }
+        PmStatus = PIPE_OBJ_DESTROY ( demux, pDmxObject);
+        if (PmStatus != PIPE_STATUS_OK)
+        {
+            CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"failed %s %d \n", __FUNCTION__, __LINE__);
+            eErrCode = CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+        	break;
+        }
+    }while(0);
+    gTmPipeObject.hDemuxObj[ES_VIDEO_OBJECT+pPlayerSubsystem->VideoIndx] = NULL;
+    
+    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: %s %d eErrCode %d \n", __FUNCTION__, __LINE__, eErrCode);
+    
+    return retCode;
+
 }
 #endif
 

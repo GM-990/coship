@@ -22,6 +22,27 @@
 #include "udidrv_log.h"
 
 #include "udi2_screen.h"
+#include "generic_include.h"
+#define MODULE_NAME              ("CS_SCREEN")
+
+static CNXT_SEM_ID gScreenSem;
+
+CNXT_STATUS CS_TM_Screen_Init(void)
+{
+	
+	CNXT_STATUS Retcode = CNXT_STATUS_OK ;
+	char sem_name[20];
+	sprintf(sem_name,"ScreenSem0");
+	Retcode=cnxt_kal_sem_create(1, sem_name, &(gScreenSem));
+	if(CNXT_STATUS_OK!=Retcode)
+	{
+		CSDEBUG(MODULE_NAME, ERROR_LEVEL, "sem_create  failed\n");
+		return Retcode;
+	}
+	printf("CS_TM_Screen_Init---success\n");
+	return Retcode;
+}
+//frank.zhou---------------------------------------------------------------------------------------------------
 /**
 @brief 获取指定输出设备的分辨率设置能力
 @param[in] eScreenDevice 视频输出通道类型

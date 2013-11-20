@@ -129,7 +129,7 @@ CSUDI_Error_Code CSUDIAUDIOGetCount(int * pnAudioDecCount)
 		UDIDRV_LOGI("%s KAL_SEM_GET FAILED %d \n", __FUNCTION__, Retcode);
 		return CSUDI_FAILURE;
 	}
-
+	
 	do
 	{
 		if(!pnAudioDecCount)

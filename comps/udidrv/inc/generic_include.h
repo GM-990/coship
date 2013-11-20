@@ -65,7 +65,7 @@
 #define DUAL_VIDEO_SURFACE
 #ifdef DUAL_VIDEO_SURFACE
 //#define VDOBJ_MALLOC
-#define OSG_USEIMAGE
+//#define OSG_USEIMAGE
 #define LOOPINJECT
 #define SHOWINDECODE
 

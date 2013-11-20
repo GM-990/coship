@@ -22,6 +22,37 @@
 #include "udidrv_log.h"
 
 #include "udi2_toolset.h"
+#include "generic_include.h"
+
+#define MODULE_NAME              ("CS_TOOLSET")
+CSUDI_Error_Code CSUDIPlatformTerm()
+{
+	CSUDI_Error_Code enRet = CSUDI_FAILURE;
+
+	/*lichanghua :用于进程退出自动测试*/
+	/*stop GUI */
+#ifdef PROCESS_EXIT_TEST
+	GrAllowPaint(FALSE);
+#endif
+
+	CSUDIINJECTERTerm();
+	CSUDIPLAYERTerm();
+	CSUDISECTIONTerm();
+	CSUDISMCTerm();
+	CSUDIOSGTermAll();
+
+	CSUDIVIDEOTerm();
+	CSUDIAUDIOTerm();
+
+	//CSUDIIRTerm();
+	
+	DestroyPipeObjects();
+	
+	CSUDIDriverTerm();
+
+	return enRet;
+}
+//frank.zhou---------------------------------------------------------------------------------------------------
 /**
 @brief 获取主芯片的ID。
 

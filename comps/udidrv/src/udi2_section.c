@@ -563,7 +563,17 @@ CSUDI_Error_Code CSUDIFILTERFree(CSUDI_HANDLE hFilterHandle)
 {
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
+	
+	 if ( cnxt_kal_sem_get(gSectionSem,CNXT_KAL_WAIT_FOREVER) != CNXT_STATUS_OK)
+	{
+		CSDebug(MODULE_NAME, ERROR_LEVEL, "Demux Device is busy ....\n");
+		return CSUDISECTION_ERROR_UNKNOWN_ERROR;
+	}
+
+	Retcode= CSUDIFILTERFree_Priv(hFilterHandle);
+	 
+	cnxt_kal_sem_put(gSectionSem);
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	
 	return Retcode;
 }
@@ -888,3 +898,251 @@ void print_filter_config(PIPE_DEMUX_FILTER_CFG dmxFilterCfg)
   return;
 }
 
+static CSUDI_Error_Code Soft_Section_Filtering(u_int32 FltId,u_int8 *gSectionData)
+{
+    u_int8 i;
+    u_int8 Old_Bytes,New_Bytes;
+    bool   bMatchFailed = FALSE;
+    for(i = 12; i < PIPE_DEMUX_MAX_FILTER_LEN; i++)
+    {
+       Old_Bytes = gSectionTable[FltId].DmxFilterCfg.FilterCfg.SectionFilter.uFilterMatch[i] & \
+                   gSectionTable[FltId].DmxFilterCfg.FilterCfg.SectionFilter.uFilterMask[i];
+
+       New_Bytes = gSectionData[i] & \
+                   gSectionTable[FltId].DmxFilterCfg.FilterCfg.SectionFilter.uFilterMask[i];
+
+       if(gSectionTable[FltId].DmxFilterCfg.FilterCfg.SectionFilter.uNegativeMask[i])
+       {
+         if(Old_Bytes == New_Bytes)
+         {
+            bMatchFailed = TRUE;
+            break;
+         }
+       }
+       else
+       {
+          if(Old_Bytes != New_Bytes)
+          {
+            bMatchFailed = TRUE;
+            break;
+          }
+       }
+    }
+    
+    if (bMatchFailed != FALSE)
+        return CSUDI_FAILURE;
+    
+    return CSUDI_SUCCESS;
+}
+
+void Section_filter_event_notifier(struct pipe_pipeline_obj *pPipe,
+                                   void                     *pUserData,
+                                   PIPE_NOTIFY_EVENT         Event,
+                                   void                     *pData,
+                                   void                     *pTag )
+{
+
+  PIPE_DEMUX_FILTER_DATA    *pFilterData = NULL;
+  CNXT_STATUS                Status      = CNXT_STATUS_OK;
+  u_int32                    TempFltID;
+  CSUDISECTIONCallbackData_S Section_Data;
+  u_int32                    uBytesRead;
+  
+  if ( cnxt_kal_sem_get(gSectionSem,CNXT_KAL_WAIT_FOREVER) != CNXT_STATUS_OK)
+  {
+      CSDebug(MODULE_NAME, ERROR_LEVEL, "Filter Device is busy ....\n");
+      return;
+  }
+  switch(Event) 
+  {
+     case PIPE_EVENT_DEMUX_SYNC_ACQUIRED:
+            break;
+     case PIPE_EVENT_DEMUX_SYNC_LOST:
+            break;
+     case PIPE_EVENT_DEMUX_HDR_ERROR:
+            break;
+     case PIPE_EVENT_DEMUX_FILTER_BUF_OVERFLOW:
+            break;
+     case PIPE_EVENT_DEMUX_FILTER_ERROR:
+            break;
+     case PIPE_EVENT_DEMUX_FILTER_DATA_PES:
+          pFilterData = (PIPE_DEMUX_FILTER_DATA*)pData;
+
+#if 0
+          if (pFilterData->uLength >= DEMUX_SECTION_MAX_SIZE)
+          {
+             printf("Large DATA Chunk Size(%d).....\n",pFilterData->uLength);
+             break;
+          }
+#endif
+
+          for ( TempFltID = 0; TempFltID < MAX_SECTION_FILTERS; TempFltID++ )
+          {
+             if ( gDmxFltObj[TempFltID] == pFilterData->pDemuxFilter[0] )
+             {
+                break;
+             }
+          }
+          if(TempFltID >= MAX_SECTION_FILTERS)
+          {
+             printf("No PES Filter Found....\n");
+             break;
+          }
+
+		  if( gSectionTable[TempFltID].InUseFlag == FALSE )
+		  {
+			break;
+		  }
+		  
+          Status = cnxt_cbuf_read_data_mmapped_dest(pFilterData->hCbuf,
+                                                    gCbufSection,
+                                                    pFilterData->uLength,
+                                                    &uBytesRead);
+          if(Status != CNXT_STATUS_OK)
+          {
+              //printf(" Failed to Read PES Data From Cbuf Status(%d)\n",Status);
+              //printf("uBytesRead(%d) uLength(%d)\n",uBytesRead,pFilterData->uLength);
+              break;
+          }
+
+
+          if ( (gSectionTable[TempFltID].InUseFlag != TRUE) || 
+               (gSectionTable[TempFltID].state != SF_FILTERING) )
+          {
+             printf("Filter is Not in Use FltId=%d, [%d][%d]\n",
+			 	TempFltID, gSectionTable[TempFltID].InUseFlag, gSectionTable[TempFltID].state);
+             break;
+          }
+          if(gSectionTable[TempFltID].fnSectionCallback != NULL)
+          {
+              Section_Data.m_nDataLen = pFilterData->uLength;
+              Section_Data.m_pucData  = gCbufSection;
+  
+              //printf("PES Filter(%d) PvtData(%d) Notify ......\n",TempFltID,gSectionTable[TempFltID].pvUserData);
+              /* Call Back Function */
+              gSectionTable[TempFltID].fnSectionCallback(
+                                        EM_UDI_REQ_PES_DATA ,
+                                        &Section_Data,
+                                        gSectionTable[TempFltID].pvUserData );
+              break;
+          }
+          else
+          {
+             printf("No Call Back function found \n");
+          }
+          
+          break;
+
+     case PIPE_EVENT_DEMUX_FILTER_DATA:
+             
+             pFilterData = (PIPE_DEMUX_FILTER_DATA*)pData;
+
+			 int i = 0;
+
+             Status = cnxt_cbuf_read_data_mmapped_dest(pFilterData->hCbuf,
+                                                       gCbufSection,
+                                                       pFilterData->uLength,
+                                                       &uBytesRead);
+             if(Status != CNXT_STATUS_OK)
+             {
+                 CSDebug(MODULE_NAME, INFO_LEVEL, " Failed to Read From Cbuf %x, status %d\n",pFilterData->hCbuf,Status);
+                 break;
+             }
+            
+			 for ( i = 0; i < pFilterData->uNumOfFilters; i++ )
+			 {
+				for ( TempFltID = 0; TempFltID < MAX_SECTION_FILTERS; TempFltID++ )
+				{
+				  if ( gDmxFltObj[TempFltID] == pFilterData->pDemuxFilter[i] )
+				  {
+					 break;
+				  }
+				} 
+
+                if( TempFltID>= MAX_SECTION_FILTERS)
+                    continue;
+
+				#if 0 //commented by frank.zhou
+				if((gSectionTable[TempFltID].InUseFlag == FALSE)||(gSectionTable[TempFltID].pTag != pFilterData->pTag[i]))
+				{
+					continue;
+				}
+				else
+				{
+					break;
+				}
+				#endif
+			 }
+
+			 if((i >= pFilterData->uNumOfFilters)||(gSectionTable[TempFltID].InUseFlag==FALSE))
+			 {
+				 break;
+			 }
+			 
+
+#if 0
+             int k;
+             printf("\nSection Data(%d)Bytes::",pFilterData->uLength);
+             for (k = 0; k< 5; k ++ )
+             {
+               printf("[0x%X] ", gCbufSection[k]);
+             }
+             printf("\n");
+#endif
+
+             for ( i = 0; i < pFilterData->uNumOfFilters; i++ )
+             {
+                for ( TempFltID = 0; TempFltID < MAX_SECTION_FILTERS; TempFltID++ )
+                {
+                  if ( gDmxFltObj[TempFltID] == pFilterData->pDemuxFilter[i] )
+                  {
+                     break;
+                  }
+                }   
+            #if 0 //commented by frank.zhou
+                if ((gSectionTable[TempFltID].InUseFlag != TRUE)||(gSectionTable[TempFltID].pTag != pFilterData->pTag[i]) )
+                {
+                   printf("Filter is Not in Use FltId=%d,%08X,%08X,%08X\n",TempFltID,
+				   	gSectionTable[TempFltID].InUseFlag,
+				   	gSectionTable[TempFltID].pTag,
+				   	pFilterData->pTag[i]);
+                   continue;
+                }
+			#endif
+                
+                if(gSectionTable[TempFltID].state != SF_FILTERING)
+                {
+                   printf(" Notify : Incorrect Filter State FltId=%d\n ",TempFltID);
+                   continue;
+                }
+                
+                /* 12 Byte Filtering is Done by H/W rest 4Bytes need to check Here */
+                if(  Soft_Section_Filtering( TempFltID ,gCbufSection) != CSUDI_SUCCESS)
+                {
+                   //printf(" Notify : Sotware Section Filtering Failed\n" );
+                   continue;
+                }
+                
+                if(gSectionTable[TempFltID].fnSectionCallback != NULL)
+                {
+                    Section_Data.m_nDataLen = pFilterData->uLength;
+                    Section_Data.m_pucData  = gCbufSection;
+
+                    //printf("Filter(%d) PvtData(%d) Notify ......\n",TempFltID,gSectionTable[TempFltID].pvUserData);
+                    /* Call Back Function */
+                    gSectionTable[TempFltID].fnSectionCallback(
+                                              EM_UDI_REQ_SECTION_DATA ,
+                                              &Section_Data,
+                                              gSectionTable[TempFltID].pvUserData );
+                }    
+             }
+
+         break;
+
+         default:
+             break;
+     }
+  
+  cnxt_kal_sem_put(gSectionSem);
+  
+}
