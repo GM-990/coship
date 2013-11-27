@@ -17,7 +17,8 @@
 		 The APIs in this header file are required for Android DVB-S2 plus OTT project.
 		 Because there is no EEPROM device in the STB system.
  *-------------------------------------------------------------------------------
- ****************************************************************************/ 
+ ****************************************************************************/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,15 +35,8 @@
 #include <time.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
-
-#if 0
-#include <sys/msg.h>
-#include <sys/sem.h>
-#else
 #include <linux/msg.h>
 #include <linux/sem.h>
-#endif
-
 #include <sys/timeb.h>
 #include <sys/time.h>
 
@@ -82,11 +76,22 @@ typedef struct timeval cs_time_t;
 #define  MODULE_NAME   "CS_OS"
 
 
-#define PTHREAD_CANCEL_ENABLE           0x00
-#define PTHREAD_CANCEL_DISABLE          0x01
-
-#define PTHREAD_CANCEL_DEFERRED			0x00
-#define PTHREAD_CANCEL_ASYNCHRONOUS			0x01
+//vivian, can not find these definition in android toolchain
+/* Cancellation */
+enum
+{
+  PTHREAD_CANCEL_ENABLE,
+#define PTHREAD_CANCEL_ENABLE   PTHREAD_CANCEL_ENABLE
+  PTHREAD_CANCEL_DISABLE
+#define PTHREAD_CANCEL_DISABLE  PTHREAD_CANCEL_DISABLE
+};
+enum
+{
+  PTHREAD_CANCEL_DEFERRED,
+#define PTHREAD_CANCEL_DEFERRED	PTHREAD_CANCEL_DEFERRED
+  PTHREAD_CANCEL_ASYNCHRONOUS
+#define PTHREAD_CANCEL_ASYNCHRONOUS	PTHREAD_CANCEL_ASYNCHRONOUS
+};
 
 int sem_timedwait(sem_t *men, const struct timespec * abs_timeout);
 
@@ -376,12 +381,12 @@ CSUDI_Error_Code CSUDIOSThreadCreate(const char * pcName,int nPriority,int nStac
         CSASSERT(nRetVal == 0);
 
 	 			pstThreadInfo->stThreadHndl = thread;
-	
-        nRetVal = pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,NULL);
-        CSASSERT(nRetVal == 0);
+	//vivian
+        //nRetVal = pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,NULL);
+        //CSASSERT(nRetVal == 0);
 
-        nRetVal = pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS,NULL);
-        CSASSERT(nRetVal == 0);
+        //nRetVal = pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS,NULL);
+        //CSASSERT(nRetVal == 0);
         
         if (nRetVal == 0 && thread != 0)
         {
@@ -435,13 +440,48 @@ ENTROPIC COMMENTS ON COSHIP API
 
 */
 CSUDI_Error_Code CSUDIOSThreadDestroy (CSUDI_HANDLE hThread)
-{	
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+{
+    	CSUDI_Error_Code enRet = CSUDI_FAILURE;
+	int nRetVal;
+	CSThreadInfo *pstTmp;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+    	CSASSERT (hThread != CSUDI_NULL);
 
+	if (hThread == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	nRetVal = pthread_cancel ((pthread_t)hThread);         /* Send cancel request   */
+	CSASSERT(nRetVal == 0);
+
+	nRetVal = pthread_join ((pthread_t) hThread, CSUDI_NULL);    /* Wait for task to exit */
+	CSASSERT(nRetVal == 0);
+
+	ThreadInfoLock();
+	pstTmp = g_pstThreadListHead;
+	while(pstTmp)
+	{
+		if (pstTmp->stThreadHndl == hThread)
+		{
+			break;
+		}
+		pstTmp=pstTmp->pstNext;
+	}
+	if (pstTmp)
+	{
+		RemoveThreadInfo(pstTmp);
+	}
+	else
+	{
+		CSDEBUG(MODULE_NAME,ERROR_LEVEL,"WARNING:can't find thread info,maybe has been free when thread exit\n");
+	}
+	
+	ThreadInfoUnLock();
+	
+	enRet = CSUDI_SUCCESS;
+
+    return enRet;
 }
 
 /**
@@ -464,12 +504,26 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSThreadSuspend(CSUDI_HANDLE hThread)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+#if 0
+	CSUDI_Error_Code enRet = CSUDI_FAILURE;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	CSASSERT (hThread != NULL);
 
+  	if (hThread == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+	if (pthread_kill((pthread_t)hThread, SIGSTOP) == 0)
+	{
+	    enRet = CSUDI_SUCCESS;
+	}
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
+#else
+	return CSUDIOS_ERROR_FEATURE_NOT_SUPPORTED;
+#endif
 }
 
 /**
@@ -492,12 +546,27 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSThreadResume(CSUDI_HANDLE hThread)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+#if 0
+	CSUDI_Error_Code enRet = CSUDI_FAILURE;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	CSASSERT (hThread != NULL);
 
+  	if (hThread == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	if (pthread_kill((pthread_t)hThread,SIGCONT) == 0)
+	{
+	    enRet = CSUDI_SUCCESS;
+	}
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
+#else
+	return CSUDIOS_ERROR_FEATURE_NOT_SUPPORTED;
+#endif
 }
 /**
 @brief 使一个任务等待另一个任务结束
@@ -519,12 +588,21 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSThreadJoin (CSUDI_HANDLE hThread)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code enRet = CSUDI_FAILURE;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	CSASSERT (hThread != NULL);
 
+  	if (hThread == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	if (pthread_join((pthread_t)hThread,(void**)CSUDI_NULL) == 0)
+	{
+		enRet = CSUDI_SUCCESS;
+	}
+
+	return enRet;
 }
 
 /**
@@ -541,13 +619,29 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code  CSUDIOSThreadSelf(CSUDI_HANDLE * phThread)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code enRet = CSUDI_FAILURE;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	CSASSERT (phThread != NULL);
 
+  	if (phThread == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	if (CSUDI_NULL != (*phThread = (CSUDI_HANDLE)pthread_self()))
+	{
+		enRet = CSUDI_SUCCESS;
+	}
+
+	return enRet;
 }
+
+
+static DWORD CSGetThreadId(VOID)
+{
+    return (DWORD)pthread_self();
+}
+
 
 /**
 @brief 挂起当前任务一段时间
@@ -567,12 +661,34 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 void CSUDIOSThreadSleep(unsigned int uMilliSeconds)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+    struct timespec delay;
+    struct timespec rem;
+    int rc;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return;
+    if(uMilliSeconds==0)
+    {
+        return;
+    }
 
+    delay.tv_sec = (int)uMilliSeconds/1000;
+    delay.tv_nsec = 1000 * 1000 * (uMilliSeconds%1000);
+
+    for(;;) {
+        rc = nanosleep(&delay, &rem); /* [u]sleep can't be used because it uses SIGALRM */
+        if (rc!=0) {
+            if (errno==EINTR) {
+                delay = rem; /* sleep again */
+                continue;
+            }
+
+            CSASSERT(0);
+
+            return ;
+        }
+        break; /* done */
+    }
+
+    return;
 }
 
 /**
@@ -593,12 +709,11 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 void CSUDIOSThreadYield (void)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return;
-
+	#if 0
+	pthread_yield();
+	#else
+	CSUDIOSThreadSleep(3);
+	#endif
 }
 
 /*******************************************************************
@@ -624,14 +739,128 @@ ENTROPIC COMMENTS ON COSHIP API
 -------------------------------------------------------------------------------
 
 */
+
+
+
+typedef struct
+{
+    DWORD  Name;
+    DWORD  ByteQueueSize;                   /* Size of the queue in bytes   */
+    DWORD  ByteNodeSize;                   	/* Message size in bytes        */
+    DWORD  MsgCount;
+    DWORD  Head;                      		 /* Head offset from queue start */
+    DWORD  Tail;                       		/* Tail offset from queue start */
+    CSUDI_HANDLE QMutex;              	 /* Queue mutex                  */
+    CSUDI_HANDLE QEvent;               	/* Queue event                  */
+    CSUDI_HANDLE QEventAvailSpace;/* Queue event                  */
+    BYTE  *StartPtr;                 		 /* Pointer to queue start       */
+    BOOL	m_bIsRun;
+}MSG_QUEUE;
+
+
+
 CSUDI_Error_Code CSUDIOSMsgQueueCreate(const char * pcName,int nMaxMsgs,int nSizePerMsg,CSUDI_HANDLE * phMsgQueue)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	CSUDI_HANDLE 		Qmutex = (CSUDI_HANDLE)CSUDI_NULL;
+	CSUDI_HANDLE 		Qevent = (CSUDI_HANDLE)CSUDI_NULL;
+	CSUDI_HANDLE 		QEventAvailSpace = (CSUDI_HANDLE)CSUDI_NULL;
+	MSG_QUEUE*			Qptr = CSUDI_NULL;
+	DWORD 				nNameLen = 0;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	CSASSERT(nSizePerMsg > 0);
 
+	if(pcName != CSUDI_NULL)
+	{
+	    nNameLen = strlen(pcName);
+	}
+
+	CSASSERT(nNameLen < 32);
+
+	if((nSizePerMsg <= 0) || (nNameLen >= 32) || (nMaxMsgs <= 0) || (phMsgQueue == CSUDI_NULL))
+	{
+	    return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	*phMsgQueue = CSUDI_NULL;
+    /*================================================
+     * Create memory, mutex and event for the queue
+     *===============================================*/
+    Qptr = (MSG_QUEUE *) malloc ( ( sizeof ( MSG_QUEUE ) + (DWORD)( nMaxMsgs * ( (( nSizePerMsg + 3 ) / 4) * 4 ) ) ) * 2 ) ;
+
+    if ( Qptr != CSUDI_NULL)
+    {
+        enRet = CSUDIOSMutexCreate("MsgQueueMutex", 0,&Qmutex);
+
+        if ( enRet == CSUDI_SUCCESS)
+        {
+            enRet = CSUDIOSEventCreate(0,0 ,&Qevent);
+
+            if ( enRet == CSUDI_SUCCESS)
+            {
+                enRet = CSUDIOSEventCreate( 0, CSUDIOS_EVENT_INITIAL_STATUS,&QEventAvailSpace);
+
+                if ( enRet == CSUDI_SUCCESS)
+                {
+                    /*==========================================
+                    * Initialize the queue
+                    *=========================================*/
+                    enRet = CSUDIOSMutexWait(Qmutex, CSUDIOS_TIMEOUT_INFINITY);
+					
+                    if(enRet == CSUDI_SUCCESS)
+                    {
+                        Qptr->Name				= 0;//pstrName;
+                        Qptr->ByteQueueSize		= (DWORD)(nMaxMsgs * nSizePerMsg * 2);
+                        Qptr->ByteNodeSize		= (DWORD)(nSizePerMsg * 2);
+                        Qptr->MsgCount 			= 0;
+                        Qptr->Head      		= 0;
+                        Qptr->Tail      		= 0;
+                        Qptr->QMutex    		= Qmutex;
+                        Qptr->QEvent    		= Qevent;
+                        Qptr->QEventAvailSpace  = QEventAvailSpace;
+                        Qptr->StartPtr  		= (BYTE *) ( Qptr) + sizeof ( MSG_QUEUE ) * 2;
+                        Qptr->m_bIsRun			= TRUE;
+
+                        enRet = CSUDIOSMutexRelease(Qmutex);
+                        if(enRet == CSUDI_SUCCESS)
+                        {
+                            *phMsgQueue = (CSUDI_HANDLE)Qptr;
+				enRet = CSUDI_SUCCESS;
+                        }
+                    }
+                }
+            }
+        }
+
+        if ( *phMsgQueue == CSUDI_NULL )
+        {
+            CSASSERT(*phMsgQueue != CSUDI_NULL);
+            if ( Qevent != CSUDI_NULL )
+            {
+                enRet = CSUDIOSEventDestroy( Qevent );
+                if(enRet != CSUDI_SUCCESS)
+                {
+                    CSDEBUG(MODULE_NAME,INFO_LEVEL,"CSDestroyEventdwRet=%d\r\n",enRet);
+                }
+            }
+
+            if ( Qmutex != (CSUDI_HANDLE)CSUDI_NULL )
+            {
+                enRet = CSUDIOSMutexDestroy(Qmutex);
+                if(enRet != CSUDI_SUCCESS)
+                {
+                    CSDEBUG(MODULE_NAME,INFO_LEVEL,"CSDestroyMutex=%d\r\n",enRet);
+                }
+            }
+
+            if(CSUDI_NULL != Qptr)
+            {
+                free (Qptr);
+            }
+        }
+    }
+
+    return enRet ;
 }
 
 /**
@@ -651,11 +880,49 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSMsgQueueDestroy(CSUDI_HANDLE hMsgQueue)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	CSUDI_HANDLE 			Qmutex;
+	MSG_QUEUE   			*Qptr;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	if (hMsgQueue == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}        
+
+	Qptr = (MSG_QUEUE *) hMsgQueue;
+	Qmutex = Qptr->QMutex;
+
+	if ( Qmutex != 0 )
+	{
+	    /*=============================================
+	    * Delete queue event, mutex and memory
+	    *============================================*/
+	    enRet = CSUDIOSMutexWait( Qmutex, CSUDIOS_TIMEOUT_INFINITY );
+	    if(enRet == CSUDI_SUCCESS)
+	    {
+	        if ( Qptr->m_bIsRun == TRUE )
+	        {
+	            Qptr->m_bIsRun = FALSE;
+				
+	            enRet = CSUDIOSEventDestroy(Qptr->QEvent);
+	            enRet = CSUDIOSEventDestroy(Qptr->QEventAvailSpace);
+	            enRet = CSUDIOSMutexRelease (Qmutex);				
+	            enRet = CSUDIOSMutexDestroy (Qmutex);
+
+	            Qptr->QMutex = 0;
+	            Qptr->QEvent = 0;
+	            Qptr->QEventAvailSpace = 0;
+
+	            free (Qptr);
+
+	            enRet = CSUDI_SUCCESS;
+	        }
+	    }
+	}
+
+    CSASSERT(enRet == CSUDI_SUCCESS);
+
+    return enRet;
 }
 
 /**
@@ -683,12 +950,74 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSMsgQueueReceive(CSUDI_HANDLE hMsgQueue,void * pvMsg,int nMaxMsgBytes,unsigned int uTimeout)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	CSUDI_HANDLE Qmutex;
+	MSG_QUEUE   *Qptr;
+	DWORD      Head = 0;//, Tail;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	CSASSERT(hMsgQueue != NULL && pvMsg != NULL && nMaxMsgBytes > 0);
 
+	if (hMsgQueue == NULL || pvMsg == NULL || nMaxMsgBytes <= 0)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+        Qptr = (MSG_QUEUE *) hMsgQueue;
+        Qmutex = Qptr->QMutex;
+
+        enRet = CSUDIOSEventWait(Qptr->QEvent, uTimeout);
+
+        if ( enRet == CSUDI_SUCCESS)
+        {
+            enRet = CSUDIOSMutexWait( Qmutex, CSUDIOS_TIMEOUT_INFINITY );
+
+            if ( enRet == CSUDI_SUCCESS )
+            {
+                Head = Qptr->Head;
+                //Tail = Qptr->Tail;
+
+                if ( Qptr->MsgCount > 0 )
+                {
+                    DWORD dwCopySize = (DWORD)nMaxMsgBytes > ( Qptr->ByteNodeSize / 2 ) ? ( Qptr->ByteNodeSize / 2 ) : (DWORD)nMaxMsgBytes;
+
+                    memcpy ( pvMsg, Qptr->StartPtr + Head, dwCopySize );
+                    memset( Qptr->StartPtr + Head, 0, dwCopySize );
+
+                    Head += Qptr->ByteNodeSize;
+
+                    if ( Head >= Qptr->ByteQueueSize )
+                    {
+                        Head = 0;
+                    }
+
+                    Qptr->Head = Head;
+                    Qptr->MsgCount--;
+
+                    if ( Qptr->MsgCount == 0 )
+                    {
+                        CSUDIOSEventReset(Qptr->QEvent);
+                    }
+
+                    CSUDIOSEventSet( Qptr->QEventAvailSpace );
+
+                    enRet = CSUDI_SUCCESS;
+                }
+
+                CSUDIOSMutexRelease( Qmutex );
+            }
+            else
+            {
+                CSASSERT( enRet == CSUDI_SUCCESS );
+            }
+        }
+        else if (enRet == CSUDIOS_ERROR_TIMEOUT)
+        {
+            enRet = CSUDIOS_ERROR_TIMEOUT;
+        }
+
+    CSASSERT( enRet == CSUDI_SUCCESS || enRet == CSUDIOS_ERROR_TIMEOUT);
+
+    return enRet;
 }
 
 /**
@@ -716,12 +1045,71 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSMsgQueueSend(CSUDI_HANDLE hMsgQueue, const void * pvMsg, int nMsgBytes, unsigned int uTimeout)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	CSUDI_HANDLE 			Qmutex;
+	MSG_QUEUE   			*Qptr;
+	DWORD 				Tail;//Head
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	CSASSERT(hMsgQueue != NULL && pvMsg != NULL && nMsgBytes > 0);
+	if (hMsgQueue == CSUDI_NULL || pvMsg == CSUDI_NULL || nMsgBytes <= 0 )
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
 
+	Qptr = (MSG_QUEUE *) hMsgQueue;
+	Qmutex = Qptr->QMutex;
+
+	enRet = CSUDIOSEventWait( Qptr->QEventAvailSpace, uTimeout);
+
+	if ( enRet == CSUDI_SUCCESS)
+	{
+	    enRet  = CSUDIOSMutexWait( Qmutex, CSUDIOS_TIMEOUT_INFINITY );
+
+	    if ( enRet == CSUDI_SUCCESS)
+	    {
+	        Tail = Qptr->Tail;
+
+	        if ( Qptr->ByteQueueSize >= ( ( Qptr->MsgCount + 1 ) * Qptr->ByteNodeSize ) )
+	        {
+	            DWORD dwCopySize = ( (DWORD)nMsgBytes > ( Qptr->ByteNodeSize / 2 ) ? ( Qptr->ByteNodeSize / 2 ) : (DWORD)nMsgBytes );
+
+	            memcpy( Qptr->StartPtr + Tail, pvMsg, dwCopySize );
+
+	            Tail += Qptr->ByteNodeSize;
+
+	            if ( Tail >= Qptr->ByteQueueSize )
+	            {
+	                Tail = 0;
+	            }
+
+	            Qptr->Tail = Tail;
+	            Qptr->MsgCount++;
+
+	            if ( Qptr->MsgCount >= ( Qptr->ByteQueueSize/Qptr->ByteNodeSize ) )
+	            {
+	                CSUDIOSEventReset(Qptr->QEventAvailSpace);
+	            }
+
+	            CSUDIOSEventSet( Qptr->QEvent );            /* Set the queue event  */
+
+	            enRet = CSUDI_SUCCESS;
+	        }
+
+	        CSUDIOSMutexRelease(Qmutex);
+	    }
+	    else
+	    {
+	        CSASSERT( enRet == CSUDI_SUCCESS);
+	    }
+	}
+	else if ( enRet == CSUDIOS_ERROR_TIMEOUT )
+	{
+	    enRet = CSUDIOS_ERROR_TIMEOUT;
+	}
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
 }
 
 
@@ -751,12 +1139,52 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSSemCreate(const char * pcName,int nInitialCount,int nMaxCount,CSUDI_HANDLE * phSemaphore)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	DWORD dwNameLen = 0;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	CSASSERT(pstrName != NULL);
 
+	if(pcName != NULL)
+	{
+	    dwNameLen = strlen(pcName);
+	}
+
+	CSASSERT((dwNameLen <= 32) && (nMaxCount >= nInitialCount) && (nInitialCount >= 0) && (nMaxCount > 0));
+	if ((dwNameLen <= 32) && (nMaxCount >= nInitialCount) && (nInitialCount >= 0) && (nMaxCount > 0))
+	{
+	    int nRet = 1;
+
+	    sem_t *sem = NULL;
+
+		*phSemaphore = NULL;
+
+	    sem = ( sem_t *)malloc( sizeof( sem_t ) ); /* allocate Memory  */
+
+	    CSASSERT(sem != NULL);
+
+	    if ( sem != NULL )
+	    {
+	        /*the semaphore is local to the current process( pshared is zero ) */
+	        nRet = sem_init( sem, 0,  (DWORD)nInitialCount );
+	        /*return 0 on success and -1 on unknown error */
+	        if ( nRet == 0 )
+	        {
+	            *phSemaphore = (CSUDI_HANDLE)sem;
+			enRet = CSUDI_SUCCESS;
+	        }
+	        else
+	        {
+	            CSASSERT(0);
+	            free( sem ); /* free memory.  */
+	        }
+	    }
+	}
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+    return enRet;
 }
 
 /**
@@ -775,13 +1203,28 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSSemDestroy(CSUDI_HANDLE hSemaphore)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	CSASSERT(hSemaphore != NULL);
 
+	if (hSemaphore != NULL)
+	{
+	    if (sem_destroy((sem_t *)hSemaphore) == 0)
+	    {
+	        free((sem_t *)hSemaphore); /* free memory.  */
+	        enRet = CSUDI_SUCCESS;
+	    }
+	}
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
 }
+
 
 /**
 @brief 等待信号量，相当于P操作(P是请求资源)
@@ -801,12 +1244,80 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSSemWait(CSUDI_HANDLE hSemaphore,unsigned int uTimeout)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+   CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+    CSASSERT(hSemaphore != NULL);
 
+    if (hSemaphore != NULL)
+    {
+        int nRet;
+
+        if(uTimeout == 0xFFFFFFFF)
+        {
+            nRet = sem_wait((sem_t *)hSemaphore);
+            if (nRet == 0)
+            {
+                enRet = CSUDI_SUCCESS;
+            }
+            else
+            {
+                //printf("Wait(%d)nRet is %d\n", uTimeout, nRet);
+                enRet = CSUDI_FAILURE;
+            }
+        }
+        else if (uTimeout == 0)
+        {
+            nRet = sem_trywait((sem_t *)hSemaphore);
+            if (nRet == 0)
+            {
+                enRet = CSUDI_SUCCESS;
+            }
+            else if(errno == EAGAIN)
+            {
+                enRet = CSUDIOS_ERROR_TIMEOUT;
+            }
+            else
+            {
+                /*printf("Wait(%d)nRet is %d\n", uTimeout, nRet);*/
+                enRet = CSUDI_FAILURE;
+            }
+        }
+        else
+        {
+            struct timespec ts;
+            struct timeval tv;
+
+            nRet = gettimeofday (&tv, NULL);
+            CSASSERT(nRet == 0);
+
+            ts.tv_sec = tv.tv_sec + (int)(uTimeout/1000);
+            ts.tv_nsec = tv.tv_usec*1000 + (int)(uTimeout%1000)*1000000;
+
+            adjusttimespec(&ts);
+
+            nRet = sem_timedwait((sem_t *)hSemaphore, &ts);
+
+            if (nRet == 0)
+            {
+                enRet = CSUDI_SUCCESS;
+            }
+            else if(errno == ETIMEDOUT)
+            {
+                enRet = CSUDIOS_ERROR_TIMEOUT;
+            }
+            else
+            {
+                enRet = CSUDI_FAILURE;
+                CSDEBUG("CS_OS",ERROR_LEVEL,"CSWaitForSemaphore.CS_OSP_FAILURE.errno=%d",errno);
+            }
+        }
+    }
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+    return enRet;
 }
 
 /**
@@ -822,14 +1333,27 @@ ENTROPIC COMMENTS ON COSHIP API
 -------------------------------------------------------------------------------
 
 */
+
 CSUDI_Error_Code CSUDIOSSemRelease(CSUDI_HANDLE hSemaphore)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	CSASSERT(hSemaphore != CSUDI_NULL);
 
+	if (hSemaphore != CSUDI_NULL)
+	{
+	        if (0 == sem_post((sem_t *)hSemaphore))
+	        {
+			enRet = CSUDI_SUCCESS;
+	        }
+	}
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+	return enRet;
 }
 
 
@@ -861,12 +1385,76 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSMutexCreate(const char * pcName, unsigned int uOptions,CSUDI_HANDLE * phMutex)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	cs_mutex_t* 			mutex = NULL;
+	DWORD 				dwNameLen = 0;
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	CSSTD_UNUSED(uOptions);
 
+	if(pcName != CSUDI_NULL)
+	{
+	    dwNameLen = strlen(pcName);
+	}
+
+	if(phMutex == CSUDI_NULL)
+	{
+		CSASSERT(phMutex != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	if(dwNameLen >= 31)
+	{
+	    return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	*phMutex = CSUDI_NULL;
+	mutex =(cs_mutex_t*) CSUDIOSMalloc(sizeof(cs_mutex_t));
+
+	CSASSERT(mutex);
+
+	if( CSUDI_NULL != mutex )
+	{
+		CSUDI_HANDLE semaphore;
+		enRet = CSUDIOSSemCreate (pcName,1,1,&semaphore) ;
+		CSASSERT(semaphore);
+
+		if( enRet == CSUDI_SUCCESS)
+		{
+			if (uOptions == CSUDIOS_MUTEX_OBTAIN)
+			{
+				enRet = CSUDIOSSemWait(semaphore,CSUDIOS_TIMEOUT_IMMEDIATE);
+				CSASSERT(enRet == CSUDI_SUCCESS);
+				if (enRet == CSUDI_SUCCESS)
+				{
+					mutex->count = 1;
+					mutex->owner = CSGetThreadId();
+				}
+			}
+			else
+			{
+				mutex->count = 0;
+				mutex->owner = (DWORD)CSUDI_NULL;
+			}
+			mutex->semaphore = semaphore;
+			*phMutex = mutex;
+		}
+
+		if (enRet != CSUDI_SUCCESS)
+		{
+		        if(mutex)
+		        {
+		            CSUDIOSFree(mutex);
+		            mutex = CSUDI_NULL;
+		        }
+		        CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[USP_OSP] can't create semaphore for a mutex  !\n");
+		}
+	}
+	else
+	{
+	    CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[USP_OSP] can't malloc memory for  a mutex  !\n");
+	}
+
+    return enRet;
 }
 
 /**
@@ -885,12 +1473,25 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSMutexDestroy(CSUDI_HANDLE hMutex)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+    CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+    if(hMutex)
+    {
+        cs_mutex_t* mutex = (cs_mutex_t*) hMutex;
 
+        if(CSUDIOSSemDestroy( mutex->semaphore) == CSUDI_SUCCESS)
+        {
+        	CSUDIOSFree(mutex);
+              enRet = CSUDI_SUCCESS;
+        }
+        //CSDEBUG(MODULE_NAME,INFO_LEVEL,"[CS_OS]: DestroyMutex %xh\r\n", hMutex);
+    }
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+    return enRet;
 }
 
 /**
@@ -911,13 +1512,43 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSMutexWait(CSUDI_HANDLE hMutex,unsigned int uTimeout)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+    CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+    CSASSERT(hMutex);
+    if(hMutex)
+    {
+        cs_mutex_t* mutex = (cs_mutex_t*) hMutex;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+        DWORD  tid;
 
+        tid = CSGetThreadId();
+
+        if(mutex->owner == tid)
+        {
+            ++mutex->count;
+            enRet = CSUDI_SUCCESS;
+        }
+        else
+        {
+            enRet = CSUDIOSSemWait(mutex->semaphore,uTimeout);
+            if( enRet == CSUDI_SUCCESS)
+            {
+                mutex->owner = tid;
+                mutex->count = 1;
+            }
+            else
+            {
+                CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[CS_OS] can't  acquire semaphore for a mutex %xh, uTimeout=%d !\r\n", mutex, uTimeout);
+            }
+        }
+    }
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+    return enRet;
 }
+
 
 /**
 @brief 释放互斥量,即开锁操作
@@ -935,11 +1566,58 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSMutexRelease(CSUDI_HANDLE hMutex)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+     CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+    if(hMutex)
+    {
+        cs_mutex_t* mutex = (cs_mutex_t*) hMutex;
+
+        DWORD  tid;
+        tid = CSGetThreadId();
+
+        if (mutex->owner != tid)
+        {
+            CSDEBUG(MODULE_NAME,WARN_LEVEL,"[USP_OSP] can't release mutex %08x, count=%d, owner=%x, curtask=%x\n", hMutex, mutex->count, mutex->owner, tid);
+            return CSUDI_FAILURE;
+        }
+
+        if(mutex->count > 1 )
+        {
+            enRet = CSUDI_SUCCESS;
+            --mutex->count;
+            //CSDEBUG(MODULE_NAME,INFO_LEVEL,"[USP_OSP]: Release Mutex %xh  but  Count > 0\r\n", hMutex);
+        }
+        else if (mutex->count == 1)
+        {
+            //save
+            DWORD pOwner = mutex->owner ;
+            int nCount = mutex->count;
+
+            //clear
+            mutex->owner = (DWORD)CSUDI_NULL;
+            mutex->count = 0;
+
+            //release
+            if((enRet=CSUDIOSSemRelease(mutex->semaphore)) != CSUDI_SUCCESS)
+            {
+                //failed then restore
+                mutex->owner = pOwner;
+                mutex->count = nCount;
+                CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[USP_OSP] can't relase semaphore for a mutex %08X !\n", hMutex);
+            }
+        }
+        else
+        {
+            CSDEBUG(MODULE_NAME,WARN_LEVEL,"[USP_OSP] can't release mutex %08XH, count=%d!\n", hMutex, mutex->count);
+        }
+    }
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+    return enRet;
+
 }
 
 /**
@@ -960,11 +1638,20 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSGetTime(CSUDIOSTimeVal_S * psTime)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	struct timeval stTime;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	
-	return Retcode;
+	if (psTime == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+	
+	gettimeofday(&stTime, NULL);
+
+	psTime->m_nSecond = stTime.tv_sec;
+	psTime->m_nMiliSecond = stTime.tv_usec/1000;
+	psTime->m_lUSecond = stTime.tv_usec%1000;
+
+	return CSUDI_SUCCESS;
 }
 
 
@@ -1001,13 +1688,83 @@ ENTROPIC COMMENTS ON COSHIP API
 -------------------------------------------------------------------------------
 
 */
+
+typedef struct
+{
+    pthread_cond_t	condvar;
+    pthread_mutex_t	mutex;
+    int				signaled;
+    int				manual_reset;
+}T_CSOSPEvnt;
+
+
 CSUDI_Error_Code CSUDIOSEventCreate(const char * pcName,unsigned int  uFlags,CSUDI_HANDLE * phEvent)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	T_CSOSPEvnt			*pEvent;
+	DWORD 				dwNameLen = 0;
+	int 					nRet;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	if(pcName != CSUDI_NULL)
+	{
+	    dwNameLen = strlen(pcName);
+	}
+
+	if (dwNameLen > 32 || phEvent == CSUDI_NULL)
+	{
+		CSASSERT(dwNameLen <=32);
+		CSASSERT(phEvent != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	*phEvent = CSUDI_NULL;
+	pEvent = (T_CSOSPEvnt *)malloc(sizeof(T_CSOSPEvnt));
+	CSASSERT(pEvent != NULL);
+	if (pEvent != NULL)
+	{
+		if((uFlags&CSUDIOS_EVENT_AUTO_RESET) ==  CSUDIOS_EVENT_AUTO_RESET)
+		{
+		    pEvent->manual_reset = FALSE;
+		}
+		else
+		{
+		    //????????????????????????????????????????????????
+		    // always manual reset now, need to be confirmed.
+		    //????????????????????????????????????????????????
+		    pEvent->manual_reset = TRUE;
+		}
+
+		if((uFlags&CSUDIOS_EVENT_INITIAL_STATUS) == CSUDIOS_EVENT_INITIAL_STATUS)
+		{
+		    pEvent->signaled = TRUE;
+		}
+		else
+		{
+		    pEvent->signaled = FALSE;
+		}
+
+		nRet = pthread_mutex_init( &pEvent->mutex, NULL );
+		CSASSERT(nRet == 0);
+		if(nRet == 0) 
+		{
+	    		nRet = pthread_cond_init( &pEvent->condvar, NULL );
+			CSASSERT(nRet == 0);
+			if (nRet == 0)
+			{
+				enRet = CSUDI_SUCCESS;
+				*phEvent = (CSUDI_HANDLE)pEvent;
+			}
+		}
+		
+		if (enRet != CSUDI_SUCCESS)
+		{
+			free(pEvent);
+		}
+	}
+	
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
 }
 
 
@@ -1027,12 +1784,33 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSEventDestroy(CSUDI_HANDLE hEvent)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+   	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	T_CSOSPEvnt 			*event;
+	int 					nRet;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	if (hEvent == CSUDI_NULL)
+	{
+		CSASSERT(hEvent != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+	
+        event = (T_CSOSPEvnt *)hEvent;
+
+        nRet = pthread_cond_broadcast( &event->condvar );
+        CSASSERT(nRet == 0);
+		
+        nRet = pthread_cond_destroy( &event->condvar );
+        CSASSERT(nRet == 0);
+
+        nRet = pthread_mutex_destroy(&event->mutex);
+        CSASSERT(nRet == 0);
+
+   	free(event);
+	enRet = CSUDI_SUCCESS;
+
+	return enRet;
 }
+
 
 
 /**
@@ -1051,11 +1829,34 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSEventReset(CSUDI_HANDLE hEvent)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	T_CSOSPEvnt 			*event;
+	int 					nRet;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	if (hEvent == CSUDI_NULL)
+	{
+		CSASSERT(hEvent != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	event = (T_CSOSPEvnt *)hEvent;
+
+	nRet = pthread_mutex_lock(&event->mutex);
+
+	event->signaled = FALSE;
+
+	nRet += pthread_mutex_unlock(&event->mutex);
+
+	CSASSERT(nRet == 0);
+
+	if (nRet == 0)
+	{
+	    enRet = CSUDI_SUCCESS;
+	}
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
 }
 
 /**
@@ -1074,11 +1875,40 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSEventSet(CSUDI_HANDLE hEvent)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	T_CSOSPEvnt 			*event;
+	int 					nRet;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	if (hEvent == CSUDI_NULL)
+	{
+		CSASSERT(hEvent != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+	
+	event = (T_CSOSPEvnt *)hEvent;
+
+	nRet = pthread_mutex_lock(&event->mutex);
+
+	event->signaled = TRUE;
+	/* Wake up one or all depending on whether the event is auto-reseting. */
+	if( event->manual_reset )
+	    nRet += pthread_cond_broadcast(&event->condvar);
+	else
+	    nRet += pthread_cond_signal(&event->condvar);
+
+	nRet += pthread_mutex_unlock(&event->mutex);
+
+	CSASSERT(nRet == 0);
+
+	if (nRet == 0)
+	{
+	    enRet = CSUDI_SUCCESS;
+	}
+
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
 }
 
 /**
@@ -1103,11 +1933,98 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSEventWait(CSUDI_HANDLE hEvent,unsigned int uTimeout)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+    	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	T_CSOSPEvnt 			*event;
+	int 					nRet;
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+	if (hEvent == CSUDI_NULL)
+	{
+		CSASSERT(hEvent != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+	
+        event = (T_CSOSPEvnt *)hEvent;
+
+        nRet = pthread_mutex_lock(&event->mutex);
+        CSASSERT(nRet == 0);
+
+        /* Return immediately if the event is signalled. */
+        if(event->signaled)
+        {
+            if(!event->manual_reset)
+            {
+                event->signaled = FALSE;
+            }
+
+            nRet += pthread_mutex_unlock(&event->mutex);
+            CSASSERT(nRet == 0);
+            return( CSUDI_SUCCESS);
+        }
+
+        /* If just testing the state, return OSAL_TIMEOUT. */
+        if( uTimeout == 0 )
+        {
+            nRet += pthread_mutex_unlock(&event->mutex);
+            CSASSERT(nRet == 0);
+            enRet = CSUDIOS_ERROR_TIMEOUT;
+        }
+        else if (uTimeout == 0xFFFFFFFF)
+        {
+            /* Wait for condition variable to be signaled or broadcast. */
+            nRet = pthread_cond_wait(&event->condvar, &event->mutex);
+            if (nRet == 0)
+            {
+                enRet = CSUDI_SUCCESS;
+            }
+            else
+            {
+                CSDEBUG(MODULE_NAME,ERROR_LEVEL, "[CSWaitForSingleEvent]ERROR: pthread_cond_wait(%d) return %d\n", uTimeout, nRet);
+                enRet = CSUDI_FAILURE;
+            }
+        }
+        else
+        {
+            struct timespec ts;
+            struct timeval tv;
+
+            nRet = gettimeofday (&tv, NULL);
+            CSASSERT(nRet == 0);
+
+            ts.tv_sec = tv.tv_sec + (int)(uTimeout/1000);
+            ts.tv_nsec = tv.tv_usec*1000 + (int)((uTimeout%1000)*1000000);
+
+            adjusttimespec(&ts);
+
+            nRet = pthread_cond_timedwait(&event->condvar, &event->mutex, &ts);
+            //CSDEBUG(MODULE_NAME,3, "nRet=%d, EINVAL:%d, ETIMEDOUT:%d\n", nRet, EINVAL, ETIMEDOUT);
+            if (nRet == 0)
+            {
+                enRet = CSUDI_SUCCESS;
+            }
+            else if (nRet == ETIMEDOUT)
+            {
+                enRet = CSUDIOS_ERROR_TIMEOUT;
+            }
+            else
+            {
+                CSDEBUG(MODULE_NAME,ERROR_LEVEL, "[CSWaitForSingleEvent]ERROR: pthread_cond_timedwait(%d) return %d\n", uTimeout, nRet);
+                enRet = CSUDI_FAILURE;
+            }
+
+        }
+
+        if(CSUDI_SUCCESS == enRet)
+        {
+            if(!event->manual_reset)
+            {
+                event->signaled = FALSE;
+            }
+        }
+        nRet = pthread_mutex_unlock(&event->mutex);
+        CSASSERT(nRet == 0);
+
+    CSASSERT(enRet == CSUDI_SUCCESS || enRet == CSUDIOS_ERROR_TIMEOUT);
+    return enRet;
 }
 
 
@@ -1129,26 +2046,28 @@ ENTROPIC COMMENTS ON COSHIP API
 -------------------------------------------------------------------------------
 
 */
-void * CSUDIOSMalloc( unsigned int nMemorySize )
+void * CSUDIOSMalloc( unsigned int uSize )
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-	PVOID pvMem =  NULL;
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-    CSASSERT(nMemorySize > 0);
+		PVOID pvMem =  NULL;
+	
+		UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+	
+    CSASSERT(uSize > 0);
 
-    if(nMemorySize > 0)
+    if(uSize > 0)
     {
-        pvMem =  malloc(nMemorySize);
+        pvMem =  malloc(uSize);
     }
 
     CSASSERT(pvMem != NULL);
     if(NULL == pvMem)
     {
-        CSDEBUG(MODULE_NAME,ERROR_LEVEL, "[CSMalloc]ERROR[errno=%d]: malloc %x fail\r\n", errno,nMemorySize);
+
+        CSDEBUG(MODULE_NAME,ERROR_LEVEL, "[CSMalloc]ERROR[errno=%d]: malloc %x fail\r\n", errno,uSize);
     }
-    
-    UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);  
+
     return pvMem;
+
 }
 
 /**
@@ -1173,19 +2092,19 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 void* CSUDIOSRealloc( void * pvAddr,unsigned int uSize )
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);	
-	PVOID pvMem =  NULL;
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+		PVOID pvMem =  NULL;
+		
+		UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
-	if(uSize > 0)
-	{
-		pvMem =  realloc(pvAddr,uSize);
-	}
+    if(uSize > 0)
+    {
+        pvMem =  realloc(pvAddr,uSize);
+    }
 
-	CSASSERT(pvMem != NULL);
-
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);
-	return pvMem;    
+    CSASSERT(pvMem != NULL);
+    
+    return pvMem;
+    
 }
 
 /**
@@ -1206,23 +2125,26 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 void* CSUDIOSCalloc(unsigned int uElements, unsigned int uElementSize)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
 	PVOID pvMem =  NULL;
-    CSASSERT(uElements > 0);
-    CSASSERT(uElementSize > 0);
+	
+	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+
+    CSASSERT(nElements > 0);
+    CSASSERT(nElementSize > 0);
 
     if((uElements>0) && (uElementSize>0))
     {
         pvMem =  calloc(uElements,uElementSize);
     }
+
     CSASSERT(pvMem != NULL);
     if(NULL == pvMem)
     {
         CSDEBUG(MODULE_NAME,ERROR_LEVEL, "[CSCalloc]ERROR[errno=%d]: calloc %x %x fail\r\n", errno,uElements,uElementSize);
     }
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	
+
     return pvMem;
+
 }
 
 /**
@@ -1244,11 +2166,12 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSFree( void * pvAddr )
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+    if (pvAddr != NULL)
+    {
+        free(pvAddr);
+    }
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
-	return Retcode;
+    return CSUDI_SUCCESS;
 }
 
 
@@ -1268,7 +2191,10 @@ CSUDI_Error_Code CSUDIOSGetFreeRAM(unsigned int * puFreeCount)
 {
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
+	
+	if(puFreeCount == CSUDI_NULL)
+		Retcode = CSUDIOS_ERROR_BAD_PARAMETER;
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -1289,8 +2215,10 @@ CSUDI_Error_Code CSUDIOSGetCPUCount(unsigned int * puCpuCount)
 {
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	*puCpuCount = sysconf(_SC_NPROCESSORS_ONLN);	
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
+	
+	if(puCpuCount == CSUDI_NULL)
+		Retcode = CSUDIOS_ERROR_BAD_PARAMETER;
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -1311,7 +2239,9 @@ CSUDI_Error_Code CSUDIOSGetCPUUsage(unsigned int index, unsigned int * puUsage)
 {
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
+	if(puUsage == CSUDI_NULL)
+		Retcode = CSUDIOS_ERROR_BAD_PARAMETER;
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -1333,7 +2263,12 @@ CSUDI_Error_Code CSUDIOSGetAllThreadHandle(CSUDI_HANDLE* phThread, unsigned int*
 {
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
+	if((phThread == CSUDI_NULL) || (puSize == CSUDI_NULL))
+		Retcode = CSUDIOS_ERROR_BAD_PARAMETER;
+	
+	if(*puSize == 0)
+		Retcode = CSUDIOS_ERROR_BAD_PARAMETER;
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -1353,9 +2288,14 @@ ENTROPIC COMMENTS ON COSHIP API
 */
 CSUDI_Error_Code CSUDIOSGetThreadInfo(CSUDI_HANDLE hThread, CSUDIOSThreadInfo_S* psThreadInfo)
 {
+		//CSUDI_FAILURE
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
+	
+	if((psThreadInfo == CSUDI_NULL) || (hThread == CSUDI_NULL))
+		Retcode = CSUDIOS_ERROR_BAD_PARAMETER;
+	
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -1378,6 +2318,8 @@ CSUDI_Error_Code CSUDIOSGetThreadUsedRAM(CSUDI_HANDLE hThread, unsigned int * pu
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	if((puUsedRam == CSUDI_NULL) || (hThread == CSUDI_NULL))
+		Retcode = CSUDIOS_ERROR_BAD_PARAMETER;
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
@@ -1400,7 +2342,8 @@ CSUDI_Error_Code CSUDIOSGetThreadCPUUsage(CSUDI_HANDLE hThread, unsigned int * p
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	if((puUsage == CSUDI_NULL) || ((hThread == CSUDI_NULL)))
+		Retcode = CSUDIOS_ERROR_BAD_PARAMETER;
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
 	return Retcode;
 }
- 

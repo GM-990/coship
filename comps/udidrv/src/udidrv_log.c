@@ -25,7 +25,8 @@
 
 #include "udidrv_log.h"
 
-#ifdef UDIDRV_LOG
+//#ifdef UDIDRV_LOG
+#if 0
 void CSDEBUG(char *string, int level, ...)
 {
 	if(level >= 0)

@@ -1,65 +1,82 @@
-/****************************************************************************/
-/*                 Copyright Entropic Co, LTD                               */
-/*                            All Rights Reserved                           */
-/****************************************************************************/
-/*
- * Filename:        udi2_vout.c
- *
- *
- * Description:     API implementation for COSHIP interface layer .
- *
- *
- *-------------------------------------------------------------------------------
- *ENTROPIC COMMENTS ON COSHIP HEADER FILE:
-	 2013/11/06
-		 The APIs in this header file are NOT required for Android DVB-S2 plus OTT project.
-		 Because there is no EEPROM device in the STB system.
- *-------------------------------------------------------------------------------
- ****************************************************************************/
-#include "udi2_error.h"
-#include "udi2_public.h"
-#include "udi2_typedef.h"
-#include "udidrv_log.h"
-
+#include "generic_include.h"
 #include "udi2_vout.h"
-/**
-@brief 打开指定的视频输出设备
 
-@param[in] eVoutDevice  视频输出设备，具体请参见CSUDIVOUTDevices_E
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-*/
+#define MODULE_NAME "CS_VOUT"
+
 CSUDI_Error_Code CSUDIVOUTEnable(CSUDIVOUTDevices_E eVoutDevice)
-{	
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);    
-	return Retcode;
+{
+    CSUDI_Error_Code retcode = CSUDI_SUCCESS;
+    PIPE_VP_DEVICE_HDMI_CONFIG hdmicfg;
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In Function :%s\n",__FUNCTION__);
+     switch(eVoutDevice)
+     	{
+          case EM_UDIVOUT_CVBS:/**< CSBVS视频输出接口 */
+		     retcode = cnxt_tvenc_enable_dac(CNXT_TVENC_DAC_IDX_TO_FLAG(CNXT_TVENC_DAC_D_IDX),1);
+		     break;
+	    case EM_UDIVOUT_YUV:  /**< 分量视频输出接口 */
+		     retcode = cnxt_tvenc_enable_dac(CNXT_TVENC_DAC_IDX_TO_FLAG(CNXT_TVENC_DAC_A_IDX),1) ||\
+		                    cnxt_tvenc_enable_dac(CNXT_TVENC_DAC_IDX_TO_FLAG(CNXT_TVENC_DAC_B_IDX),1) ||\
+		                    cnxt_tvenc_enable_dac(CNXT_TVENC_DAC_IDX_TO_FLAG(CNXT_TVENC_DAC_C_IDX),1);
+		     break;
+	   case EM_UDIVOUT_HDMI: /**< HDMI视频输出接口 */
+	   	     //retcode =  cnxt_tvenc_hdmi_set_standby(gDisplayConfig.hDIsplayHandle[0].hTVEnc, 0);
+	   	     //hdmicfg.standby = 0;
+             if(gTmVpDeviceObj.pHDDevice != NULL)
+	   	     gTmVpDeviceObj.pHDDevice->hdmi_config(gTmVpDeviceObj.pHDDevice,&hdmicfg);
+	   	     break;
+	   case  EM_UDIVOUT_YC:     /**< S-Video 视频输出接口 */
+	   	     retcode = cnxt_tvenc_enable_dac(CNXT_TVENC_DAC_IDX_TO_FLAG(CNXT_TVENC_DAC_E_IDX),1) ||\
+			 	      cnxt_tvenc_enable_dac(CNXT_TVENC_DAC_IDX_TO_FLAG(CNXT_TVENC_DAC_F_IDX),1); 
+		     break;	
+         case  EM_UDIVOUT_DVO: 
+	   case  EM_UDIVOUT_RF:      /**< 射频信号视频输出接口 */
+	   case  EM_UDIVOUT_SCART:  /**< SCART视频输出接口 */
+	   default:
+	   	    retcode = CSUDI_FAILURE;
+	}
+    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"exit Function :%s\n",__FUNCTION__);
+	 return retcode; 
 }
 
-/**
-@brief 关闭指定的视频输出设备
-
-@param[in] eVoutDevice	视频输出设备，具体请参见CSUDIVOUTDevices_E
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-*/
 CSUDI_Error_Code CSUDIVOUTDisable(CSUDIVOUTDevices_E eVoutDevice)
-{	
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);	 
-	return Retcode;
+{
+    CSUDI_Error_Code retcode = CSUDI_SUCCESS;
+    PIPE_VP_DEVICE_HDMI_CONFIG hdmicfg;
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In Function :%s\n",__FUNCTION__);
+    cnxt_kal_memset(&hdmicfg,0,sizeof(hdmicfg));	   	
+     switch(eVoutDevice)
+     	{
+          case EM_UDIVOUT_CVBS:/**< CSBVS视频输出接口 */
+		     retcode = cnxt_tvenc_enable_dac(CNXT_TVENC_DAC_IDX_TO_FLAG(CNXT_TVENC_DAC_D_IDX),0);
+		     break;
+	    case EM_UDIVOUT_YUV:   /**< 分量视频输出接口 */
+		     retcode =  cnxt_tvenc_enable_dac(CNXT_TVENC_DAC_IDX_TO_FLAG(CNXT_TVENC_DAC_A_IDX),0) ||\
+		                    cnxt_tvenc_enable_dac(CNXT_TVENC_DAC_IDX_TO_FLAG(CNXT_TVENC_DAC_B_IDX),0) ||\
+		                    cnxt_tvenc_enable_dac(CNXT_TVENC_DAC_IDX_TO_FLAG(CNXT_TVENC_DAC_C_IDX),0);
+		     break;
+	   case EM_UDIVOUT_HDMI:   /**< HDMI视频输出接口 */
+             //hdmicfg.standby = 1;
+             hdmicfg.ColorSpace = CNXT_TVENC_HDMI_COLOR_SPACE_RGB_FULL;
+	   	     //retcode =  cnxt_tvenc_hdmi_set_standby(gDisplayConfig.hDIsplayHandle[0].hTVEnc, 1);
+	   	     if(gTmVpDeviceObj.pHDDevice != NULL)
+	   	     gTmVpDeviceObj.pHDDevice->hdmi_config(gTmVpDeviceObj.pHDDevice,&hdmicfg);
+	   	     break;
+	   case  EM_UDIVOUT_YC:     /**< S-Video 视频输出接口 */
+	   	     retcode = cnxt_tvenc_enable_dac(CNXT_TVENC_DAC_IDX_TO_FLAG(CNXT_TVENC_DAC_E_IDX),0) ||\
+			 	      cnxt_tvenc_enable_dac(CNXT_TVENC_DAC_IDX_TO_FLAG(CNXT_TVENC_DAC_F_IDX),0);
+                  break;
+	   case  EM_UDIVOUT_DVO: 
+	   case  EM_UDIVOUT_RF:      /**< 射频信号视频输出接口 */
+	   case  EM_UDIVOUT_SCART:  /**< SCART视频输出接口 */
+	   default:
+	   	    retcode = CSUDI_FAILURE;
+	}
+	 CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Exit Function :%s\n",__FUNCTION__);
+	 return retcode;
 }
-
-/**
-@brief 设置视频输出端口的颜色类型
-
-@param[in] eVoutDevice 视频输出设备,只支持分量(EM_UDIVOUT_YUV)/HDMI(EM_UDIVOUT_HDMI)
-@param[in] eType 输出的颜色类型，RGB或是YUV
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 设置立即生效
-*/
 CSUDI_Error_Code CSUDIVOUTSetOutputType(CSUDIVOUTDevices_E eVoutDevice, CSUDIVOUTOutputType_E eType)
-{	
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);    
-	return Retcode;
+{
+    return (CSUDI_Error_Code)(0);
 }
+
 

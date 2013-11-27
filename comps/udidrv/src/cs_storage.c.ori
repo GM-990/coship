@@ -1,0 +1,1180 @@
+/*****************************************************************************
+File name   : cs_storage.c
+
+Description : storage hot plug detect interface
+
+COPYRIGHT (C) 2008 CoshipElectronics
+
+*****************************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <errno.h>
+
+#include <fcntl.h>
+#include <unistd.h>
+#include <signal.h>
+
+#include <ctype.h>
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/utsname.h>
+#include <sys/vfs.h>
+
+#include <linux/types.h>
+
+//#include "CS_OS.h"
+//#include "cs_assert.h"
+
+#include "CSSystemProxy.h"
+
+#include "cs_storage.h"
+#include "udiplus_debug.h"
+#include "udiplus_error.h"
+
+#define MODULE_NAME       "cs_storage"
+
+/*consts*/
+#define E2FS_FS_TYPE                 0x83
+#define FATFS_FS_TYPE             0x0B   /*the default type of fat*/
+
+/*for linux block io*/
+#define BLKGETSIZE   _IO(0x12,96)    /* return device size */
+#define BLKGETSIZE64 _IOR(0x12,114,size_t)	/* size in bytes */
+#define HDIO_GETGEO		0x0301	/* get device geometry */
+
+/*to get disk type under linux*/
+#define PROC_PARTITIONS "/proc/partitions"
+#define DEV_HD_PREFIX "/dev/hd"
+#define DEC_SD_PREFIX "/dev/sd"
+#define CDROM "cdrom"
+#define TAPE "tape"
+#define PROC_SCSI_USB "/proc/scsi/usb-storage"
+#define SYS_BLOCK "/sys/block"
+#define BUS_SCSI_BLOCK_FORMAT  "/sys/bus/scsi/devices/%d:%d:%d:%d/block/sd%c"
+
+/*linux success and failure*/
+#undef SUCCESS
+#define SUCCESS              (0)
+#undef FAILURE
+#define FAILURE              (-1)
+
+/*private const */
+#define MAX_STORAGE_COUNT                (8)
+#define MAX_PARTITION_COUNT             (8)
+#define INVALID_STORAGE_INDEX        (-1)
+#define INVALIC_PARTITION_INDEX     (-1)
+#define MAX_NOTIFY_COUNT   (8)
+
+/*private status type*/
+#define STRG_STAT_FREE        0
+#define STRG_STAT_LOGGING 1
+#define STRG_STAT_LOGGED   2
+
+
+#include "udi2_os.h"
+
+typedef struct _DiskGeometry 
+{
+      unsigned char ucHeads;
+      unsigned char ucSectors;
+      unsigned short uCylinders;
+      unsigned long uStart;
+}DiskGeometry_S;
+
+/*the relationship between /proc/scsi/usb-storage/? and /dev/sdx*/
+typedef struct _ScsiUsbDev_S
+{
+       int nIndex; /*like host0  host1*/
+       char szDeviceName[256]; /*like /dev/sda   /dev/sdb */
+       struct _ScsiUsbDev_S * psNext; 
+} ScsiUsbDev_S;
+
+typedef struct _SStorageObject
+{
+	CSSTRGInfo_S  m_sStorageInfo;
+	int  		           m_nUseStatus;       /*此结构的使用状态*/
+}SStorageObject;
+
+typedef struct _SPartitionObject
+{
+	CSSTRGPartitionInfo_S m_sPartition; /*对应对外接口的分区信息结构*/
+	int                    m_nDiskId;    /*分区所属磁盘的id*/
+	BOOL               m_nUseStatus;    /*此结构的使用状态*/
+}SPartitionObject;
+
+typedef struct _SNotifyObject
+{
+	BOOL m_bUsed;
+	CSSTRGNotify_F m_fnDevNotify;
+	void * m_pUsr;
+}SNotifyObject;
+
+
+
+static ScsiUsbDev_S *  s_psUsbList = NULL; 
+static int s_nStorageCount = 0;        
+static SStorageObject  s_sStorageObjects[MAX_STORAGE_COUNT];
+static SPartitionObject s_sPartitionObjects[MAX_PARTITION_COUNT];
+static SNotifyObject s_sNotifyObjects[MAX_NOTIFY_COUNT];
+
+
+/* Private Function prototypes -------------------------------------------- */
+static SNotifyObject * CSSTRG_iFindNotify(const CSSTRGNotify_F fnNotify, const void *pUserData)
+{
+	int i;
+	SNotifyObject * pNotifyObj = s_sNotifyObjects;
+
+	if(CSASSERT_FAILED(fnNotify))
+	{
+		return NULL;
+	}
+	
+	for(i = 0;i < MAX_NOTIFY_COUNT; i++)
+	{
+		if(pNotifyObj->m_bUsed)
+		{
+			if(fnNotify == pNotifyObj->m_fnDevNotify && 
+				pUserData == pNotifyObj->m_pUsr)
+			{
+				return pNotifyObj;
+			}			
+		}
+		
+		pNotifyObj++;
+	}
+	
+	return NULL;
+}
+
+static SNotifyObject * CSSTRG_iGetFreeNotify(void)
+{
+	int i;
+	SNotifyObject * pNotifyObj = s_sNotifyObjects;
+
+	for(i = 0;i < MAX_NOTIFY_COUNT; i++)
+	{
+		if(!pNotifyObj->m_bUsed)
+		{
+			pNotifyObj->m_bUsed = TRUE;
+			return pNotifyObj;		
+		}
+		
+		pNotifyObj++;
+	}	
+
+	CSASSERT(0);
+	return NULL;
+}
+
+static int CSSTRG_iDistributeNotify(const CSSTRGEvent_E eEvent, const void *pEventData, const int nEventData)
+{
+	int i;
+	SNotifyObject * pNotifyObj = s_sNotifyObjects;
+
+	for(i = 0;i < MAX_NOTIFY_COUNT; i++)
+	{
+		if(pNotifyObj->m_bUsed && pNotifyObj->m_fnDevNotify)
+		{
+			(void)pNotifyObj->m_fnDevNotify(eEvent,pEventData, nEventData, pNotifyObj->m_pUsr);
+		}
+		
+		pNotifyObj++;
+	}
+
+	return 0;
+}
+
+static int CSSTRG_iGetNextStorageID(void)
+{
+	static int i = -1;
+	i++;
+	return i;
+}
+
+static SStorageObject * CSSTRG_iGetFreeStorage(void)
+{
+	int i;
+	SStorageObject * pStorageObj = s_sStorageObjects;
+
+	for(i = 0;i < MAX_STORAGE_COUNT; i++)
+	{
+		if(pStorageObj->m_nUseStatus == STRG_STAT_FREE)
+		{
+			pStorageObj->m_nUseStatus = STRG_STAT_LOGGING;
+			memset(&(pStorageObj->m_sStorageInfo),0,sizeof(CSSTRGInfo_S));
+			pStorageObj->m_sStorageInfo.m_nId = -1;
+			pStorageObj->m_sStorageInfo.m_nIndex = -1;
+			
+			return pStorageObj;
+		}
+		
+		pStorageObj++;
+	}	
+
+	CSASSERT(0);
+	return NULL;
+}
+
+static SStorageObject *  CSSTRG_iGetStorageByName(const char * szStorageName)
+{
+	int i;
+	SStorageObject * pStorageObj = s_sStorageObjects;
+
+	if(CSASSERT_FAILED(szStorageName))
+	{
+		return NULL;
+	}
+	
+	for(i = 0; i < MAX_STORAGE_COUNT; i++)
+	{
+		if(pStorageObj->m_nUseStatus!=STRG_STAT_FREE)
+		{
+			if(!strcmp(pStorageObj->m_sStorageInfo.m_szStorage, szStorageName))
+			{
+				return pStorageObj;
+			}
+		}
+		
+		pStorageObj++;
+	}
+
+	CSASSERT(0);
+	return NULL;
+}
+
+static SStorageObject *  CSSTRG_iGetStorageById(int nId)
+{
+	int i;
+	SStorageObject * pStorageObj = s_sStorageObjects;
+	
+	for(i = 0; i < MAX_STORAGE_COUNT; i++)
+	{
+		if(pStorageObj->m_nUseStatus!=STRG_STAT_FREE)
+		{	
+			if(pStorageObj->m_sStorageInfo.m_nId== nId)
+			{
+				return pStorageObj;
+			}
+		}
+		
+		pStorageObj++;
+	}
+
+	CSASSERT(0);
+	return NULL;
+}
+
+static SStorageObject *  CSSTRG_iGetStorageByIndex(int nIndex)
+{
+	int i;
+	SStorageObject * pStorageObj = s_sStorageObjects;
+	int nStorageCount = -1;
+
+	for(i = 0; i < MAX_STORAGE_COUNT; i++)
+	{
+		if(pStorageObj->m_nUseStatus!=STRG_STAT_FREE)
+		{
+			nStorageCount++;
+			if(nStorageCount == nIndex)
+			{
+				return pStorageObj;
+			}
+		}
+		
+		pStorageObj++;
+	}
+
+	CSASSERT(0);
+	return NULL;
+}
+
+
+static SPartitionObject * CSSTRG_iGetFreePartition(void)
+{
+	int i;
+	SPartitionObject * psPartitionObj = s_sPartitionObjects;
+
+	for(i = 0;i < MAX_PARTITION_COUNT; i++)
+	{
+		if(psPartitionObj->m_nUseStatus == STRG_STAT_FREE)
+		{
+			psPartitionObj->m_nUseStatus = STRG_STAT_LOGGING;
+			psPartitionObj->m_nDiskId = -1;
+			memset(&(psPartitionObj->m_sPartition),0,sizeof(CSSTRGPartitionInfo_S));
+			
+			return psPartitionObj;
+		}
+		
+		psPartitionObj++;
+	}
+
+	CSASSERT(0);
+	return NULL;
+}
+
+static int CSSTRG_iPartitionCountByStorageId(int nId)
+{
+	int i;
+	int nPartitionCount = 0;
+
+	for (i = 0; i < MAX_PARTITION_COUNT; i++)
+	{
+		if ((s_sPartitionObjects[i].m_nUseStatus == STRG_STAT_LOGGED) && 
+			(nId == s_sPartitionObjects[i].m_nDiskId))
+		{
+			nPartitionCount++;
+		}
+	}
+
+	return nPartitionCount;
+}
+
+static SPartitionObject * CSSTRG_iGetPartitionByIndex(int nStorageId,int nPartitionIndex)
+{
+	int i;
+	int nPartition = -1;
+
+	for (i = 0; i < MAX_PARTITION_COUNT; i++)
+	{
+		if ((s_sPartitionObjects[i].m_nUseStatus == STRG_STAT_LOGGED)
+			&& (nStorageId == s_sPartitionObjects[i].m_nDiskId))
+		{
+			nPartition++;
+			if(nPartition == nPartitionIndex)
+			{
+				return &s_sPartitionObjects[i];
+			}
+		}
+	}
+
+	return NULL;
+}
+
+static BOOL  CSSTRG_iGetDiskSize(char * szPartition, unsigned long long *lpSectors) 
+{
+	int nErr;
+	long nSize;
+	long long nBytes;
+	int fd;
+
+	if(CSASSERT_FAILED(szPartition)) 
+	{
+		return FALSE;
+	}
+	
+	if(CSASSERT_FAILED(lpSectors))
+	{
+		return FALSE;
+	}
+
+	fd = open(szPartition,O_RDONLY);
+	if(CSASSERT_FAILED(fd != -1))
+	{
+		return FALSE;
+	}
+	
+	nErr = ioctl(fd, BLKGETSIZE, &nSize);
+	if (nErr!=0) 
+	{
+		nSize = 0;
+		if (errno != EFBIG) 
+		{
+			close(fd);
+			return FALSE;
+		}
+	}
+	
+	nErr = ioctl(fd, BLKGETSIZE64, &nBytes);
+	if (nErr!=0 || nBytes == 0 || nBytes == nSize)
+	{
+		*lpSectors = (unsigned long long)nSize;
+	}
+	else
+	{
+		*lpSectors = (nBytes >> 9);
+	}
+
+	close(fd);
+	return TRUE;
+}
+
+static BOOL CSSTRG_iIsProbablyFullDisk(char *szDiskName) 
+{
+#if    0
+	DiskGeometry_S sGeometry;
+	int fd, i = 0;
+
+	fd = open(szDiskName, O_RDONLY);
+	if (fd != -1) 
+	{
+		i = ioctl(fd, HDIO_GETGEO, &sGeometry);
+		close(fd);
+	}
+	
+	return (fd != 0 && i == 0 && sGeometry.uStart == 0);
+#else
+	/* silly heuristic */
+	while (*szDiskName)
+	{
+		szDiskName++;
+	}
+	
+	return !isdigit(szDiskName[-1]);
+#endif
+}
+
+#if 0
+static BOOL CSSTRG_iIsCdromOrTape(char * szDevice) 
+{
+	FILE *pFileProc;
+	char acBuf[100];
+	struct stat sStat;
+	int nDevType = 0;
+
+	/* No device was given explicitly, and we are trying some
+	   likely things.  But opening /dev/hdc may produce errors like
+           "hdc: tray open or drive not ready"
+	   if it happens to be a CD-ROM drive. It even happens that
+	   the process hangs on the attempt to read a music CD.
+	   So try to be careful. This only works since 2.1.73. */
+	if (0 != strncmp(DEV_HD_PREFIX, szDevice, 7))
+	{
+		return FALSE;
+	}
+
+	snprintf(acBuf, sizeof(acBuf), "/proc/ide/%s/media", szDevice+5);
+	pFileProc = fopen(acBuf, "r");
+	if (pFileProc != NULL && NULL != fgets(acBuf, sizeof(acBuf), pFileProc))
+	{
+		nDevType = (0 == strncmp(acBuf, CDROM, 5) || 0 == strncmp(acBuf, TAPE, 4));
+	}
+	else
+	{
+		/* Now when this proc file does not exist, skip the
+		   device when it is read-only. */
+		if (stat(szDevice, &sStat) == 0)
+		{
+			nDevType = ((sStat.st_mode & 0222) == 0);
+		}
+	}
+
+	if (pFileProc!=NULL)
+	{
+		fclose(pFileProc);
+	}
+	
+	return nDevType != 0;
+}
+
+BOOL CSSTRG_iGetStorageType(char * szStorageName, CSSTRGType_E * peStorageType)
+{
+	struct stat sFileStat;
+	char szTmp[128];
+	ino_t nInode; 
+	FILE * pFileProcScsi;
+	int nHostIndex, nChannel, nId, nLun;
+	
+	if (stat(PROC_SCSI_USB,&sFileStat) == -1) /*no usb-storage at all*/
+	{
+		*peStorageType = EM_STRG_TYPE_ATA;
+		return TRUE;
+	}	
+
+	sprintf(szTmp,"%s/%s",SYS_BLOCK,szStorageName);
+	if(stat(szTmp,&sFileStat) == -1)
+	{
+		CSASSERT(0);
+		/*
+		*peStorageType = EM_FILE_STORAGE_ATA;
+		return TRUE;
+		*/
+		return FALSE;
+	}
+	nInode = sFileStat.st_ino;
+
+	pFileProcScsi = fopen("/proc/scsi/scsi", "r");
+       if(pFileProcScsi == NULL)
+       {
+	   	CSASSERT(0); /*the kernel must support legcy /proc/scsi */
+		*peStorageType = EM_STRG_TYPE_ATA;
+		return TRUE;
+       }
+
+	 /*Host: scsi? Channel: ?? Id: ?? Lun: ??*/
+ 	while (NULL != fgets(szTmp, sizeof(szTmp), pFileProcScsi))
+ 	{
+		if(4 != sscanf(szTmp,"Host: scsi%d Channel: %d Id: %d Lun: %d",&nHostIndex, &nChannel, &nId, &nLun))
+		{
+			continue;
+		}
+		CSDEBUG(MODULE_NAME,INFO_LEVEL,"scsi device %d:%d:%d:%d\n",nHostIndex, nChannel, nId, nLun);
+		sprintf(szTmp,"%s/%d",PROC_SCSI_USB,nHostIndex);
+		if(stat(szTmp,&sFileStat) == -1) /*not a usb device */
+		{
+			continue;
+		}
+
+		sprintf(szTmp,BUS_SCSI_BLOCK_FORMAT,nHostIndex, nChannel, nId, nLun);
+		if(stat(szTmp,&sFileStat) == -1) /*error ocours */
+		{
+			CSASSERT(0);
+			continue;
+		}
+
+		if(nInode == sFileStat.st_ino)
+		{
+			fclose(pFileProcScsi); 
+			*peStorageType = EM_STRG_TYPE_USB;			  
+			return TRUE;
+		}
+ 	}
+
+	fclose(pFileProcScsi);   
+ 	*peStorageType = EM_STRG_TYPE_ATA;	
+	return TRUE;
+}
+#endif
+
+static BOOL CSSTRG_iNewPartitionLog(char * szPartitionName, int nDiskId)
+{
+	SPartitionObject * psPartitionObj;
+	unsigned long long uSectors = 0;
+	BOOL bRet;
+
+	if(CSASSERT_FAILED(szPartitionName)) return FALSE;
+
+	bRet = CSSTRG_iGetDiskSize(szPartitionName, &uSectors);
+	CSASSERT(bRet);
+	if(!bRet)
+	{
+		uSectors = 0;
+	}
+
+	psPartitionObj = CSSTRG_iGetFreePartition();						
+	if(CSASSERT_FAILED(psPartitionObj!=NULL)) return FALSE;	
+
+	psPartitionObj->m_nDiskId = nDiskId;
+	psPartitionObj->m_sPartition.m_dwBlockCount = uSectors;
+	psPartitionObj->m_sPartition.m_ePartitionType = EM_STRG_PARTITION_UNKNOW;
+	strcpy(psPartitionObj->m_sPartition.m_szPartition, szPartitionName) ;
+
+	psPartitionObj->m_nUseStatus = STRG_STAT_LOGGED;
+	
+	return TRUE;
+}
+
+
+/*注册磁盘上的所有分区*/
+static BOOL CSSTRG_iRegisterStoragePartitions(char * szStorageName,int nDiskId)
+{
+	char pcLine[100], szPartition[100], szPartDev[64];
+	int nMajor, nMinor, nSize;
+	int nPartition = 0;
+	FILE * fd;
+	int nStorageStrlen;
+	
+
+	if(CSASSERT_FAILED(szStorageName))
+	{
+		return FALSE;	
+	}
+
+	nStorageStrlen = strlen(szStorageName);
+	
+	fd = fopen(PROC_PARTITIONS, "r");
+	if (CSASSERT_FAILED(fd) )
+	{
+		return FALSE;
+	}
+
+	while (NULL != fgets(pcLine, sizeof(pcLine), fd)) 
+	{
+		if (sscanf (pcLine, " %d %d %d %[^\n ]",&nMajor, &nMinor, &nSize, szPartition) != 4)
+		{
+			continue;
+		}
+		
+		if(nSize == 1)   /*a extended partition*/
+		{
+			continue;   
+		}
+		
+		snprintf(szPartDev, sizeof(szPartDev), "/dev/%s", szPartition);
+		if (CSSTRG_iIsProbablyFullDisk(szPartDev)) 
+		{
+			continue;
+		}
+		
+		if(0!=strncmp(szStorageName,szPartDev,nStorageStrlen)) 
+		{
+			continue;
+		}
+		
+		if(0==strcmp(szStorageName,szPartDev))
+		{
+			continue;	
+		}		
+
+		CSSTRG_iNewPartitionLog(szPartDev, nDiskId);		
+		nPartition++;
+	}
+	
+	fclose(fd);
+
+	if(nPartition == 0) 
+	{
+		CSSTRG_iNewPartitionLog(szStorageName, nDiskId);	
+	}
+	return TRUE;
+}
+
+
+/*注册新的磁盘*/
+static void CSSTRG_iNewStorageLog(CSSTRGType_E nDeviceType, char * szStorageName,int nHostIndex)
+{
+	SStorageObject * psStorageObj;
+
+	psStorageObj = CSSTRG_iGetStorageByName(szStorageName);
+	if(CSASSERT_FAILED(psStorageObj == NULL)) /*already registered*/
+	{
+		return ;
+	}	
+
+	psStorageObj = CSSTRG_iGetFreeStorage();
+	if(CSASSERT_FAILED(NULL != psStorageObj))
+	{
+		return ;
+	}	
+
+	psStorageObj->m_sStorageInfo.m_eType = nDeviceType;
+	psStorageObj->m_sStorageInfo.m_nId = CSSTRG_iGetNextStorageID();
+	psStorageObj->m_sStorageInfo.m_nIndex = nHostIndex;
+	strcpy(psStorageObj->m_sStorageInfo.m_szStorage,szStorageName);
+
+	s_nStorageCount++;
+
+	CSSTRG_iRegisterStoragePartitions(szStorageName,psStorageObj->m_sStorageInfo.m_nId);
+	CSSTRG_iDistributeNotify(EM_STRG_EVT_CREATE,&psStorageObj->m_sStorageInfo,0);
+
+	psStorageObj->m_nUseStatus = STRG_STAT_LOGGED;
+	
+	return ;
+}
+
+/*将一个磁盘对应的各个分区从分区数组中删除*/
+static void CSSTRG_iRemoveAllPartitionOfStorage(SStorageObject *  pStorageObj)
+{
+	int i;
+	SPartitionObject * pPartitionObj = s_sPartitionObjects;
+
+	if(CSASSERT_FAILED(pStorageObj)) return;
+
+	for(i = 0;i < MAX_PARTITION_COUNT; i++)
+	{
+		if((s_sPartitionObjects[i].m_nUseStatus != STRG_STAT_FREE) 
+			&& (pPartitionObj->m_nDiskId == pStorageObj->m_sStorageInfo.m_nId))
+		{	
+			memset(pPartitionObj,0,sizeof(SPartitionObject));	
+		}
+
+		pPartitionObj++;
+	}	
+}
+
+/*当检测到有磁盘被拔出,调用此函数*/
+/*减小比它的idx大的idx值*/
+static void CSSTRG_iRemoveStorage(SStorageObject * pStorageObj)
+{
+
+	if(CSASSERT_FAILED(pStorageObj))
+	{
+		return;
+	}
+
+	if(pStorageObj->m_nUseStatus == STRG_STAT_FREE) 
+	{
+		return;
+	}
+
+	#if 0
+	nIndex = pStorageObj->m_sStorageInfo.m_nIndex;
+	for(i = 0; i < MAX_STORAGE_COUNT; i++)
+	{
+		if(s_sStorageObjects[i].m_nUseStatus != STRG_STAT_FREE)
+		{
+			if(s_sStorageObjects[i].m_sStorageInfo.m_nIndex > nIndex)
+			{
+				s_sStorageObjects[i].m_sStorageInfo.m_nIndex--;
+			}
+		}
+	}	
+	#endif
+	
+	memset(pStorageObj,0,sizeof(SStorageObject));
+	s_nStorageCount--;
+}
+
+
+
+/*
+we use /sys/bus/scsi/devices/?:?:?:?/block and /sys/block/sd?
+to find the relationship pair of sturc ScsiUsbDev_S
+*/
+static void CSSTRG_iCheckStorageInsert(void)
+{
+	char pcTmp[256];
+	struct stat sFileStat;
+	FILE * pFileProcScsi;
+	ScsiUsbDev_S * pUsbDev;
+	char cSdx;
+	SStorageObject * psStorageObj;	
+	int nHostIndex, nChannel, nId, nLun;
+	ino_t nInode; 	
+	
+	if(stat(PROC_SCSI_USB,&sFileStat) == -1)  /*no usb device at all*/
+	{	
+		return ;
+	}
+
+	pFileProcScsi = fopen("/proc/scsi/scsi", "r");
+	if(NULL == pFileProcScsi)
+	{
+		return;
+	}
+		
+	while (NULL != fgets(pcTmp, sizeof(pcTmp), pFileProcScsi))  /*get a line of /proc/scsi/scsi */
+	{
+		if(4 != sscanf(pcTmp,"Host: scsi%d Channel: %d Id: %d Lun: %d",&nHostIndex, &nChannel, &nId, &nLun))
+		{
+			continue;
+		}
+		
+		sprintf(pcTmp,"%s/%d",PROC_SCSI_USB,nHostIndex);
+		if(stat(pcTmp,&sFileStat) == -1) /*not a usb device*/
+		{
+			continue;
+		}	
+
+		/*seach the s_psUsbList*/
+		pUsbDev = s_psUsbList;
+		while(pUsbDev != NULL)
+		{
+			if(pUsbDev->nIndex == nHostIndex)
+			{
+				break; /*already exist*/
+			}
+			pUsbDev = pUsbDev->psNext;
+		}
+		if(NULL != pUsbDev) /*already exist*/
+		{
+			continue;
+		}
+/*lichanghua modify for nxp:nxp usb has special proc format*/
+#if 0
+		sprintf(pcTmp,BUS_SCSI_BLOCK_FORMAT,nHostIndex, nChannel, nId, nLun);
+		
+		if(stat(pcTmp,&sFileStat) == -1) /*error ocours */
+		{
+			continue;
+		}
+		
+		nInode = sFileStat.st_ino;
+
+		/*a new usb device found*/
+		/*to find the relative /dev/sd? by  /sys/block/sd?/device/scsi_device:* */
+		for(cSdx='a';cSdx<'a'+MAX_STORAGE_COUNT;cSdx++)
+		{
+			sprintf(pcTmp,"%s/sd%c",SYS_BLOCK,cSdx);  /*to get sda sdb ... sd? */
+			if(stat(pcTmp,&sFileStat)==-1)  /*does not exist sd?*/
+			{
+				continue;
+			}
+
+			if(nInode == sFileStat.st_ino)
+			{
+				break;
+			}
+			
+		}
+#else
+		for(cSdx='a';cSdx<'a'+MAX_STORAGE_COUNT;cSdx++)
+		{
+			sprintf(pcTmp,BUS_SCSI_BLOCK_FORMAT,nHostIndex, nChannel, nId, nLun,cSdx);			
+			if(stat(pcTmp,&sFileStat) == -1) /*error ocours */
+			{
+				continue;
+			}
+			nInode = sFileStat.st_ino;
+			sprintf(pcTmp,"%s/sd%c",SYS_BLOCK,cSdx);  /*to get sda sdb ... sd? */
+			if(stat(pcTmp,&sFileStat)==-1)  /*does not exist sd?*/
+			{
+				continue;
+			}
+
+			if(nInode == sFileStat.st_ino)
+			{
+				break;
+			}
+			
+		}
+#endif		
+		if(cSdx >= 'a'+MAX_STORAGE_COUNT)
+		{	
+			CSASSERT(0);
+			/*the /proc/scsi/usb-storage/?  can not find relative /sys/block/sdX */
+			continue;
+		}
+		
+		pUsbDev = (ScsiUsbDev_S *)CSUDIOSMalloc(sizeof(ScsiUsbDev_S));
+		if(CSASSERT_FAILED(pUsbDev!=NULL))
+		{
+			continue;
+		}
+
+		sprintf(pUsbDev->szDeviceName,"%s%c",DEC_SD_PREFIX,cSdx);
+		pUsbDev->nIndex = nHostIndex;
+		pUsbDev->psNext = s_psUsbList;
+		s_psUsbList = pUsbDev;
+		psStorageObj = CSSTRG_iGetStorageByName(pUsbDev->szDeviceName);
+		if(psStorageObj != NULL) /*already registed*/
+		{
+			continue;
+		}
+
+		CSUDIOSThreadSleep(1000); /*wait all partition log to linux*/
+		
+		CSSTRG_iNewStorageLog(EM_STRG_TYPE_USB, pUsbDev->szDeviceName,nHostIndex);
+	}
+
+	fclose(pFileProcScsi);     
+}
+
+static void CSSTRG_iCheckStorageDelete(void)
+{
+	ScsiUsbDev_S * pUsbDev;
+	ScsiUsbDev_S * pUsbSeek;
+	struct stat sFileStat;
+	char szUsbIndex[128];
+	SStorageObject * psStorageObj;
+	
+	pUsbDev = s_psUsbList;
+
+	while(pUsbDev!=NULL)
+	{
+		sprintf(szUsbIndex,"%s/%d",PROC_SCSI_USB,pUsbDev->nIndex);
+		if(stat(szUsbIndex,&sFileStat) == -1) /* deleted*/
+		{
+			break;
+		}
+		pUsbDev=pUsbDev->psNext;
+	}
+
+	if(pUsbDev == NULL)  /*no deleted*/
+	{
+		return;
+	}
+
+	
+	if(pUsbDev == s_psUsbList)
+	{
+		s_psUsbList = pUsbDev->psNext;
+	}
+	else
+	{
+		pUsbSeek = s_psUsbList;
+		while(pUsbSeek!=NULL)
+		{
+			if(pUsbSeek->psNext == pUsbDev)
+			{
+				break;
+			}
+			pUsbSeek=pUsbSeek->psNext;			
+		}
+		if(pUsbSeek != NULL)
+		{
+			pUsbSeek->psNext=pUsbDev->psNext;
+		}
+	}
+
+	psStorageObj = CSSTRG_iGetStorageByName(pUsbDev->szDeviceName);
+	if(psStorageObj == NULL)
+	{
+		CSUDIOSFree(pUsbDev);
+		return;
+	}
+
+	CSSTRG_iDistributeNotify(EM_STRG_EVT_DELETE,&psStorageObj->m_sStorageInfo,0);
+
+	CSSTRG_iRemoveAllPartitionOfStorage(psStorageObj);
+	CSSTRG_iRemoveStorage(psStorageObj);
+	
+	free(pUsbDev);	
+}
+
+static void CSSTRG_iDevDetectTask(void * pArg)
+{
+	#if 0 /*2009-05-20 zhangguowei add! We have no immobility disk, so I  shield this code*/
+	FILE * psFilePartitions;
+	char pcLine[100];      
+	char szPartitionName[64];   /*分区名*/
+	char szDevName[64];           /*设备名*/
+	int nMajor, nMinor, nSize;
+	CSSTRGType_E eStorageType;
+
+	pArg = 0;
+
+	psFilePartitions = fopen(PROC_PARTITIONS, "r");
+	if (CSASSERT_FAILED(psFilePartitions != NULL)) return;
+
+	while (NULL != fgets(pcLine, sizeof(pcLine), psFilePartitions)) 
+	{
+		CSSleep(10);
+		if (sscanf (pcLine, " %d %d %d %[^\n ]", &nMajor, &nMinor, &nSize, szPartitionName) != 4)
+		{
+			continue;
+		}
+		
+		snprintf(szDevName, sizeof(szDevName), "/dev/%s", szPartitionName);
+		if (!CSSTRG_iIsProbablyFullDisk(szDevName)) 
+		{
+			continue;
+		}
+		
+		if (CSSTRG_iIsCdromOrTape(szDevName)) 
+		{
+			continue;
+		}
+		
+		if(!CSSTRG_iGetStorageType(szPartitionName, &eStorageType)) 
+		{
+			continue;
+		}
+
+		CSTRACE(INFO_LEVEL,"\ndetect device%s <--> %s\n",szPartitionName,(eStorageType  == EM_STRG_TYPE_ATA) ? "ATA" :"USB");
+		
+		CSSTRG_iNewStorageLog(eStorageType, szDevName);
+	
+	}
+	fclose(psFilePartitions);
+	#endif /* /0/2009-05-20 zhangguowei add! We have no immobility disk, so I  shield this code */
+
+
+	while(1)
+	{
+		//CSSTRGOverCurrentProtection();/*chenyingle add over-current protection*/
+		CSSTRG_iCheckStorageInsert();
+		CSSTRG_iCheckStorageDelete();		
+		/*we have to sleep here to avoid dead circle*/
+		CSUDIOSThreadSleep(500);
+	}
+}
+
+BOOL CSSTRGInit(void)
+{
+	static BOOL s_bInited = FALSE;
+	HCSHANDLE         hDetectTask;
+
+	CSUDI_Error_Code	enRet;
+
+	if(s_bInited)
+	{
+		return TRUE;
+	}
+	memset(s_sStorageObjects ,0,sizeof(s_sStorageObjects ));
+	memset(s_sPartitionObjects,0,sizeof(s_sPartitionObjects));
+	memset(s_sNotifyObjects,0,sizeof(s_sNotifyObjects));
+
+	enRet = CSUDIOSThreadCreate("StorageDetcctTask", 6*17, 1024*10, CSSTRG_iDevDetectTask, NULL, (CSUDI_HANDLE)(&hDetectTask));
+	if(CSASSERT_FAILED(enRet == CSUDI_SUCCESS))	return FALSE;
+
+	s_bInited = TRUE;	
+	return TRUE;
+}
+
+int CSSTRGGetStorageCount(void)
+{			
+	return s_nStorageCount;
+}
+
+BOOL CSSTRGGetStorageInfoById(const int nStorageId, CSSTRGInfo_S * psStorageInfo)
+{
+	SStorageObject * psStorageObj = NULL;
+	
+	if(CSASSERT_FAILED(psStorageInfo)) return FALSE;
+	
+	psStorageObj =  CSSTRG_iGetStorageById(nStorageId);
+	if(CSASSERT_FAILED(psStorageObj))
+	{
+		return FALSE;
+	}
+
+	*psStorageInfo = psStorageObj->m_sStorageInfo;
+	return TRUE;
+}
+
+BOOL CSSTRGGetStorageInfoByIndex(const int nStorageIndex, CSSTRGInfo_S *psStorageInfo)
+{
+	SStorageObject * psStorageObj = NULL;
+	
+	if(CSASSERT_FAILED(psStorageInfo)) return FALSE;
+		
+	psStorageObj =  CSSTRG_iGetStorageByIndex(nStorageIndex);
+	if(CSASSERT_FAILED(psStorageObj))
+	{
+		return FALSE;
+	}
+
+	*psStorageInfo = psStorageObj->m_sStorageInfo;
+	return TRUE;
+}
+
+int CSSTRGGetPartitionCount(const char* szStorage)
+{
+	SStorageObject *  pStorageObj;
+	int nPartition;
+
+	if(CSASSERT_FAILED(szStorage)) return CSSTRG_INVALID_COUNT;
+	
+	pStorageObj = CSSTRG_iGetStorageByName((char*)szStorage);
+	if(CSASSERT_FAILED(pStorageObj)) 
+	{
+		return CSSTRG_INVALID_COUNT;
+	}
+
+	nPartition = CSSTRG_iPartitionCountByStorageId(pStorageObj->m_sStorageInfo.m_nId);
+	CSASSERT(nPartition!=CSSTRG_INVALID_COUNT);
+	
+	return nPartition;	
+}
+
+
+BOOL CSSTRGGetPartionInfo(const char* szStorage, const int nPartionIndex, CSSTRGPartitionInfo_S *psPartitionInfo)
+{
+	SStorageObject *  pStorageObj = NULL;
+	SPartitionObject * psPartitionObj = NULL;
+
+	if(CSASSERT_FAILED(szStorage)) return FALSE;
+	if(CSASSERT_FAILED(psPartitionInfo)) return FALSE;
+	
+	pStorageObj = CSSTRG_iGetStorageByName((char*)szStorage);
+	if(CSASSERT_FAILED(pStorageObj)) 
+	{
+		return FALSE;
+	}
+
+	psPartitionObj = CSSTRG_iGetPartitionByIndex(pStorageObj->m_sStorageInfo.m_nId,nPartionIndex);
+	if(CSASSERT_FAILED(psPartitionObj)) 
+	{
+		return FALSE;
+	}
+
+	*psPartitionInfo = psPartitionObj->m_sPartition;
+
+	return TRUE;	
+}
+
+
+BOOL CSSTRGRegNotify(const CSSTRGNotify_F fnNotify, const void *pUserData)
+{
+	SNotifyObject * pNotifyObj = NULL;
+	CSSTRGInfo_S * psStorageObj = NULL;
+	int i;
+
+	if(CSASSERT_FAILED(fnNotify != NULL)) return FALSE;
+	
+	pNotifyObj = CSSTRG_iFindNotify(fnNotify,pUserData);
+	if(CSASSERT_FAILED(NULL == pNotifyObj)) //already exist
+	{
+		return FALSE;
+	}
+
+	pNotifyObj = CSSTRG_iGetFreeNotify();
+	if(CSASSERT_FAILED(NULL != pNotifyObj)) //no free obj
+	{
+		return FALSE;
+	}
+
+	pNotifyObj->m_fnDevNotify = (CSSTRGNotify_F)fnNotify;
+	pNotifyObj->m_pUsr = (void *)pUserData;
+
+	for(i = 0;i< MAX_STORAGE_COUNT;i++)
+	{
+		if(s_sStorageObjects[i].m_nUseStatus != STRG_STAT_FREE)
+		{
+			psStorageObj = &(s_sStorageObjects[i].m_sStorageInfo);
+			(*fnNotify)(EM_STRG_EVT_CREATE, psStorageObj, psStorageObj->m_eType,(void *)pUserData);
+		}
+	}
+
+	return TRUE;
+}
+
+BOOL CSSTRGUnregNotify(const CSSTRGNotify_F fnNotify, const void *pUserData)
+{
+	SNotifyObject * pNotifyObj = NULL;
+
+	if(CSASSERT_FAILED(fnNotify != NULL)) return FALSE;
+	
+	pNotifyObj = CSSTRG_iFindNotify(fnNotify,pUserData);
+	if(CSASSERT_FAILED(NULL != pNotifyObj)) //not exist
+	{
+		return FALSE;
+	}
+
+	pNotifyObj->m_fnDevNotify = NULL;
+	pNotifyObj->m_pUsr = NULL;
+	pNotifyObj->m_bUsed = FALSE;
+
+	return TRUE;
+}
+
+BOOL CSSTRGStandby(const char * szStorage)
+{
+	SStorageObject *  pStorageObj = NULL;
+	char szCmd[128];
+	int nRet;
+	
+	if(CSASSERT_FAILED(szStorage)) return FALSE;
+
+	pStorageObj = CSSTRG_iGetStorageByName((char*)szStorage);
+	if(CSASSERT_FAILED(pStorageObj)) return FALSE;
+
+	sprintf(szCmd,"hdparm -y %s %s",szStorage,COMMAND_OPTION);
+	nRet = CSSYSTEMPROXYRun(szCmd);
+	if(CSASSERT_FAILED(nRet != -1)) return FALSE;
+
+	return TRUE;	
+}
+
+BOOL CSSTRGWakeup (const char * szStorage)
+{
+	SStorageObject *  pStorageObj = NULL;
+	char szCmd[128];
+	int nRet;
+	
+	if(CSASSERT_FAILED(szStorage)) return FALSE;
+
+	pStorageObj = CSSTRG_iGetStorageByName((char*)szStorage);
+	if(CSASSERT_FAILED(pStorageObj)) return FALSE;
+
+	sprintf(szCmd,"hdparm -z %s %s",szStorage,COMMAND_OPTION);
+	nRet = CSSYSTEMPROXYRun(szCmd);
+	if(CSASSERT_FAILED(nRet != -1)) return FALSE;
+
+	return TRUE;	
+}
+
+
+BOOL CSSTRGFormat(const char * szStorage,CSSTRGPartitionType_E ePartitionType)
+{
+	if(CSASSERT_FAILED(szStorage)) return FALSE;
+	if(CSASSERT_FAILED(ePartitionType!=EM_STRG_PARTITION_UNKNOW)) return FALSE;
+	
+	return FALSE;
+}
+
+
+
+

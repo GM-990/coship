@@ -22,6 +22,11 @@
 #include "udidrv_log.h"
 
 #include "udi2_tuner.h"
+#include "generic_include.h"
+
+#define TUNER_TYPE  1 //1: CABLE, 2:SATALLITE, 3:TERRISIAL
+
+extern CS_TM_PIPE_OBJECTS gTmPipeObject;
 
 /**
 @brief 根据指定的频点进行锁频操作.
@@ -49,6 +54,62 @@ CSUDI_Error_Code CSUDITunerConnect(CSUDI_UINT32 dwTunerId, const CSUDITunerSRCDe
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
+
+	PIPE_TUNING_PARAMETERS PipeTuneParams;
+	PIPE_STATUS       PipeStatus = CNXT_STATUS_OK;
+#if (TUNER_TYPE == 1) //cable
+	PipeTuneParams.bAsync = TRUE;
+	PipeTuneParams.Type = PIPE_CABLE_TUNER_TYPE;
+	PipeTuneParams.TuningParameters.CableTuningParameters.uFrequencyKHz = punDeliver->m_sCableDeliver.m_uFrequency;
+	
+	switch (punDeliver->m_sCableDeliver.m_uModulation_8)
+	{
+	case 1:		
+		PipeTuneParams.TuningParameters.CableTuningParameters.Modulation = PIPE_TUNER_MOD_TYPE_16QAM;
+		break;
+		
+	case 2: 	
+		PipeTuneParams.TuningParameters.CableTuningParameters.Modulation = PIPE_TUNER_MOD_TYPE_32QAM;
+		break;
+
+	case 3:		
+		PipeTuneParams.TuningParameters.CableTuningParameters.Modulation = PIPE_TUNER_MOD_TYPE_64QAM;
+		break;
+
+	case 4:		
+		PipeTuneParams.TuningParameters.CableTuningParameters.Modulation = PIPE_TUNER_MOD_TYPE_128QAM;
+		break;		
+
+	case 5:		
+		PipeTuneParams.TuningParameters.CableTuningParameters.Modulation = PIPE_TUNER_MOD_TYPE_256QAM;
+		break;		
+		
+	}
+	
+	
+	PipeTuneParams.TuningParameters.CableTuningParameters.uSymbolRateSs = punDeliver->m_sCableDeliver.m_uSymbolRate_24*1000;
+	PipeTuneParams.TuningParameters.CableTuningParameters.Annex=PIPE_TUNER_CABLE_ANNEX_A;
+	PipeTuneParams.TuningParameters.CableTuningParameters.bAutoSpectrum=TRUE;
+	PipeTuneParams.TuningParameters.CableTuningParameters.bInvertedSpectrum = FALSE;
+	PipeTuneParams.TuningParameters.CableTuningParameters.uSDPMax =255;
+    PipeTuneParams.TuningParameters.CableTuningParameters.uSDPMin =0;
+
+	UDIDRV_LOGI("frank.zhou m_uFrequency =%d\n", PipeTuneParams.TuningParameters.CableTuningParameters.uFrequencyKHz);
+	UDIDRV_LOGI("frank.zhou m_uModulation_8 =%d\n", PipeTuneParams.TuningParameters.CableTuningParameters.Modulation);
+	UDIDRV_LOGI("frank.zhou m_uSymbolRate_24 =%d\n", PipeTuneParams.TuningParameters.CableTuningParameters.uSymbolRateSs);
+
+	PipeStatus = gTmPipeObject.hTunerObj[0]->tune(gTmPipeObject.hTunerObj[0], &PipeTuneParams);
+	if(PipeStatus != PIPE_STATUS_OK)
+	{
+		UDIDRV_LOGI("frank.zhou tune fail!\n");
+	}
+	else
+	{
+		UDIDRV_LOGI("frank.zhou tune success!\n");
+	}
+#else if (TUNER_TYPE == 2) //sat
+
+#endif
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
 	return Retcode;
 }
@@ -76,6 +137,8 @@ CSUDI_Error_Code CSUDITunerAddCallback(CSUDI_UINT32 dwTunerId,CSUDITunerCallback
 	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
 
 	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
+	int *p = pvUserData;
+	*p = 1;
 	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
 	return Retcode;
 }

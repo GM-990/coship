@@ -1,37 +1,15 @@
-/****************************************************************************/
-/*                   Entropic (Shanghai) Co, LTD                            */
-/*                        SOFTWARE FILE/MODULE HEADER                       */
-/*                 Copyright Entropic Co, LTD                               */
-/*                            All Rights Reserved                           */
-/****************************************************************************/
-/*
- * Filename:        udi2_player.c
- *
- *
- * Description:     API implementation for COSHIP interface layer .
- *
- *
- *-------------------------------------------------------------------------------
- *ENTROPIC COMMENTS ON COSHIP HEADER FILE:
-	 2013/11/06
-		 The APIs in this header file are required for Android DVB-S2 plus OTT project.
-		 Because there is no EEPROM device in the STB system.
- *-------------------------------------------------------------------------------
- ****************************************************************************/
-#include "udi2_error.h"
-#include "udi2_public.h"
-#include "udi2_typedef.h"
 #include "udidrv_log.h"
 
 #include "udi2_player.h"
-
 #include "generic_include.h"
 #include "tm_player.h"
 
 #include "data_mngr.h"
 #include "pvr_fs.h"
+#define uPath  "/opt/" 
 
-
+CNXT_PVR_DM_HANDLE   hPipeDataMngr[2];
+CNXT_PVR_DM_HANDLE   hPipeDataPlayMngr[2];
 u_int8 *pRecordData;
 
 
@@ -42,8 +20,7 @@ u_int8 *pRecordData;
 #define AMM_THRESHOLD_VALUE 3584
 #define CSUDI_INVALID_INDEX (-1)
 #define IS_VALID_PID(pid)  ( (((pid) < MIN_PID) || ((pid) >= MAX_PID))?FALSE:TRUE)
-	
-	
+
 #define IS_VALID_PLAYER_INDX(uPlayerIndx)  \
 	do                                                   \
 	{                                                      \
@@ -62,8 +39,7 @@ u_int8 *pRecordData;
 			return CSUDIPLAYER_ERROR_INVALID_HANDLE; \
 		}                                                       \
 	} while( 0 )
-	
-	
+
 CS_CNXT_Player_Config gPlayerConfig;
 static UDI_PLAYER_HNDL gUDIPlayerHndl[MAX_PLAYER_HANDLES];/*For time being we are restricting it to 32*/
 CNXT_SEM_ID gPlayerSem;
@@ -74,9 +50,6 @@ extern bool bInjectIframe;
 extern bool bPlayerStatus ;
 extern CNXT_QUEUE_ID injectDataQueue;
 extern CSUDI_Error_Code TM_AOUTSetMute(CSUDIAOUTDevices_E eAudioDevice,CSUDI_BOOL bMute);
-extern bool bIsEncDataRequired(PIPE_AUDIO_FORMAT AudioFormat);
-
-u_int8 *pRecordData;
 
 CNXT_STATUS CS_TM_Player_Init(void)
 {	
@@ -127,9 +100,6 @@ CNXT_STATUS CS_TM_Player_Init(void)
 		
 	return Retcode;
 }
-
-
-
 BOOL CSUDIPLAYERTerm()
 {
 	int  i = 0;
@@ -152,9 +122,6 @@ BOOL CSUDIPLAYERTerm()
 
 	return(i==MAX_PLAYER_HANDLES);
 }
-
-
-
 void cs_tm_notify_player(CSUDIPlayerEventType_E UDIEvent)
 
 {
@@ -177,9 +144,6 @@ void cs_tm_notify_player(CSUDIPlayerEventType_E UDIEvent)
     }
     return;
 }
-
-
-
 static BOOL CS_CheckStreamParam(int nStreamCnt,CSUDIStreamInfo_S * psStreamInfo)
 {
 	int count,temp_count;
@@ -210,9 +174,6 @@ static BOOL CS_CheckStreamParam(int nStreamCnt,CSUDIStreamInfo_S * psStreamInfo)
 
 	return TRUE;
 }
-
-
-
 int cs_cnxt_get_free_callbackindx(CS_TM_Player_SubSystem *pPlayerSubsystem)
 {
 	int i=0;
@@ -234,9 +195,6 @@ int cs_cnxt_get_free_player(void)
 	return i;
 
 }
-
-
-
 bool bIsPlayeropen(u_int32 hPlayer)
 {
 	int i=0;
@@ -293,8 +251,6 @@ bool Is_video_fmt_supported(CSUDIAUDStreamType_E eStreamType)
 	}
 	return TRUE;
 }
-
-
 bool bAudioDecoderInUse(int AudIndx)
 {
 	int uPlayerIndx;
@@ -313,8 +269,6 @@ bool bAudioDecoderInUse(int AudIndx)
 	}
 	return FALSE;
 }
-
-
 bool bVideoDecoderInUse(int VidIndx)
 {
 	int uPlayerIndx;
@@ -333,8 +287,6 @@ bool bVideoDecoderInUse(int VidIndx)
 	}
 	return FALSE;
 }
-
-
 int cs_tm_get_surface_indx(int VidIndx)
 { 
     /*int uPlayerIndx;
@@ -356,9 +308,6 @@ int cs_tm_get_surface_indx(int VidIndx)
 
     return PIPE_VP_VIDEO_PRIMARY_SURFACE;
 }
-
-
-
 PIPE_PIPELINE_OBJECT* cs_tm_get_live_pipe(int AudIndx)
 {
     PIPE_PIPELINE_OBJECT *hPipeObject;    
@@ -381,12 +330,12 @@ PIPE_PIPELINE_OBJECT* cs_tm_get_live_pipe(int AudIndx)
     return hPipeObject;
 }
 
-
-
 PIPE_STATUS cs_pipe_vpm_attach(PIPE_VP_SURFACE_INPUT Input, 
                                      PIPE_VP_SURFACE_TYPE uSurfaceNum, 
                                      int PipeIndx)
 {
+	
+	UDIDRV_LOGI("frank.zhou %s line=%d\n", __func__, __LINE__);
     PIPE_STATUS PmStatus = PIPE_STATUS_OK;
 
     PIPE_VP_SURFACE_ATTRIB sAttrib;
@@ -404,6 +353,7 @@ PIPE_STATUS cs_pipe_vpm_attach(PIPE_VP_SURFACE_INPUT Input,
         CSDEBUG(MODULE_NAME, ERROR_LEVEL,"ERROR: %s %d \n", __FUNCTION__, __LINE__);
         return PIPE_STATUS_UNKNOWN;
     }
+	UDIDRV_LOGI("frank.zhou %s line=%d\n", __func__, __LINE__);
 
 #ifdef DUAL_VIDEO_SURFACE
     if((sAttrib.Input.pPipe != Input.pPipe)||(sAttrib.Input.Type!=Input.Type))
@@ -411,9 +361,10 @@ PIPE_STATUS cs_pipe_vpm_attach(PIPE_VP_SURFACE_INPUT Input,
     if((sAttrib.Input.pPipe != Input.pPipe)||(sAttrib.Input.Type!=Input.Type)||(sAttrib.Input.hImageHandle!=Input.hImageHandle))
 #endif
     {
-
+		UDIDRV_LOGI("frank.zhou %s line=%d, sAttrib.Input.Type=%d\n", __func__, __LINE__, sAttrib.Input.Type);
         if((sAttrib.bSurfaceEnabled==TRUE)&&(sAttrib.Input.Type!=PIPE_VP_SURFACE_INPUT_TYPE_NONE))
         {
+	        UDIDRV_LOGI("frank.zhou %s line=%d\n", __func__, __LINE__);
             PmStatus = gTmVpDeviceObj.pHDVideoSurface[uSurfaceNum]->surface_disable(gTmVpDeviceObj.pHDVideoSurface[uSurfaceNum]);
             if(PmStatus != PIPE_STATUS_OK)
             {
@@ -427,10 +378,13 @@ PIPE_STATUS cs_pipe_vpm_attach(PIPE_VP_SURFACE_INPUT Input,
         {
             CSDEBUG(MODULE_NAME, ERROR_LEVEL,"ERROR: %s %d \n", __FUNCTION__, __LINE__);
         }
+		UDIDRV_LOGI("frank.zhou %s line=%d\n", __func__, __LINE__);
 
 #ifndef DUAL_VIDEO_SURFACE
         if((gTmVpDeviceObj.bShowVideo[uSurfaceNum]==TRUE)&&(Input.Type!=PIPE_VP_SURFACE_INPUT_TYPE_NONE))
         {
+        
+			UDIDRV_LOGI("frank.zhou %s line=%d\n", __func__, __LINE__);
             PmStatus = gTmVpDeviceObj.pHDVideoSurface[uSurfaceNum]->surface_enable(gTmVpDeviceObj.pHDVideoSurface[uSurfaceNum]);
             if(PmStatus != PIPE_STATUS_OK)
             {
@@ -441,7 +395,7 @@ PIPE_STATUS cs_pipe_vpm_attach(PIPE_VP_SURFACE_INPUT Input,
 #endif		
     }
 
-
+	UDIDRV_LOGI("frank.zhou %s line=%d\n", __func__, __LINE__);
 
     cnxt_kal_memset(&sAttrib,0,sizeof(sAttrib));	   	
     PmStatus = gTmVpDeviceObj.pSDVideoSurface[uSurfaceNum]->get_attrib(gTmVpDeviceObj.pSDVideoSurface[uSurfaceNum],&sAttrib);
@@ -460,6 +414,7 @@ PIPE_STATUS cs_pipe_vpm_attach(PIPE_VP_SURFACE_INPUT Input,
 
         if((sAttrib.bSurfaceEnabled==TRUE)&&(sAttrib.Input.Type!=PIPE_VP_SURFACE_INPUT_TYPE_NONE))
         {
+        	UDIDRV_LOGI("frank.zhou %s line=%d\n", __func__, __LINE__);
             PmStatus = gTmVpDeviceObj.pSDVideoSurface[uSurfaceNum]->surface_disable(gTmVpDeviceObj.pSDVideoSurface[uSurfaceNum]);
             if(PmStatus != PIPE_STATUS_OK)
             {
@@ -477,6 +432,8 @@ PIPE_STATUS cs_pipe_vpm_attach(PIPE_VP_SURFACE_INPUT Input,
 #ifndef DUAL_VIDEO_SURFACE
         if((gTmVpDeviceObj.bShowVideo[uSurfaceNum]==TRUE)&&(Input.Type!=PIPE_VP_SURFACE_INPUT_TYPE_NONE))
         {
+        
+			UDIDRV_LOGI("frank.zhou %s line=%d\n", __func__, __LINE__);
             PmStatus = gTmVpDeviceObj.pSDVideoSurface[uSurfaceNum]->surface_enable(gTmVpDeviceObj.pSDVideoSurface[uSurfaceNum]);
             if(PmStatus != PIPE_STATUS_OK)
             {
@@ -486,6 +443,7 @@ PIPE_STATUS cs_pipe_vpm_attach(PIPE_VP_SURFACE_INPUT Input,
         }            
 #endif
     }
+	UDIDRV_LOGI("frank.zhou %s line=%d\n", __func__, __LINE__);
 
 #ifdef DUAL_VIDEO_SURFACE
     {
@@ -710,8 +668,6 @@ PIPE_STATUS cs_pipe_apm_attach(PIPE_PIPELINE_OBJECT *hPipeObj,
     CSDEBUG(MODULE_NAME, ERROR_LEVEL, "Exit Function :%s \n",__FUNCTION__);
 	return PmStatus;
 }
-
-
 PIPE_STATUS cs_pipe_apm_detach(PIPE_PIPELINE_OBJECT *hPipeObj)
 {
 	PIPE_STATUS PmStatus = PIPE_STATUS_OK;
@@ -728,8 +684,6 @@ PIPE_STATUS cs_pipe_apm_detach(PIPE_PIPELINE_OBJECT *hPipeObj)
     CSDEBUG(MODULE_NAME, ERROR_LEVEL, "Exit Function :%s \n",__FUNCTION__);
 	return PmStatus;
 }
-
-
 PIPE_AUDIO_FORMAT get_tm_audio_format(CSUDIAUDStreamType_E StreamType)
 {
 	/* start audio decoder according to input info*/
@@ -779,9 +733,6 @@ PIPE_AUDIO_FORMAT get_tm_audio_format(CSUDIAUDStreamType_E StreamType)
 	}
 	return AudioFormat;
 }
-
-
-
 bool cs_tm_restart_video(CSUDI_HANDLE hPlayer, CSUDIStreamInfo_S psStreamInfo)
 {
 	bool retcode = TRUE;
@@ -901,8 +852,6 @@ bool cs_tm_restart_video(CSUDI_HANDLE hPlayer, CSUDIStreamInfo_S psStreamInfo)
 	return retcode;
 }
 extern bool bIsEncDataRequired(PIPE_AUDIO_FORMAT AudioFormat);
-
-
 bool cs_tm_restart_audio(CS_TM_Player_SubSystem *pPlayerSubsystem, CSUDIStreamInfo_S psStreamInfo)
 {
 	bool retcode = TRUE;
@@ -1021,50 +970,6 @@ bool cs_tm_restart_audio(CS_TM_Player_SubSystem *pPlayerSubsystem, CSUDIStreamIn
 	return retcode;
 }
 
-
-/**
-@brief UDI Player是否支持播放传入的URL指定的媒体文件.
- 
-@param[in] pcURL 需要探测的媒体文件URL.
-@return 支持返回CSUDI_SUCCESS, 不支持返回CSUDIPLAYER_ERROR_FEATURE_NOT_SUPPORTED.
-@note 参考udi2_player.h文件中对第三方媒体播放器流程相关的描述.
-@note 该接口主要针对芯片能够直接支持本地媒体播放，如不支持请直接返回CSUDIPLAYER_ERROR_FEATURE_NOT_SUPPORTED
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is NOT required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/	
-CSUDI_Error_Code CSUDIPLAYERProbe(const char * pcURL)
-{
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
-	return Retcode;
-}
-
- /**
-@brief  注册指定事件类型的回调函数
-
-@param[in] hPlayer 播放器句柄，由CSUDIPLAYEROpen()获得
-@param[in] fnPlayerCallback 回调函数指针，详见CSUDIPLAYERCallback_F定义
-@param[in] eEvent 回调函数类型，详见CSUDIPlayerEventType_E
-@param[in] pvUserData 用户传入的自定义指针，用来通知驱动返回给用户的数据信息
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 至少支持注册的回调函数个数为32个，最大不限
-@note 不允许注册EM_UDIPLAYER_MAXEVENTTYPE类型的回调
-@note 回调函数指针+回调函数类型+用户数据唯一标识一个回调,当两次注册它们完全一样时，第二次将返回CSUDIPLAYER_ERROR_CALLBACK_EXIST
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIPLAYERAddPlayerCallback(CSUDI_HANDLE hPlayer,CSUDIPLAYERCallback_F fnPlayerCallback,CSUDIPlayerEventType_E eEvent,void * pvUserData )
 {
 	int uPlayerIndx, FreeIndx=0, indx;
@@ -1129,23 +1034,6 @@ CSUDI_Error_Code CSUDIPLAYERAddPlayerCallback(CSUDI_HANDLE hPlayer,CSUDIPLAYERCa
 	return eErrCode;
 }
 
-
- /**
-@brief 删除指定事件类型的回调函数
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[in] fnPlayerCallback 回调函数指针，详见CSUDIPLAYERCallback_F定义
-@param[in] eEvent 回调函数类型，详见CSUDIPlayerEventType_E
-@param[in] pvUserData 同CSUDIPLAYERAddPLAYERCallback的pvUserData
-@return 成功返回CSUDI_SUCCESS；如果该回调函数根本就没有注册，将返回CSUDIPLAYER_ERROR_CALLBACK_NOT_EXIST
-@note 允许在回调函数中删除回调
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIPLAYERDelPlayerCallback(CSUDI_HANDLE hPlayer,CSUDIPLAYERCallback_F fnPlayerCallback,CSUDIPlayerEventType_E eEvent, void * pvUserData )
 {
 	int uPlayerIndx, FreeIndx=0, i;
@@ -1201,128 +1089,6 @@ CSUDI_Error_Code CSUDIPLAYERDelPlayerCallback(CSUDI_HANDLE hPlayer,CSUDIPLAYERCa
 	return eErrCode;
 }
 
- /**
-@brief  注册文件播放事件类型的回调函数
-
-@param[in] hPlayer 播放器句柄，由CSUDIPLAYEROpen()获得
-@param[in] fnPlayerCallback 回调函数指针，详见CSUDIFilePLAYERCallback_F定义
-@param[in] pvUserData 用户传入的自定义指针，用来通知驱动返回给用户的数据信息
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 至少支持注册的回调函数个数为32个，最大不限
-@note 回调函数指针+用户数据唯一标识一个回调,当两次注册它们完全一样时，第二次将返回CSUDIPLAYER_ERROR_CALLBACK_EXIST
-@note 只允许ePlayerType为EM_UDIPLAYER_FILE的hPlayer时，才能注册此回调
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is NOT required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERAddFilePlayerCallback(CSUDI_HANDLE hPlayer, CSUDIFilePLAYERCallback_F fnPlayerCallback, void * pvUserData )
-{
-	 UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
- 
-	 CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	  
-	 UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	  
-	 return Retcode;
-}
-
- /**
-@brief 删除文件播放事件类型的回调函数
-
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[in] fnPlayerCallback 回调函数指针，详见CSUDIFilePLAYERCallback_F定义
-@param[in] pvUserData 同CSUDIPLAYERAddFilePlayerCallback的pvUserData
-@return 成功返回CSUDI_SUCCESS；如果该回调函数根本就没有注册，将返回CSUDIPLAYER_ERROR_CALLBACK_NOT_EXIST
-@note 允许在回调函数中删除回调
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is NOT required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERDelFilePlayerCallback(CSUDI_HANDLE hPlayer, CSUDIFilePLAYERCallback_F fnPlayerCallback, void * pvUserData )
-{
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	  
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	  
-	return Retcode;
-}
-
-
-/**
-@brief  获取播放的文件信息
-
-@param[in] hPlayer 播放器句柄，由CSUDIPLAYEROpen()获得
-@param[out] pstFileInfo 获取的文件信息
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is NOT required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERGetFileInfo(CSUDI_HANDLE hPlayer, CSUDIPlayerFileInfo_S * pstFileInfo)
-{
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
-	return Retcode;
-}
-
-/**
-@brief  设置播放的文件信息，被设置的文件按此属性播放
-
-@param[in] hPlayer 播放器句柄，由CSUDIPLAYEROpen()获得
-@param[in] pstFileStreamId 需要设置的文件播放信息
-@note 通过CSUDIPLAYERGetFilePlayInfo 获取需要设置的信息的索引
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is NOT required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERSetFilePlayStream(CSUDI_HANDLE hPlayer, CSUDIPlayerFileStreamId_S * pstFileStreamId)
-{
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
-	return Retcode;
-}
-
-/**
-@brief 创建一个播放器
-
-@param[in] psPlayerChnl   播放器通道的数据结构指针，请参见CSUDIPlayerChnl_S。
-@param[in] ePlayerType   播放器播放类型，请参见CSUDIPLAYERType_E。
-@param[out] phPlayer  创建成功后生成的播放器句柄
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note psPlayerChnl 中的成员设备资源索引可以为CSUDI_INVALID_INDEX，CSUDI_INVALID_INDEX代表该设备资源不存在或者播放器不需要此设备实现播放操作。
-@note 创建Player时应杜绝传入冗余设备，如播放I帧时不得传入Audio
-@note 如果播放器的类型是直播，那一定要指定demux ID,且音视频不能同时为-1，否则返回CSUDIPLAYER_ERROR_DEVICE_DISORDER
-@note 如果此时该视频解码器正在进行I帧解码(由于CSUDIOSGDecodeImage接口的使用)，并且本函数需要马上用到该解码器，则该接口应进行等待直到I帧解码完成为止
-@note 如果以直播形式打开Player且所用Demux未与任何Tuner连接,仍能创建成功，但将无法播放出任何数据
-@note 如果以Inject等不需要Tuner的形式打开Player且所用Demux已经连接了Tuner，则返回CSUDIPLAYER_ERROR_DEVICE_BUSY
-@see CSUDIOSGDecodeImage
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIPLAYEROpen(const CSUDIPlayerChnl_S * psPlayerChnl, CSUDIPLAYERType_E ePlayerType, CSUDI_HANDLE * phPlayer)
 {
 	int  FreeIndx;
@@ -1557,22 +1323,6 @@ CSUDI_Error_Code CSUDIPLAYEROpen(const CSUDIPlayerChnl_S * psPlayerChnl, CSUDIPL
 	return eErrCode;
 }
 
-
-/**
-@brief 销毁一个播放器
-
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 销毁一个播放器，与CSUDIPLAYEROpen成对使用。
-@note 一个播放器被销毁后，其相关资源需一并自行销毁(如该播放器关联的回调函数)。
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIPLAYERClose(CSUDI_HANDLE hPlayer)
 {
 	int uPlayerIndx, nDmxIndex;
@@ -1745,29 +1495,6 @@ CSUDI_Error_Code CSUDIPLAYERClose(CSUDI_HANDLE hPlayer)
 	return CSUDI_SUCCESS;
 }
 
-/**
-@brief 用户设置Audio/video/pcr/sub/tt节目信息
-
-@param[in] hPlayer 播放器句柄，由CSUDIPLAYEROpen()获得
-@param[in] psStreamInfo 输入节目信息，具体结构参看CSUDIStreamInfo_S 数据结构。
-@param[in] nStreamCnt 要设置的节目信息个数
-@param[in] psPlaybackParam 文件回放/时移播放参数信息；该参数可以为CSUDI_NULL,表示进行直播
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 试图设置两个音视频信息时返回CSUDIPLAYER_ERROR_STREAMTYPE_DISORDER,即不能同时设置两个音视频PID 
-@note 供用户设置Audio/video/pcr/sub/tt节目信息.具体请参见CSUDIStreamInfo_S的定义 
-@note 试图设置解码器不支持的音视频类型时返回CSUDIPLAYER_ERROR_STREAMTYPE_DISORDER
-@note 该接口设置的音频格式与输出模式无关，如当前所有Aout设备均为DECODER模式，但当前Player中的Audio设备
-仅支持AC3音频的BYPASS模式，使用本接口设置一个AC3音频时，仍返回成功，但实际输出会没有声音。
-@note 播放参数中不设置不需要的属性PID，如一个有AV的Player来播放广播时不传入视频PID
-@note 该接口及相关接口无需进行PID标准级的判断，即0,0x10等被其他PSI占用的PID仍为合法的PID，实际若上述PID上无对应音视频数据时，无法播放成功即可。
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIPLAYERSetStream(CSUDI_HANDLE hPlayer, const CSUDIStreamInfo_S * psStreamInfo, int nStreamCnt,const CSUDIPlaybackParam_S * psPlaybackParam)
 {
 	int32       nVidIndex=0,nDmxIndex=0, nAudIndex=0;
@@ -1970,24 +1697,6 @@ CSUDI_Error_Code CSUDIPLAYERSetStream(CSUDI_HANDLE hPlayer, const CSUDIStreamInf
 	return eErrCode;
 }
 
-/**
-@brief 用户得到Audio/video/pcr/sub/tt节目信息
-
-@param[in] hPlayer 播放器句柄，由CSUDIPLAYEROpen()获得
-@param[out] psStreamInfo 保存节目信息的地址，具体结构参看CSUDIStreamInfo_S数据结构。
-@param[in,out] pnStreamCnt 获取的节目信息个数.输入参数时用作psStreamInfo中所有元素个数，输出参数为psStreamInfo有效节目元素个数
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 
-- 此接口在创建播放器后就可以使用，如果还没有设置节目，则返回nStreamCnt =0，且psStreamInfo的内容不能够被改变
-- 使用此接口获取到的流信息与CSUDIPLAYERSetStream设置的信息相对应，传入的StreamInfo数组必须传足够大(建议>=5)，否则可能无法取到需要的信息
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIPLAYERGetStream(CSUDI_HANDLE hPlayer, CSUDIStreamInfo_S * psStreamInfo,int * pnStreamCnt)
 {
 	int count=0, uPlayerIndx;
@@ -2029,21 +1738,6 @@ CSUDI_Error_Code CSUDIPLAYERGetStream(CSUDI_HANDLE hPlayer, CSUDIStreamInfo_S * 
 	return CSUDI_SUCCESS;
 }
 
-
-/**
-@brief 获取回放参数信息
-
-@param[in] hPlayer 播放器句柄，由CSUDIPLAYEROpen()获得
-@param[out] psPlaybackParam 保存回放信息，具体结构参看CSUDIPlaybackParam_S数据结构。
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIPLAYERGetPlaybackParam(CSUDI_HANDLE hPlayer, CSUDIPlaybackParam_S * psPlaybackParam)
 {	
 	int uPlayerIndx;
@@ -2083,28 +1777,6 @@ CSUDI_Error_Code CSUDIPLAYERGetPlaybackParam(CSUDI_HANDLE hPlayer, CSUDIPlayback
 	return CSUDI_SUCCESS;
 }
 
-/**
-@brief 用户修改Audio/video/pcr/sub/tt节目信息
-
-@param[in] hPlayer 播放器句柄，由CSUDIPLAYEROpen()获得
-@param[in] psStreamInfo 待修改的节目信息，具体情况请参见CSUDIStreamInfo_S数据结构。
-@param[in] nStreamCnt  修改的节目信息个数
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 试图设置两个音视频信息时返回CSUDIPLAYER_ERROR_STREAMTYPE_DISORDER  ,即不能同时设置两个音视频PID  
-@note 试图设置解码器不支持的音视频类型时返回CSUDIPLAYER_ERROR_STREAMTYPE_DISORDER    
-@note 修改节目信息会将前一次的设置全部覆盖，建议调用本接口前先通过CSUDIPLAYERGetPlaybackParam获取当前状态，再进行修改。
-@note 修改后的动作于修改前的动作保持一致。如果修改前处于播放状态，则修改后也处于播放状态。
-@note 该接口设置的音频格式与输出模式无关，如当前所有Aout设备均为DECODER模式，但当前Player中的Audio设备
-仅支持AC3音频的BYPASS模式，使用本接口设置一个AC3音频时，仍返回成功，但实际输出会没有声音。
-@todo 状态机
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIPLAYERModifyStream(CSUDI_HANDLE hPlayer, CSUDIStreamInfo_S * psStreamInfo,int nStreamCnt)
 {
 	int uPlayerIndx, count=0;
@@ -2281,20 +1953,43 @@ CSUDI_Error_Code CSUDIPLAYERModifyStream(CSUDI_HANDLE hPlayer, CSUDIStreamInfo_S
 	return eErrCode;
 }
 
-/**
-@brief 启动一个播放器的工作 
 
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 按照CSUDIPLAYERSetInputStream 等函数设置的流信息以及其他相关参数播放一个媒体流。
+void audio_player_restart(void)
+{
+    CNXT_STATUS RetStatus;
+    
+    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Enter:%s\n",__FUNCTION__);   
+	RetStatus = cnxt_kal_sem_get(gPlayerSem, CNXT_KAL_WAIT_FOREVER);
+	if(RetStatus != CNXT_STATUS_OK)
+	{
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", RetStatus);
+		return ;
+	}
 
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
+    
+    if(gPlayerConfig.hPlayerHandle[0].ePlayerState == E_PLAYER_START)
+    {
+            /*TBD: Need to get proper player indx */
+            CSUDIStreamInfo_S psStreamInfo;
+            psStreamInfo.m_nPid = gPlayerConfig.hPlayerHandle[0].uAudPID;
+            psStreamInfo.m_eContentType = EM_UDI_CONTENT_AUDIO;
+            psStreamInfo.m_uStreamType.m_eAudioType = gPlayerConfig.hPlayerHandle[0].StreamType;
+            cs_tm_restart_audio(&gPlayerConfig.hPlayerHandle[0],psStreamInfo);
+    }    
 
-*/
+    RetStatus = cnxt_kal_sem_put(gPlayerSem);
+    if(RetStatus != CNXT_STATUS_OK)
+    {
+        CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", RetStatus);
+        return ;
+    }
+    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Exit:%s\n",__FUNCTION__); 
+}
+
+
+
+
+
 CSUDI_Error_Code CSUDIPLAYERStart(CSUDI_HANDLE hPlayer)
 {
 	CNXT_STATUS               Status;
@@ -2389,7 +2084,7 @@ CSUDI_Error_Code CSUDIPLAYERStart(CSUDI_HANDLE hPlayer)
 						}
 					}
 					pPlayerSubsystem->bVideoOnlyStream = FALSE;
-					
+					UDIDRV_LOGI("frank.zhou set audio pid =%d\n", pPlayerSubsystem->uAudPID);
 					PmStatus = hDemuxObj->set_audio_pid(hDemuxObj, pPlayerSubsystem->uAudPID);
 					if (PmStatus != PIPE_STATUS_OK)
 					{
@@ -2451,7 +2146,8 @@ CSUDI_Error_Code CSUDIPLAYERStart(CSUDI_HANDLE hPlayer)
 						}
 					}
 					pPlayerSubsystem->bRadioStream = FALSE;
-
+					
+					UDIDRV_LOGI("frank.zhou set video pid =%d\n", pPlayerSubsystem->uVidPID);
 					PmStatus = hDemuxObj->set_video_pid(hDemuxObj, pPlayerSubsystem->uVidPID);
 					if (PmStatus != PIPE_STATUS_OK)
 					{
@@ -2524,7 +2220,8 @@ CSUDI_Error_Code CSUDIPLAYERStart(CSUDI_HANDLE hPlayer)
                 }
                     
 				if(IS_VALID_PID(pPlayerSubsystem->uPcrPID))
-				{
+				{					
+					UDIDRV_LOGI("frank.zhou set pcr pid =%d\n", pPlayerSubsystem->uPcrPID);
 					PmStatus = hDemuxObj->set_pcr_pid(hDemuxObj, pPlayerSubsystem->uPcrPID);
 					if (PmStatus != PIPE_STATUS_OK)
 					{
@@ -3072,22 +2769,6 @@ CSUDI_Error_Code CSUDIPLAYERStart(CSUDI_HANDLE hPlayer)
 	return eErrCode;
 }
 
-
-
-/**
-@brief 停止一个播放器的工作
-
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 停止一个播放器的工作，与CSUDIPLAYERStart成对使用。
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIPLAYERStop(CSUDI_HANDLE hPlayer)
 {
 	CNXT_STATUS               Status;
@@ -3307,23 +2988,6 @@ CSUDI_Error_Code CSUDIPLAYERStop(CSUDI_HANDLE hPlayer)
 	return eErrCode;
 }
 
-/**
-@brief 暂停与hPlayer相关的一个播放器的工作
-
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@return 
-      - 成功返回CSUDI_SUCCESS；
-      - 失败则返回错误代码值；
-      - 不支持此操作返回CSUDI_ERROR_PLAYER_NOTSUPPORT
-@note 暂停与hPlayer相关的一个播放器的工作；只有正在播放某一节目（不论是只有音频还是视频）时调用才有效。
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIPLAYERPause(CSUDI_HANDLE hPlayer)
 {
 	int32       nVidIndex=0,nDmxIndex=0, nAudIndex=0;
@@ -3454,23 +3118,6 @@ CSUDI_Error_Code CSUDIPLAYERPause(CSUDI_HANDLE hPlayer)
 	return eErrCode;
 }
 
-/**
-@brief 恢复暂停模式 
-
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@return 
-- 成功返回CSUDI_SUCCESS；
-- 失败则返回错误代码值；
-- 不支持此操作返回CSUDI_ERROR_PLAYER_NOTSUPPORT
-@note 恢复暂停模式;与CSUDIPLAYERPause成对使用。
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIPLAYERResume(CSUDI_HANDLE hPlayer)
 {
 	int32       nVidIndex=0,nDmxIndex=0, nAudIndex=0;
@@ -3654,24 +3301,478 @@ CSUDI_Error_Code CSUDIPLAYERResume(CSUDI_HANDLE hPlayer)
 	return eErrCode;
 }
 
+CSUDI_Error_Code CSUDIPLAYERSetSpeed(CSUDI_HANDLE  hPlayer, CSUDIPlayerSpeed_E eSpeed)
+{
+	//int32       nVidIndex=0,nDmxIndex=0, nAudIndex=0;
+	int uPlayerIndx;
+	CNXT_STATUS Retcode;
+	CS_TM_Player_SubSystem *pPlayerSubsystem;
+	UDI_PLAYER_HNDL *pUDIPlayerHndl = (UDI_PLAYER_HNDL *)hPlayer;
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"START: CSUDIPLAYERSetSpeed 0x%x speed %d\n", hPlayer,eSpeed);
+	IS_VALID_PLAYER_HNDL(hPlayer);
+	uPlayerIndx = pUDIPlayerHndl->uPlayerindx;
+	IS_VALID_PLAYER_INDX(uPlayerIndx);
 
-/**
-@brief 清除播放器中缓存的数据
+	Retcode = cnxt_kal_sem_get(gPlayerSem, CNXT_KAL_WAIT_FOREVER);
+	if(Retcode != CNXT_STATUS_OK)
+	{
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
+		return CSUDIPLAYER_ERROR_BAD_PARAMETER;
+	}
+	pPlayerSubsystem = &gPlayerConfig.hPlayerHandle[uPlayerIndx];
+	
+	if(pPlayerSubsystem->ePlayerState < E_PLAYER_READY)
+	{
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"FAIL: CSUDIPLAYERSetSpeed state %d\n", pPlayerSubsystem->ePlayerState);
+		Retcode = cnxt_kal_sem_put(gPlayerSem);
+		return CSUDIPLAYER_ERROR_FEATURE_NOT_SUPPORTED;
+	}
+	if((pPlayerSubsystem->PlayerType == EM_UDIPLAYER_INJECT)&&
+			((pPlayerSubsystem->StreamType == EM_UDI_AUD_STREAM_PCM)||
+				(pPlayerSubsystem->StreamType == EM_UDI_AUD_STREAM_LPCM)))
+	{
+	}
+	else if(pPlayerSubsystem->PlayerType == EM_UDIPLAYER_INJECT)
+	{
+	}
+	
+	Retcode = cnxt_kal_sem_put(gPlayerSem);
+	if(Retcode != CNXT_STATUS_OK)
+	{
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
+		return CSUDIPLAYER_ERROR_BAD_PARAMETER;
+	}
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: CSUDIPLAYERSetSpeed 0x%x eSpeed %d\n", hPlayer, eSpeed);
+	return CSUDI_SUCCESS;
+}
 
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@return 
-- 成功返回CSUDI_SUCCESS；
-- 失败则返回错误代码值；
-- 不支持此操作返回CSUDI_ERROR_PLAYER_NOTSUPPORT
-@note 本接口不改变Player状态，仅清除缓冲数据，若仍在播放状态，则新数据会重新开始播放
+CSUDI_Error_Code CSUDIPLAYERSeek(CSUDI_HANDLE  hPlayer,const int nPosInSec, const CSUDIPlayPosition_E ePlayPosFlag)
+{     //int32       nVidIndex=0,nDmxIndex=0, nAudIndex=0;
+	int uPlayerIndx;
+	CS_TM_Player_SubSystem *pPlayerSubsystem;
+	UDI_PLAYER_HNDL *pUDIPlayerHndl = (UDI_PLAYER_HNDL *)hPlayer;
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"START: CSUDIPLAYERSeek 0x%x nPos %d\n", hPlayer,nPosInSec);
+	IS_VALID_PLAYER_HNDL(hPlayer);
+	uPlayerIndx = pUDIPlayerHndl->uPlayerindx;
+	IS_VALID_PLAYER_INDX(uPlayerIndx);
+	pPlayerSubsystem = &gPlayerConfig.hPlayerHandle[uPlayerIndx];
+	
+	if(pPlayerSubsystem->ePlayerState!= E_PLAYER_START)
+	{
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"FAIL: CSUDIPLAYERSeek state %d\n", pPlayerSubsystem->ePlayerState);
+		return CSUDIPLAYER_ERROR_INVALID_STATUS;
+	}
+	
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"START: CSUDIPLAYERSeek 0x%x\n", hPlayer);
+	return CSUDI_SUCCESS;
+}
 
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
+CSUDI_Error_Code CSUDIPLAYERGetCurPosInSec(CSUDI_HANDLE  hPlayer, int * pnPosInSec)
+{
+    CNXT_STATUS Retcode;
+    CS_TM_Player_SubSystem *pPlayerSubsystem;
+    int uPlayerIndx;
+    UDI_PLAYER_HNDL *pUDIPlayerHndl = (UDI_PLAYER_HNDL *)hPlayer;
+    CSUDI_Error_Code eErrCode=CSUDI_SUCCESS;
 
-*/
+    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"START: CSUDIPLAYERGetCurPosInSec 0x%x\n", hPlayer);
+    
+    IS_VALID_PLAYER_HNDL(hPlayer);
+    
+    uPlayerIndx = pUDIPlayerHndl->uPlayerindx;
+    IS_VALID_PLAYER_INDX(uPlayerIndx);
+    
+
+	if(pnPosInSec == NULL)
+	{
+		return CSUDIPLAYER_ERROR_BAD_PARAMETER;
+	}
+    
+	pPlayerSubsystem = &gPlayerConfig.hPlayerHandle[uPlayerIndx];
+    
+    if(pPlayerSubsystem->PlayerType == EM_UDIPLAYER_LIVE)
+    {
+        return CSUDIPLAYER_ERROR_FEATURE_NOT_SUPPORTED;
+    }
+    Retcode = cnxt_kal_sem_get(gPlayerSem, CNXT_KAL_WAIT_FOREVER);
+    if(Retcode != CNXT_STATUS_OK)
+    {
+        CSDebug(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
+        return CSUDIPLAYER_ERROR_BAD_PARAMETER;
+    }
+    do
+    {        
+    }while(0);
+    Retcode = cnxt_kal_sem_put(gPlayerSem);
+    if(Retcode != CNXT_STATUS_OK)
+    {
+        CSDebug(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
+        return CSUDIPLAYER_ERROR_BAD_PARAMETER;
+    }
+    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: CSUDIPLAYERGetCurPosInSecs 0x%x\n", hPlayer);
+    return eErrCode;
+}
+
+CSUDI_Error_Code CSUDIPLAYERGetCurPTS(CSUDI_HANDLE  hPlayer, CSUDIContentType_E eContentType, CSUDI_UINT64 *psPTS)
+{
+	CNXT_STATUS Retcode;
+	CS_TM_Player_SubSystem *pPlayerSubsystem;
+	int uPlayerIndx;
+	UDI_PLAYER_HNDL *pUDIPlayerHndl = (UDI_PLAYER_HNDL *)hPlayer;
+	CSUDI_Error_Code eErrCode=CSUDI_SUCCESS;
+
+	u_int32  uPTSHigh=0, uPTSLow=0;
+	CNXT_DMX_STC       StcTable;
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"START: CSUDIPLAYERGetCurPTS 0x%x\n", hPlayer);
+	
+	IS_VALID_PLAYER_HNDL(hPlayer);
+	
+	uPlayerIndx = pUDIPlayerHndl->uPlayerindx;
+	IS_VALID_PLAYER_INDX(uPlayerIndx);
+	
+	Retcode = cnxt_kal_sem_get(gPlayerSem, CNXT_KAL_WAIT_FOREVER);
+	if(Retcode != CNXT_STATUS_OK)
+	{
+		CSDebug(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
+		return CSUDIPLAYER_ERROR_BAD_PARAMETER;
+	}
+	do
+	{
+		pPlayerSubsystem = &gPlayerConfig.hPlayerHandle[uPlayerIndx];
+		
+		if((psPTS == NULL)||
+           (eContentType < EM_UDI_CONTENT_VIDEO)||
+            (eContentType > EM_UDI_CONTENT_PCR))
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"CSUDIPLAYER_ERROR_BAD_PARAMETER 0x%x\n", psPTS);
+			eErrCode=CSUDIPLAYER_ERROR_BAD_PARAMETER;
+			break;
+		}
+		if(((pPlayerSubsystem->bVideoOnlyStream == TRUE)&&(eContentType==EM_UDI_CONTENT_AUDIO))||
+				((pPlayerSubsystem->bRadioStream== TRUE)&&(eContentType==EM_UDI_CONTENT_VIDEO)))
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"CSUDIPLAYER_ERROR_STREAMTYPE_DISORDER 0x%x\n", eContentType);
+			eErrCode=CSUDIPLAYER_ERROR_STREAMTYPE_DISORDER;
+			break;
+		}
+		if(pPlayerSubsystem->ePlayerState != E_PLAYER_START )
+		{
+			CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"CSUDIPLAYER_ERROR_INVALID_STATUS 0x%x\n", pPlayerSubsystem->ePlayerState);
+			eErrCode=CSUDIPLAYER_ERROR_INVALID_STATUS;
+			break;
+		}
+
+		if(eContentType == EM_UDI_CONTENT_VIDEO)
+		{
+			//cnxt_video_get_pts(gVideoConfig.hVideoHandle[0].hVideo,&uPTSHigh,&uPTSLow );
+			psPTS->low = uPTSLow;
+			psPTS->high = uPTSHigh;
+		}
+		else if(eContentType == EM_UDI_CONTENT_AUDIO)
+		{
+			//cnxt_audio_get_pts(gAudioConfig.hAudioHandle[0].hAudio,&uPTSHigh,&uPTSLow );
+			psPTS->low = uPTSLow;
+			psPTS->high = uPTSHigh;
+		}
+		else if(eContentType == EM_UDI_CONTENT_PCR)
+		{
+			cnxt_dmx_get_current_stc(0,&StcTable);
+			psPTS->low =  StcTable.uStcLow;
+			psPTS->high = StcTable.uStcHigh;
+		}
+	}while(0);
+	Retcode = cnxt_kal_sem_put(gPlayerSem);
+	if(Retcode != CNXT_STATUS_OK)
+	{
+		CSDebug(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
+		return CSUDIPLAYER_ERROR_BAD_PARAMETER;
+	}
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: CSUDIPLAYERGetCurPTS 0x%x\n", hPlayer);
+	return eErrCode;
+}
+
+CSUDI_Error_Code CSUDIPLAYERGetPacketCount(CSUDI_HANDLE  hPlayer, CSUDIContentType_E eContentType, unsigned int * puPacketCnt)
+{
+    CNXT_STATUS Retcode;
+    CS_TM_Player_SubSystem *pPlayerSubsystem;
+    int uPlayerIndx;
+    UDI_PLAYER_HNDL *pUDIPlayerHndl = (UDI_PLAYER_HNDL *)hPlayer;
+    CSUDI_Error_Code eErrCode=CSUDI_SUCCESS;
+	PIPE_PIPELINE_ATTRIB Attrib;
+
+    //CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"START: CSUDIPLAYERGetPacketCount 0x%x content %d \n", hPlayer, eContentType);
+    
+    IS_VALID_PLAYER_HNDL(hPlayer);
+    
+    if(puPacketCnt == NULL)
+    {
+        CSDebug(MODULE_NAME, DEBUG_LEVEL,"Bad parameter \n");
+        return CSUDIPLAYER_ERROR_BAD_PARAMETER;
+    }
+    
+    uPlayerIndx = pUDIPlayerHndl->uPlayerindx;
+    IS_VALID_PLAYER_INDX(uPlayerIndx);
+    
+    Retcode = cnxt_kal_sem_get(gPlayerSem, CNXT_KAL_WAIT_FOREVER);
+    if(Retcode != CNXT_STATUS_OK)
+    {
+        CSDebug(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
+        return CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+    }
+    do
+    {   
+		pPlayerSubsystem = &gPlayerConfig.hPlayerHandle[uPlayerIndx];
+        if(pPlayerSubsystem->ePlayerState != E_PLAYER_START)
+		{
+            CSDebug(MODULE_NAME, DEBUG_LEVEL,"Player not playing FAILED \n");
+			eErrCode=CSUDIPLAYER_ERROR_INVALID_STATUS;
+			break;
+		}
+		pPlayerSubsystem->pPipeObj->get_attrib(pPlayerSubsystem->pPipeObj, &Attrib);
+        switch(eContentType)
+        {
+            case EM_UDI_CONTENT_VIDEO:
+                if(pPlayerSubsystem->uVidPID == 0x1FFF)
+                {
+                    eErrCode = CSUDIPLAYER_ERROR_BAD_PARAMETER;
+                }
+				//*puPacketCnt = Attrib.uVideoPackageCount;
+				*puPacketCnt = 0;
+                break;
+            case EM_UDI_CONTENT_AUDIO:
+                if(pPlayerSubsystem->uAudPID == 0x1FFF)
+                {
+                    eErrCode = CSUDIPLAYER_ERROR_BAD_PARAMETER;
+                }
+				//*puPacketCnt = Attrib.uAudioPackageCount;				
+				*puPacketCnt = 0;
+                break;
+            case EM_UDI_CONTENT_SUBTITLE:
+                if(pPlayerSubsystem->uSubTitlePID == 0x1FFF)
+                {
+                    eErrCode = CSUDIPLAYER_ERROR_BAD_PARAMETER;
+                }
+                break;
+            case EM_UDI_CONTENT_TELTEXT:
+                if(pPlayerSubsystem->uTeletextPID == 0x1FFF)
+                {
+                    eErrCode = CSUDIPLAYER_ERROR_BAD_PARAMETER;
+                }
+                break;
+            case EM_UDI_CONTENT_PCR:
+                if(pPlayerSubsystem->uPcrPID == 0x1FFF)
+                {
+                    eErrCode = CSUDIPLAYER_ERROR_BAD_PARAMETER;
+                }
+				//*puPacketCnt = Attrib.uPcrPackageCount;
+				*puPacketCnt = 0;
+                break;
+            default:
+                eErrCode = CSUDIPLAYER_ERROR_BAD_PARAMETER;
+        }
+        
+    }while(0);
+    Retcode = cnxt_kal_sem_put(gPlayerSem);
+    if(Retcode != CNXT_STATUS_OK)
+    {
+        CSDebug(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
+        return CSUDIPLAYER_ERROR_UNKNOWN_ERROR;
+    }
+    //CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: CSUDIPLAYERGetPacketCount eContentType=%d packetcnt=%d\n", eContentType,*puPacketCnt);
+    return eErrCode;
+}
+
+CSUDI_Error_Code CSUDIPLAYERTrickMode(CSUDI_HANDLE hPlayer,CSUDI_BOOL bTrickMode)
+{
+    
+	CNXT_STATUS 			  Status;
+	//u_int32		nVidIndex = 0,nDmxIndex =0, nAudIndex=0;
+	int uPlayerIndx;
+	CSUDI_Error_Code eErrCode=CSUDI_SUCCESS;
+	CS_TM_Player_SubSystem *pPlayerSubsystem;
+
+	IS_VALID_PLAYER_HNDL(hPlayer);
+	
+	UDI_PLAYER_HNDL *pUDIPlayerHndl = (UDI_PLAYER_HNDL *)hPlayer;
+	char filename[256];	
+	CNXT_PVR_DM_COMPONENTS		DmComp;
+
+	PIPE_PIPELINE_OBJECT	*hPipeObj = NULL;
+	PIPE_DEMUX_OBJECT		 *hDemuxObj=NULL;
+	PIPE_AUDIO_OBJECT		 *hAudioObj=NULL;
+	PIPE_VIDEO_OBJECT		 *hVideoObj=NULL;
+	u_int32 uAudioPid = 0;
+	u_int32 uVideoPid = 0;
+	u_int32 nRecFD;
+	PIPE_PIPELINE_CFG PipeCfg;
+	PIPE_DEMUX_CFG demuxConfig;
+	PIPE_STATUS PmStatus = PIPE_STATUS_OK;	
+	CNXT_VIDEO_FORMAT VideoFormat;
+	u_int32 StreamType;
+
+	uPlayerIndx = pUDIPlayerHndl->uPlayerindx;
+
+	IS_VALID_PLAYER_INDX(uPlayerIndx);
+
+	pPlayerSubsystem = &gPlayerConfig.hPlayerHandle[uPlayerIndx];
+	
+	hPipeObj = pPlayerSubsystem->pPipeObj;
+	hDemuxObj = pPlayerSubsystem->pDemuxObj;
+	hVideoObj = pPlayerSubsystem->pVideoObj;
+	hAudioObj = pPlayerSubsystem->pAudioObj;
+
+	uAudioPid = pPlayerSubsystem->uAudPID;
+	uVideoPid = pPlayerSubsystem->uVidPID;
+	VideoFormat = pPlayerSubsystem->VideoFormat;
+	StreamType = pPlayerSubsystem->StreamType;
+    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In Function :%s  playerstate:%d\n",__FUNCTION__,pPlayerSubsystem->ePlayerState);
+	do{
+		if( bTrickMode == TRUE )
+		{
+			if( pPlayerSubsystem->ePlayerState != E_PLAYER_START )
+			{
+				CSDebug(MODULE_NAME, ERROR_LEVEL,"Wrong status\n");
+				eErrCode = CSUDI_FAILURE;					
+				break;
+			}
+			
+			if( pPlayerSubsystem->bTrickMode == TRUE )
+			{
+				CSDebug(MODULE_NAME, ERROR_LEVEL,"Wrong status\n");
+				eErrCode = CSUDIPLAYER_ERROR_TRICKMODE_STATE_ERROR;					
+				break;
+			}
+			
+			pPlayerSubsystem->bTrickMode = TRUE;
+			
+			if(pPlayerSubsystem->PlayerType == EM_UDIPLAYER_LIVE)
+			{
+
+				#if 1			
+					cnxt_kal_mem_malloc(CNXT_POOL_ID_DEFAULT_BANK1_UNCACHED,
+									1024 * 1024,
+									CNXT_MEM_ALIGN_DEFAULT,
+									(void **)&pRecordData);
+				#endif	
+				
+				CSUDIPLAYERStop(hPlayer);
+				CSUDIDEMUXDisconnectTuner( 0, 0);
+				hDemuxObj = gTmPipeObject.hDemuxObj[1];
+				CSDebug(MODULE_NAME, ERROR_LEVEL," uAudioPid = %d, uVideoPid = %d \n\r", uAudioPid, uVideoPid);			
+
+				#if 0			
+					hDemuxObj->set_audio_pid( hDemuxObj, uAudioPid);
+				#endif
+
+				hDemuxObj->set_video_pid( hDemuxObj, uVideoPid);
+				CSUDIPLAYERStart(hPlayer);
+				
+				PmStatus = hPipeObj->set_decoding_speed(hPipeObj, PIPE_PLAY_ANCHOR_FRAME_PULL_MODE, 4*1024);
+				if( PmStatus != PIPE_STATUS_OK )
+				{
+					CSDebug(MODULE_NAME, ERROR_LEVEL,"trickmode set speed fail %d\n",PmStatus);
+					eErrCode = CSUDI_FAILURE;					
+					break;
+				}
+				hDemuxObj->demux_record_ctrl( hDemuxObj, TRUE);				
+				CSDebug(MODULE_NAME, DEBUG_LEVEL,"inject player start\n");			
+			}
+			else if( pPlayerSubsystem->PlayerType == EM_UDIPLAYER_INJECT)
+			{
+				//hPipeObj->set_decoding_speed( hPipeObj, PIPE_PLAY_ANCHOR_FRAME_PUSH_MODE, 4*1024 );
+				if(hAudioObj != NULL)
+				{
+                    PmStatus = hAudioObj->mute(hAudioObj, TRUE);
+			        if (PmStatus != PIPE_STATUS_OK)
+				    {
+                        CSDEBUG(MODULE_NAME, ERROR_LEVEL,"ERR: %s %d PmStatus %d\n",__FUNCTION__,__LINE__,PmStatus);
+					    eErrCode = CSUDI_FAILURE;
+					    break;
+				    }			
+				}
+				hPipeObj->set_decoding_speed( hPipeObj, PIPE_PLAY_CONTINUOUS_MODE, 1024 );
+			}
+			else
+			{
+				CSDebug(MODULE_NAME, DEBUG_LEVEL,"Incorrect inject mode\n");
+			}
+		}
+		else
+		{
+			if( pPlayerSubsystem->bTrickMode == FALSE )
+			{
+				CSDebug(MODULE_NAME, ERROR_LEVEL,"Wrong status\n");
+				eErrCode = CSUDIPLAYER_ERROR_TRICKMODE_STATE_ERROR; 				
+				break;
+			}
+            pPlayerSubsystem->bTrickMode = FALSE;
+			if(pPlayerSubsystem->PlayerType == EM_UDIPLAYER_LIVE)
+			{
+				PmStatus = gTmPipeObject.hDemuxObj[1]->demux_record_ctrl( gTmPipeObject.hDemuxObj[1], FALSE);
+				if( PmStatus != PIPE_STATUS_OK )
+				{
+					CSDebug(MODULE_NAME, ERROR_LEVEL,"Disable record fail\n");
+					eErrCode = CSUDI_FAILURE;					
+					break;
+				}
+				
+				PmStatus = gTmPipeObject.hPipeObj[0]->set_decoding_speed(gTmPipeObject.hPipeObj[0], PIPE_PLAY_CONTINUOUS_MODE, 0);
+				if( PmStatus != PIPE_STATUS_OK )
+				{
+					CSDebug(MODULE_NAME, ERROR_LEVEL,"trickmode set speed fail\n");
+					eErrCode = CSUDI_FAILURE;					
+					break;
+				}
+				
+				CSUDIPLAYERStop(hPlayer);
+	/********** Here we delete demux device then add it, ********************************
+	*********** because we should change pipeline status from playback to  parital status**********/			
+				PmStatus = gTmPipeObject.hPipeObj[0]->delete_device(gTmPipeObject.hPipeObj[0], gTmPipeObject.hDemuxObj[0]);	
+				if( PmStatus != PIPE_STATUS_OK )
+				{
+					CSDebug(MODULE_NAME, ERROR_LEVEL,"delete demux device fail\n");
+					eErrCode = CSUDI_FAILURE;					
+					break;
+				}
+	            cnxt_kal_thread_time_sleep(1);
+				PmStatus = gTmPipeObject.hPipeObj[0]->add_device(gTmPipeObject.hPipeObj[0], gTmPipeObject.hDemuxObj[0]);	
+				if( PmStatus != PIPE_STATUS_OK )
+				{
+					CSDebug(MODULE_NAME, ERROR_LEVEL," add demux devide fail\n");
+					eErrCode = CSUDI_FAILURE;					
+					break;
+				}
+	/************************************************************************************************************/
+				CSUDIDEMUXConnectTuner( 0, 0); /* Here change status from parital to live */
+				cnxt_kal_mem_free(pRecordData);
+				CSUDIPLAYERStart(hPlayer);			
+				//gTrickMode = FALSE;	
+				CSDebug(MODULE_NAME, DEBUG_LEVEL,"trickmode to live play\n");
+			}
+			else if( pPlayerSubsystem->PlayerType == EM_UDIPLAYER_INJECT)
+			{
+                if((gTmPipeObject.TridCoshipSetup[0].AudioMute != 1)&&(hAudioObj != NULL))
+                {
+                    PmStatus = hAudioObj->mute(hAudioObj, FALSE);
+                    if (PmStatus != PIPE_STATUS_OK)
+                    {
+                        CSDEBUG(MODULE_NAME, ERROR_LEVEL,"ERR: %s %d PmStatus %d\n",__FUNCTION__,__LINE__,PmStatus);
+                        eErrCode = CSUDI_FAILURE;
+                        break;
+                    }                       
+                }
+				hPipeObj->set_decoding_speed( hPipeObj, PIPE_PLAY_CONTINUOUS_MODE, 1024 );
+			}
+			else
+			{
+				CSDebug(MODULE_NAME, ERROR_LEVEL,"Incorrect inject mode\n");
+			}
+		}
+	}while(0);
+    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Exit Function :%s  playerstate:%d\n",__FUNCTION__,pPlayerSubsystem->ePlayerState);
+	return eErrCode;
+}
+
 CSUDI_Error_Code CSUDIPLAYERClear(CSUDI_HANDLE hPlayer)
 {
     CNXT_STATUS Retcode;
@@ -3858,400 +3959,4 @@ CSUDI_Error_Code CSUDIPLAYERClear(CSUDI_HANDLE hPlayer)
     return eErrCode;
 }
 
-
-/**
-@brief 设置播放速率
-
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[in] eSpeed 要设置的速率模式,详见CSUDIPlayerSpeed_E定义
-@return 
-- 成功返回CSUDI_SUCCESS；
-- 失败则返回错误代码值；
-- 该接口对直播节目无效，返回CSUDI_ERROR_PLAYER_NOTSUPPORT（不支持此操作）
-@note 该参数修改后立即生效
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERSetSpeed(CSUDI_HANDLE  hPlayer, CSUDIPlayerSpeed_E eSpeed)
-{
-	//int32       nVidIndex=0,nDmxIndex=0, nAudIndex=0;
-	int uPlayerIndx;
-	CNXT_STATUS Retcode;
-	CS_TM_Player_SubSystem *pPlayerSubsystem;
-	UDI_PLAYER_HNDL *pUDIPlayerHndl = (UDI_PLAYER_HNDL *)hPlayer;
-	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"START: CSUDIPLAYERSetSpeed 0x%x speed %d\n", hPlayer,eSpeed);
-	IS_VALID_PLAYER_HNDL(hPlayer);
-	uPlayerIndx = pUDIPlayerHndl->uPlayerindx;
-	IS_VALID_PLAYER_INDX(uPlayerIndx);
-
-	Retcode = cnxt_kal_sem_get(gPlayerSem, CNXT_KAL_WAIT_FOREVER);
-	if(Retcode != CNXT_STATUS_OK)
-	{
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
-		return CSUDIPLAYER_ERROR_BAD_PARAMETER;
-	}
-	pPlayerSubsystem = &gPlayerConfig.hPlayerHandle[uPlayerIndx];
-	
-	if(pPlayerSubsystem->ePlayerState < E_PLAYER_READY)
-	{
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"FAIL: CSUDIPLAYERSetSpeed state %d\n", pPlayerSubsystem->ePlayerState);
-		Retcode = cnxt_kal_sem_put(gPlayerSem);
-		return CSUDIPLAYER_ERROR_FEATURE_NOT_SUPPORTED;
-	}
-	if((pPlayerSubsystem->PlayerType == EM_UDIPLAYER_INJECT)&&
-			((pPlayerSubsystem->StreamType == EM_UDI_AUD_STREAM_PCM)||
-				(pPlayerSubsystem->StreamType == EM_UDI_AUD_STREAM_LPCM)))
-	{
-	}
-	else if(pPlayerSubsystem->PlayerType == EM_UDIPLAYER_INJECT)
-	{
-	}
-	
-	Retcode = cnxt_kal_sem_put(gPlayerSem);
-	if(Retcode != CNXT_STATUS_OK)
-	{
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
-		return CSUDIPLAYER_ERROR_BAD_PARAMETER;
-	}
-	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: CSUDIPLAYERSetSpeed 0x%x eSpeed %d\n", hPlayer, eSpeed);
-	return CSUDI_SUCCESS;
-}
-
-/**
-@brief 得到播放速率
-
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[out] peSpeed 要得到的速率模式,详见CSUDIPlayerSpeed_E定义
-@return 
-- 成功返回CSUDI_SUCCESS；
-- 失败则返回错误代码值；
-- 该接口对直播节目无效，返回CSUDI_ERROR_PLAYER_NOTSUPPORT（不支持此操作）
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERGetSpeed(CSUDI_HANDLE  hPlayer, CSUDIPlayerSpeed_E *peSpeed)
-{
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
-	return Retcode;
-}
-
-/**
-@brief 设置播放位置
-
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[in] nPosInSec 偏移量
-@param[in] ePlayPosFlag 偏移的相对位置
-@return 	
-         - 成功返回CSUDI_SUCCESS；
-         - 失败则返回错误代码值；
-         - 不支持此操作则返回CSUDI_ERROR_PLAYER_NOTSUPPORT
-@note 只有回放文件和Tshift播放可以设置播放位置，Tshift播放的起始位置为有效可播放的起始位置（具体解释见CSUDIPLAYERGetCurPosInSec的注释）
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERSeek(CSUDI_HANDLE  hPlayer,const int nPosInSec, const CSUDIPlayPosition_E ePlayPosFlag)
-{     //int32       nVidIndex=0,nDmxIndex=0, nAudIndex=0;
-	int uPlayerIndx;
-	CS_TM_Player_SubSystem *pPlayerSubsystem;
-	UDI_PLAYER_HNDL *pUDIPlayerHndl = (UDI_PLAYER_HNDL *)hPlayer;
-	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"START: CSUDIPLAYERSeek 0x%x nPos %d\n", hPlayer,nPosInSec);
-	IS_VALID_PLAYER_HNDL(hPlayer);
-	uPlayerIndx = pUDIPlayerHndl->uPlayerindx;
-	IS_VALID_PLAYER_INDX(uPlayerIndx);
-	pPlayerSubsystem = &gPlayerConfig.hPlayerHandle[uPlayerIndx];
-	
-	if(pPlayerSubsystem->ePlayerState!= E_PLAYER_START)
-	{
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"FAIL: CSUDIPLAYERSeek state %d\n", pPlayerSubsystem->ePlayerState);
-		return CSUDIPLAYER_ERROR_INVALID_STATUS;
-	}
-	
-	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"START: CSUDIPLAYERSeek 0x%x\n", hPlayer);
-	return CSUDI_SUCCESS;
-}
-
-
-/**
-@brief 获取回放文件/Tshift播放的当前播放位置的绝对时长。
-
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[out] pnPosInSec  存放当前播放位置(单位:秒)
-@return  
-         - 成功返回CSUDI_SUCCESS；
-         - 失败则返回错误代码值；
-         - 不支持此操作则返回CSUDI_ERROR_PLAYER_NOTSUPPORT
-@note 在非"回放文件/Tshift播放"的情况下,该接口的行为未定义
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERGetCurPosInSec(CSUDI_HANDLE  hPlayer, int * pnPosInSec)
-{
-    CNXT_STATUS Retcode;
-    CS_TM_Player_SubSystem *pPlayerSubsystem;
-    int uPlayerIndx;
-    UDI_PLAYER_HNDL *pUDIPlayerHndl = (UDI_PLAYER_HNDL *)hPlayer;
-    CSUDI_Error_Code eErrCode=CSUDI_SUCCESS;
-
-    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"START: CSUDIPLAYERGetCurPosInSec 0x%x\n", hPlayer);
-    
-    IS_VALID_PLAYER_HNDL(hPlayer);
-    
-    uPlayerIndx = pUDIPlayerHndl->uPlayerindx;
-    IS_VALID_PLAYER_INDX(uPlayerIndx);
-    
-
-	if(pnPosInSec == NULL)
-	{
-		return CSUDIPLAYER_ERROR_BAD_PARAMETER;
-	}
-    
-	pPlayerSubsystem = &gPlayerConfig.hPlayerHandle[uPlayerIndx];
-    
-    if(pPlayerSubsystem->PlayerType == EM_UDIPLAYER_LIVE)
-    {
-        return CSUDIPLAYER_ERROR_FEATURE_NOT_SUPPORTED;
-    }
-    Retcode = cnxt_kal_sem_get(gPlayerSem, CNXT_KAL_WAIT_FOREVER);
-    if(Retcode != CNXT_STATUS_OK)
-    {
-        CSDebug(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
-        return CSUDIPLAYER_ERROR_BAD_PARAMETER;
-    }
-    do
-    {        
-    }while(0);
-    Retcode = cnxt_kal_sem_put(gPlayerSem);
-    if(Retcode != CNXT_STATUS_OK)
-    {
-        CSDebug(MODULE_NAME, DEBUG_LEVEL,"KAL_SEM_GET FAILED %d \n", Retcode);
-        return CSUDIPLAYER_ERROR_BAD_PARAMETER;
-    }
-    CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"End: CSUDIPLAYERGetCurPosInSecs 0x%x\n", hPlayer);
-    return eErrCode;
-}
-
-/**
-@brief 获取当前正在播放本地文件的节目总时长
-
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[out] pnSeconds 节目总时长,单位秒
-@return  
-         - 成功返回CSUDI_SUCCESS；
-         - 失败则返回错误代码值；
-         - 不支持此操作则返回CSUDI_ERROR_PLAYER_NOTSUPPORT
-         
-@note 本接口只针对UDI播放视频文件有效,其它实时流或驱动不支持的视频文件pdwSeconds为0，返回值为CSUDI_ERROR_PLAYER_NOTSUPPORT
-      对于普通的TS文件，如果是走Inject注入流程，也可以不用返回节目时长
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERGetDuration(CSUDI_HANDLE  hPlayer, int *pnSeconds)
-{
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
-	return Retcode;
-}
-
-/**
-@brief 获取当前正在播放(显示)的码流PTS信息。
-
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[in] eContentType 流类型 详见CSUDIContentType_E相关定义
-@param[out] psPTS 用于存放当前正在播放(显示)的码流PTS值,该值33bit。
-@return  
-         - 成功返回CSUDI_SUCCESS；
-         - 失败则返回错误代码值；
-         - 不支持此操作则返回CSUDI_ERROR_PLAYER_NOTSUPPORT
-@note 这里的PCR作为STC
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERGetCurPTS(CSUDI_HANDLE  hPlayer, CSUDIContentType_E eContentType, CSUDI_UINT64 *psPTS)
-{
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
-	return Retcode;
-}
-
-/**
-@brief 获取当前正在播放节目指定流类型的packet个数。
-
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[in] eContentType 当前正在播放的流类型详见CSUDIContentType_E
-@param[out] puPacketCnt 存放packet包个数,指单个PID类型的包个数
-@return  
-         - 成功返回CSUDI_SUCCESS；
-         - 失败则返回错误代码值；
-         - 不支持此操作则返回CSUDI_ERROR_PLAYER_NOTSUPPORT
-         
-@note 本接口主要用于判断前端码流是否停播
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERGetPacketCount(CSUDI_HANDLE  hPlayer, CSUDIContentType_E eContentType, unsigned int * puPacketCnt)
-{
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
-	return Retcode;
-}
-
-/**
-@brief 进入退出TrickMode
-
-通知驱动层后续音视频可能会按非正常速度进入解码器。
-常用于VOD播放时的快退快进等，这种情况下Tuner过来的数据为非正常速度，
-平台需做好准备以防止过度阶段及播放阶段的马赛克。
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[in] bTrickMode 为CSUDI_TRUE表示进入TrickMode,为CSUDI_FALSE表示退出TrickMode
-@return
-- 成功返回CSUDI_SUCCESS；
-- 失败则返回错误代码值；
-- 已经在TrickMode时再次进入TrickMode或者已经在非TrickMode时再次退出TrickMode返回CSUDIPLAYER_ERROR_TRICKMODE_STATE_ERROR
-@note 回放文件和Tshift播放由于控制流程在底层处理，因此不需要调用本接口。
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is NOT required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERTrickMode(CSUDI_HANDLE hPlayer,CSUDI_BOOL bTrickMode)
-{
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
-	return Retcode;
-}
-
-/**
-@brief 进入退出快速输出模式
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[in] bQuickOutputMode 为CSUDI_TRUE表示进入QuickOutputMode,为CSUDI_FALSE表示退出QuickOutputMode
-@return
-	- 成功返回CSUDI_SUCCESS；
-	- 失败则返回CSUDI_FAILURE；
-@note 进入快速输出模式，解码器需要做特殊处理
-          例如: 1、关闭隔行算法
-                2、包溢出时进行丢弃
-                3、按解码顺序输出
-@note 该接口主要用于对低延时需求特别高的应用场景
-          例如: 1、永新云游戏，云视频业务
-@note 该接口需要在播放器非运行状态调用
-          例如: 1、open之后start之前
-                2、stop之后close之前
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is NOT required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIPLAYERQuickOutputMode(CSUDI_HANDLE hPlayer,CSUDI_BOOL bQuickOutputMode)
-{
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
-	return Retcode;
-}
-
-/**
-@brief 设置player的音视频同步模式
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[in] eAVSyncMode 为需要设置的同步模式，见CSUDIPLAYERAVSyncMode_E
-@return
-	- 成功返回CSUDI_SUCCESS；
-	- 失败则返回CSUDI_FAILURE；
-@note 如果不使用该接口，那么默认是采用PCR同步模式
-
-@note 该接口需要在播放器非运行状态调用
-          例如: 1、open之后start之前
-                2、stop之后close之前
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code  CSUDIPLAYERSetAVSyncMode(CSUDI_HANDLE hPlayer,CSUDIPLAYERAVSyncMode_E eAVSyncMode)
-{
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
-	return Retcode;
-}
-
-/**
-@brief 获取player的音视频同步模式
-@param[in] hPlayer 播放器句柄，由函数CSUDIPLAYEROpen()获得
-@param[out] peAVSyncMode 为保存同步模式的指针，见CSUDIPLAYERAVSyncMode_E
-@return
-	- 成功返回CSUDI_SUCCESS；
-	- 失败则返回CSUDI_FAILURE；
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project. 
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code  CSUDIPLAYERGetAVSyncMode(CSUDI_HANDLE hPlayer,CSUDIPLAYERAVSyncMode_E *peAVSyncMode)
-{
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	 
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	 
-	return Retcode;
-}
 

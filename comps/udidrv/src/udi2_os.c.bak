@@ -1,0 +1,2865 @@
+/*^^***************************************************************************
+* Notice:     Copyright Shenzhen Coship Electronics Co., Ltd., 
+*             All rights reserved.
+* Filename:
+* Author:
+* Description:
+*             This is  file for operating system portable layer.
+*             APIs defined in this file should be used to implement the OS
+*             activities.
+*             All interface are based on POSIX Linux level directly.
+* Compiler:   Mips
+***************************************************************************^^*/
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#include <errno.h>
+#include <sched.h> 
+#include <pthread.h>
+#include <semaphore.h>
+
+#include <signal.h>
+#include <time.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#if 0
+#include <sys/msg.h>
+#include <sys/sem.h>
+#else
+#include <linux/msg.h>
+#include <linux/sem.h>
+#endif
+#include <sys/timeb.h>
+#include <sys/time.h>
+
+#include "udiplus_debug.h"
+#include "udiplus_typedef.h"
+#include "udiplus_error.h"
+
+#include "udi2_os.h"
+
+#include "udidrv_log.h"
+#define CSSTD_UNUSED(x) ((void)x)
+
+typedef struct timeval cs_time_t;
+
+#define TASK_PRIOR_STEP		17
+#define TIMER_DEFINITION 		100
+#define OS_TRYLOCK_MINITICK 	200
+
+/*The task priority are mapped to POSIX*/
+#define POSIX_TASK_CALLER             40
+
+#define POSIX_TASK_LOWEST            1
+#define POSIX_TASK_LOW                  20
+#define POSIX_TASK_NORMAL            40
+#define POSIX_TASK_HIGH                 70
+#define POSIX_TASK_HIGHEST           90
+#define POSIX_TASK_IST                    99
+
+/*NPTL需要额外的8K大小作为堆栈的描述符存放区和内存保护区*/
+#define NPTL_ADDED_STACK_SIZE	(8*1024)
+
+#define CS_OSP_WAIT_FOREVER	0xFFFFFFFF
+/*for print module name*/
+#define  MODULE_NAME   "CS_OS"
+
+#define PTHREAD_CANCEL_ENABLE           0x00
+#define PTHREAD_CANCEL_DISABLE          0x01
+
+#define PTHREAD_CANCEL_DEFERRED			0x00
+#define PTHREAD_CANCEL_ASYNCHRONOUS			0x01
+ int sem_timedwait(sem_t *men, const struct timespec * abs_timeout);
+
+typedef struct
+{
+    CSUDI_HANDLE semaphore;
+    DWORD owner;
+    int count;
+}cs_mutex_t;
+
+static void adjusttimespec(struct timespec* ts)
+{
+    CSASSERT(NULL != ts);
+
+    if(NULL != ts)
+    {
+        /* 1000000000*ns = 1s */
+        if(ts->tv_nsec > 1000000000)
+        {
+            ts->tv_nsec -= 1000000000;
+            ++ts->tv_sec;
+        }
+    }
+
+    return;
+}
+
+typedef struct CSThreadInfo_{
+	pthread_t 	stThreadHndl;
+	int			nPThreadPrio;
+	CSUDIOSThreadEntry_F fnThreadEntry;
+	void * pvArg;
+	struct CSThreadInfo_ *pstNext;
+}CSThreadInfo;
+
+static CSThreadInfo *g_pstThreadListHead = NULL;
+static CSUDI_HANDLE g_hThreadLock = NULL;
+
+static BOOL ThreadInfoLock()
+{
+	if (g_hThreadLock == NULL)
+	{
+		if (CSUDI_SUCCESS != CSUDIOSMutexCreate("ThreadInfo", 0, &g_hThreadLock))
+		{
+			return FALSE;
+		}
+	}
+
+	if (CSUDI_SUCCESS != CSUDIOSMutexWait(g_hThreadLock,CSUDIOS_TIMEOUT_INFINITY))
+	{
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+static BOOL ThreadInfoUnLock()
+{
+	if (g_hThreadLock == NULL)
+	{
+		CSDEBUG(MODULE_NAME,ERROR_LEVEL,"error:should lock fist before release lock\n");
+		return FALSE;
+	}
+
+	if (CSUDI_SUCCESS != CSUDIOSMutexRelease(g_hThreadLock))
+	{
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+static void RemoveThreadInfo(CSThreadInfo *pstThreadInfo)
+{
+	CSThreadInfo *pstTmp;
+		
+	/*here thead life is over ,clean resource*/
+	pstTmp = g_pstThreadListHead;
+
+	/*the first thread node is the current thread*/
+	if (pstTmp == pstThreadInfo)
+	{
+		g_pstThreadListHead = pstThreadInfo->pstNext;
+	}
+	else
+	{
+		while(pstTmp)
+		{
+			if (pstTmp->pstNext == pstThreadInfo)
+			{
+				break;
+			}
+
+			pstTmp = pstTmp->pstNext;
+		}
+
+		if (pstTmp)
+		{
+			pstTmp->pstNext = pstThreadInfo->pstNext;
+		}
+		else
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL,"Error: can't find the thead info in list !!!\n");
+		}
+	}
+	//CSDEBUG(MODULE_NAME,ERROR_LEVEL,"free thread info\n");
+	CSUDIOSFree(pstThreadInfo);
+}
+
+static void PThreadEntryProxy(void * pvParam)
+{
+	CSThreadInfo *pstThreadInfo = (CSThreadInfo*)pvParam;
+
+	if (pvParam == NULL)
+	{
+		CSDEBUG(MODULE_NAME,ERROR_LEVEL,"Error thread entry!!!\n");
+		return ;
+	}
+
+	if (pstThreadInfo->fnThreadEntry == NULL)
+	{
+		CSDEBUG(MODULE_NAME,ERROR_LEVEL,"Error thread info!!!\n");
+		return ;
+	}
+	
+	pstThreadInfo->fnThreadEntry(pstThreadInfo->pvArg);
+	
+	ThreadInfoLock();
+	RemoveThreadInfo(pstThreadInfo);
+	ThreadInfoUnLock();
+}
+
+void SetAllThreadPolicy2Low(BOOL bUseOther)
+{
+	CSThreadInfo *pstTmp = g_pstThreadListHead;	
+	struct sched_param 		param;
+	int nRet;
+	
+	ThreadInfoLock();
+	while(pstTmp)
+	{
+		if (bUseOther)
+		{
+			param.sched_priority = 0;
+		}
+		else
+		{
+			param.sched_priority = pstTmp->nPThreadPrio;
+		}
+		if (pstTmp->stThreadHndl == NULL)
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL,"Error: Thread handle is null  !!!\n");
+			pstTmp=pstTmp->pstNext;
+			continue;
+		}
+		printf("set thread to %s hdl:%x\n",bUseOther?"OTHER":"RR",pstTmp->stThreadHndl);
+             nRet = pthread_setschedparam (pstTmp->stThreadHndl,bUseOther?SCHED_OTHER:SCHED_RR,&param);
+		printf("end set thread param ret:%d\n",nRet);
+		pstTmp=pstTmp->pstNext;
+	}
+	ThreadInfoUnLock();
+}
+
+/*******************************************************************
+ **			Task definitions                      **
+ *******************************************************************/
+CSUDI_Error_Code CSUDIOSThreadCreate(const char * pcName,int nPriority,int nStackSize, CSUDIOSThreadEntry_F fnThreadEntry,void * pvArg,CSUDI_HANDLE * phThread)
+{
+	CSUDI_Error_Code 			enRet = CSUDI_FAILURE;
+	unsigned int 				dwNameLen = 0;
+	unsigned int 				stacksize = 0;
+	int 						nRetVal;
+	int						nNewPrio;
+	int						nTempPrio = nPriority/TASK_PRIOR_STEP;
+	struct sched_param 		param;
+	pthread_t 				thread;
+	pthread_attr_t  			attr;
+	CSThreadInfo 				*pstThreadInfo;
+
+	if (phThread == CSUDI_NULL || fnThreadEntry == CSUDI_NULL)
+	{
+		CSASSERT(phThread != CSUDI_NULL);
+		CSASSERT(fnThreadEntry != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	if (nStackSize < 0 || nPriority < 0 || nPriority > 255)
+	{
+		CSASSERT((nStackSize > 0) && (nPriority >= 0 && nPriority <= 255));
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+
+	CSASSERT(pcName != NULL);
+
+	if(pcName != NULL)
+	{
+	    dwNameLen = strlen(pcName);
+	}
+
+	if (dwNameLen > 32)
+	{
+		CSASSERT(dwNameLen < 32);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	pstThreadInfo = CSUDIOSMalloc(sizeof(CSThreadInfo));
+	if (pstThreadInfo == NULL)
+	{
+		return CSUDIOS_ERROR_NO_MEMORY;
+	}
+	
+	*phThread = CSUDI_NULL;
+        if(nTempPrio < 4)
+        {
+            nNewPrio = POSIX_TASK_LOWEST;
+        }
+        else if(nTempPrio  < 8)
+        {
+            nNewPrio = POSIX_TASK_LOW;
+        }
+        else if(nTempPrio  < 12)
+        {
+            nNewPrio = POSIX_TASK_NORMAL;
+        }
+        else if(nTempPrio  < 14)
+        {
+            nNewPrio = POSIX_TASK_HIGH;
+        }
+        else
+        {
+            nNewPrio = POSIX_TASK_HIGHEST;
+        }
+
+        /*
+        	typedef struct __pthread_attr_s
+        	{
+        		  int __detachstate;
+        		  int __schedpolicy;
+        		  struct __sched_param __schedparam;
+        		  int __inheritsched;
+        		  int __scope;
+        		  size_t __guardsize;
+        		  int __stackaddr_set;
+        		  void *__stackaddr;
+        		  size_t __stacksize;
+        	} pthread_attr_t;
+        */
+        nRetVal = pthread_attr_init(&attr);
+#if 1 /*<!-- shenshaohui 2007/12/6 16:15:33 */
+        CSASSERT(nRetVal == 0);
+        if(nStackSize<0x4000)
+        {
+            nStackSize = 0x4000;
+        }
+        stacksize = (DWORD)nStackSize+NPTL_ADDED_STACK_SIZE;
+        nRetVal = pthread_attr_setstacksize(&attr,stacksize);
+        CSASSERT(nRetVal == 0);
+
+	stacksize = 0;
+        nRetVal = pthread_attr_getstacksize(&attr,(size_t *)&stacksize);
+        CSASSERT(nRetVal == 0);
+
+	pstThreadInfo->fnThreadEntry = fnThreadEntry;
+	pstThreadInfo->pvArg = pvArg;
+	pstThreadInfo->nPThreadPrio = nNewPrio;
+
+	ThreadInfoLock();
+	if (g_pstThreadListHead == NULL)
+	{
+		g_pstThreadListHead = pstThreadInfo;
+		pstThreadInfo->pstNext = NULL;
+	}
+	else
+	{
+		pstThreadInfo->pstNext = g_pstThreadListHead;
+		g_pstThreadListHead = pstThreadInfo;
+	}
+	ThreadInfoUnLock();
+
+#endif /*0*//* shenshaohui 2007/12/6 16:15:33 --!>*/
+        nRetVal = pthread_create (&thread, &attr, (void *(*)(void *))PThreadEntryProxy, pstThreadInfo);
+        CSASSERT(nRetVal == 0);
+
+	 pstThreadInfo->stThreadHndl = thread;
+
+	#if 0
+        nRetVal = pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,NULL);
+        CSASSERT(nRetVal == 0);
+
+        nRetVal = pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS,NULL);
+        CSASSERT(nRetVal == 0);
+	#endif
+
+        if (nRetVal == 0 && thread != 0)
+        {
+            /*use default shecdule no task priority*/
+#if 1 /*<!-- shenshaohui 2007/12/13 16:07:27 */
+#ifdef USE_OTHER_SCHED
+		int nPolicy = SCHED_OTHER;
+#else
+		int nPolicy = SCHED_RR;
+#endif     
+		nPolicy = SCHED_RR;
+            param.sched_priority = nNewPrio;
+            nRetVal = pthread_setschedparam (thread, nPolicy, &param);
+            CSASSERT(nRetVal == 0);
+		//printf("create %x thread ret:%d===\n",thread,nRetVal);
+#endif /*0*//* shenshaohui 2007/12/13 16:07:27 --!>*/
+
+            *phThread = (CSUDI_HANDLE)thread;
+
+		enRet = CSUDI_SUCCESS ;
+	}
+
+	nRetVal = pthread_attr_destroy(&attr);
+	CSASSERT(nRetVal >= 0);
+
+	//CSDEBUG(MODULE_NAME,INFO_LEVEL, "[CS_OS] Warnning: nStackSize can not be set!!.\n",nStackSize);
+	//CSDEBUG(MODULE_NAME,INFO_LEVEL, "[CS_OS] CSCreateThread(%s,%d,0x%08x)\n",pstrName, nPriority,nStackSize);
+
+	return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSThreadDestroy (CSUDI_HANDLE hThread)
+{
+    	CSUDI_Error_Code enRet = CSUDI_FAILURE;
+	int nRetVal;
+	CSThreadInfo *pstTmp;
+
+    	CSASSERT (hThread != CSUDI_NULL);
+
+	if (hThread == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	nRetVal = pthread_cancel ((pthread_t)hThread);         /* Send cancel request   */
+	CSASSERT(nRetVal == 0);
+
+	nRetVal = pthread_join ((pthread_t) hThread, CSUDI_NULL);    /* Wait for task to exit */
+	CSASSERT(nRetVal == 0);
+
+	ThreadInfoLock();
+	pstTmp = g_pstThreadListHead;
+	while(pstTmp)
+	{
+		if (pstTmp->stThreadHndl == hThread)
+		{
+			break;
+		}
+		pstTmp=pstTmp->pstNext;
+	}
+	if (pstTmp)
+	{
+		RemoveThreadInfo(pstTmp);
+	}
+	else
+	{
+		CSDEBUG(MODULE_NAME,ERROR_LEVEL,"WARNING:can't find thread info,maybe has been free when thread exit\n");
+	}
+	
+	ThreadInfoUnLock();
+	
+	enRet = CSUDI_SUCCESS;
+
+    return enRet;
+}
+/*this function just for creating one FIFO thread for porting layer, it is one internal function  */
+CSUDI_Error_Code CSUDIOSThreadCreate_FIFO(const char * pcName,int nPriority,int nStackSize, CSUDIOSThreadEntry_F fnThreadEntry,void * pvArg,CSUDI_HANDLE * phThread)
+{
+	CSUDI_Error_Code 			enRet = CSUDI_FAILURE;
+	unsigned int 				dwNameLen = 0;
+	unsigned int 				stacksize = 0;
+	int 						nRetVal;
+	struct sched_param 		param;
+	pthread_t 				thread;
+	pthread_attr_t  			attr;
+
+	if (phThread == CSUDI_NULL || fnThreadEntry == CSUDI_NULL)
+	{
+		CSASSERT(phThread != CSUDI_NULL);
+		CSASSERT(fnThreadEntry != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	if (nStackSize < 0 || nPriority < 0 || nPriority > 255)
+	{
+		CSASSERT((nStackSize > 0) && (nPriority >= 0 && nPriority <= 255));
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+
+	CSASSERT(pcName != NULL);
+
+	if(pcName != NULL)
+	{
+	    dwNameLen = strlen(pcName);
+	}
+
+	if (dwNameLen > 32)
+	{
+		CSASSERT(dwNameLen < 32);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+	
+	*phThread = CSUDI_NULL;
+       
+        /*
+        	typedef struct __pthread_attr_s
+        	{
+        		  int __detachstate;
+        		  int __schedpolicy;
+        		  struct __sched_param __schedparam;
+        		  int __inheritsched;
+        		  int __scope;
+        		  size_t __guardsize;
+        		  int __stackaddr_set;
+        		  void *__stackaddr;
+        		  size_t __stacksize;
+        	} pthread_attr_t;
+        */
+        nRetVal = pthread_attr_init(&attr);
+#if 1 /*<!-- shenshaohui 2007/12/6 16:15:33 */
+        CSASSERT(nRetVal == 0);
+        if(nStackSize<0x4000)
+        {
+            nStackSize = 0x4000;
+        }
+        stacksize = (DWORD)nStackSize+NPTL_ADDED_STACK_SIZE;
+        nRetVal = pthread_attr_setstacksize(&attr,stacksize);
+        CSASSERT(nRetVal == 0);
+
+	stacksize = 0;
+        nRetVal = pthread_attr_getstacksize(&attr,(size_t *)&stacksize);
+        CSASSERT(nRetVal == 0);
+
+#endif /*0*//* shenshaohui 2007/12/6 16:15:33 --!>*/
+        nRetVal = pthread_create (&thread, &attr, (void *(*)(void *))fnThreadEntry, pvArg);
+        CSASSERT(nRetVal == 0);
+#if 0
+        nRetVal = pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,NULL);
+        CSASSERT(nRetVal == 0);
+
+        nRetVal = pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS,NULL);
+        CSASSERT(nRetVal == 0);
+#endif
+        if (nRetVal == 0 && thread != 0)
+        {
+            /*use default shecdule no task priority*/
+#if 1 /*<!-- shenshaohui 2007/12/13 16:07:27 */
+            int nPolicy = SCHED_FIFO;
+            param.sched_priority = nPriority;
+            nRetVal = pthread_setschedparam (thread, nPolicy, &param);
+            CSASSERT(nRetVal == 0);
+#endif /*0*//* shenshaohui 2007/12/13 16:07:27 --!>*/
+
+            *phThread = (CSUDI_HANDLE)thread;
+
+		enRet = CSUDI_SUCCESS ;
+	}
+
+	nRetVal = pthread_attr_destroy(&attr);
+	CSASSERT(nRetVal >= 0);
+
+	//CSDEBUG(MODULE_NAME,INFO_LEVEL, "[CS_OS] Warnning: nStackSize can not be set!!.\n",nStackSize);
+	//CSDEBUG(MODULE_NAME,INFO_LEVEL, "[CS_OS] CSCreateThread(%s,%d,0x%08x)\n",pstrName, nPriority,nStackSize);
+
+	return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSThreadSuspend(CSUDI_HANDLE hThread)
+{
+#if 0
+	CSUDI_Error_Code enRet = CSUDI_FAILURE;
+
+	CSASSERT (hThread != NULL);
+
+  	if (hThread == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+	if (pthread_kill((pthread_t)hThread, SIGSTOP) == 0)
+	{
+	    enRet = CSUDI_SUCCESS;
+	}
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
+#else
+	return CSUDIOS_ERROR_FEATURE_NOT_SUPPORTED;
+#endif
+}
+
+CSUDI_Error_Code CSUDIOSThreadResume(CSUDI_HANDLE hThread)
+{
+#if 0
+	CSUDI_Error_Code enRet = CSUDI_FAILURE;
+
+	CSASSERT (hThread != NULL);
+
+  	if (hThread == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	if (pthread_kill((pthread_t)hThread,SIGCONT) == 0)
+	{
+	    enRet = CSUDI_SUCCESS;
+	}
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
+#else
+	return CSUDIOS_ERROR_FEATURE_NOT_SUPPORTED;
+#endif
+}
+
+CSUDI_Error_Code CSUDIOSThreadJoin (CSUDI_HANDLE hThread)
+{
+	CSUDI_Error_Code enRet = CSUDI_FAILURE;
+
+	CSASSERT (hThread != NULL);
+
+  	if (hThread == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	if (pthread_join((pthread_t)hThread,(void**)CSUDI_NULL) == 0)
+	{
+		enRet = CSUDI_SUCCESS;
+	}
+
+	return enRet;
+}
+
+CSUDI_Error_Code  CSUDIOSThreadSelf(CSUDI_HANDLE * hThread)
+{
+	CSUDI_Error_Code enRet = CSUDI_FAILURE;
+
+	CSASSERT (hThread != NULL);
+
+  	if (hThread == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	if (CSUDI_NULL != (*hThread = (CSUDI_HANDLE)pthread_self()))
+	{
+		enRet = CSUDI_SUCCESS;
+	}
+
+	return enRet;
+}
+
+static DWORD CSGetThreadId(VOID)
+{
+    return (DWORD)pthread_self();
+}
+
+void CSUDIOSThreadSleep(unsigned int uMilliSeconds)
+{
+    struct timespec delay;
+    struct timespec rem;
+    int rc;
+
+    if(uMilliSeconds==0)
+    {
+        return;
+    }
+
+    delay.tv_sec = (int)uMilliSeconds/1000;
+    delay.tv_nsec = 1000 * 1000 * (uMilliSeconds%1000);
+
+    for(;;) {
+        rc = nanosleep(&delay, &rem); /* [u]sleep can't be used because it uses SIGALRM */
+        if (rc!=0) {
+            if (errno==EINTR) {
+                delay = rem; /* sleep again */
+                continue;
+            }
+
+            CSASSERT(0);
+
+            return ;
+        }
+        break; /* done */
+    }
+
+    return;
+}
+
+void CSUDIOSThreadYield (void)
+{
+	#if 0
+	pthread_yield();
+	#else
+	CSUDIOSThreadSleep(3);
+	#endif
+}
+
+/*******************************************************************
+ **                    Message Queue definitions                  **
+ *******************************************************************/
+typedef struct
+{
+    DWORD  Name;
+    DWORD  ByteQueueSize;                   /* Size of the queue in bytes   */
+    DWORD  ByteNodeSize;                   	/* Message size in bytes        */
+    DWORD  MsgCount;
+    DWORD  Head;                      		 /* Head offset from queue start */
+    DWORD  Tail;                       		/* Tail offset from queue start */
+    CSUDI_HANDLE QMutex;              	 /* Queue mutex                  */
+    CSUDI_HANDLE QEvent;               	/* Queue event                  */
+    CSUDI_HANDLE QEventAvailSpace;/* Queue event                  */
+    BYTE  *StartPtr;                 		 /* Pointer to queue start       */
+    BOOL	m_bIsRun;
+}MSG_QUEUE;
+
+CSUDI_Error_Code CSUDIOSMsgQueueCreate (const char* pstrName,int nMaxMsgs,int nMsgLen, CSUDI_HANDLE * phMsgQueue)
+{
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	CSUDI_HANDLE 		Qmutex = (CSUDI_HANDLE)CSUDI_NULL;
+	CSUDI_HANDLE 		Qevent = (CSUDI_HANDLE)CSUDI_NULL;
+	CSUDI_HANDLE 		QEventAvailSpace = (CSUDI_HANDLE)CSUDI_NULL;
+	MSG_QUEUE*			Qptr = CSUDI_NULL;
+	DWORD 				nNameLen = 0;
+
+	CSASSERT(nMsgLen > 0);
+
+	if(pstrName != CSUDI_NULL)
+	{
+	    nNameLen = strlen(pstrName);
+	}
+
+	CSASSERT(nNameLen < 32);
+
+	if((nMsgLen <= 0) || (nNameLen >= 32) || (nMaxMsgs <= 0) || (phMsgQueue == CSUDI_NULL))
+	{
+	    return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	*phMsgQueue = CSUDI_NULL;
+    /*================================================
+     * Create memory, mutex and event for the queue
+     *===============================================*/
+    Qptr = (MSG_QUEUE *) malloc ( ( sizeof ( MSG_QUEUE ) + (DWORD)( nMaxMsgs * ( (( nMsgLen + 3 ) / 4) * 4 ) ) ) * 2 ) ;
+
+    if ( Qptr != CSUDI_NULL)
+    {
+        enRet = CSUDIOSMutexCreate("MsgQueueMutex", 0,&Qmutex);
+
+        if ( enRet == CSUDI_SUCCESS)
+        {
+            enRet = CSUDIOSEventCreate(0,0 ,&Qevent);
+
+            if ( enRet == CSUDI_SUCCESS)
+            {
+                enRet = CSUDIOSEventCreate( 0, CSUDIOS_EVENT_INITIAL_STATUS,&QEventAvailSpace);
+
+                if ( enRet == CSUDI_SUCCESS)
+                {
+                    /*==========================================
+                    * Initialize the queue
+                    *=========================================*/
+                    enRet = CSUDIOSMutexWait(Qmutex, CSUDIOS_TIMEOUT_INFINITY);
+					
+                    if(enRet == CSUDI_SUCCESS)
+                    {
+                        Qptr->Name				= 0;//pstrName;
+                        Qptr->ByteQueueSize		= (DWORD)(nMaxMsgs * nMsgLen * 2);
+                        Qptr->ByteNodeSize		= (DWORD)(nMsgLen * 2);
+                        Qptr->MsgCount 			= 0;
+                        Qptr->Head      		= 0;
+                        Qptr->Tail      		= 0;
+                        Qptr->QMutex    		= Qmutex;
+                        Qptr->QEvent    		= Qevent;
+                        Qptr->QEventAvailSpace  = QEventAvailSpace;
+                        Qptr->StartPtr  		= (BYTE *) ( Qptr) + sizeof ( MSG_QUEUE ) * 2;
+                        Qptr->m_bIsRun			= TRUE;
+
+                        enRet = CSUDIOSMutexRelease(Qmutex);
+                        if(enRet == CSUDI_SUCCESS)
+                        {
+                            *phMsgQueue = (CSUDI_HANDLE)Qptr;
+				enRet = CSUDI_SUCCESS;
+                        }
+                    }
+                }
+            }
+        }
+
+        if ( *phMsgQueue == CSUDI_NULL )
+        {
+            CSASSERT(*phMsgQueue != CSUDI_NULL);
+            if ( Qevent != CSUDI_NULL )
+            {
+                enRet = CSUDIOSEventDestroy( Qevent );
+                if(enRet != CSUDI_SUCCESS)
+                {
+                    CSDEBUG(MODULE_NAME,INFO_LEVEL,"CSDestroyEventdwRet=%d\r\n",enRet);
+                }
+            }
+
+            if ( Qmutex != (CSUDI_HANDLE)CSUDI_NULL )
+            {
+                enRet = CSUDIOSMutexDestroy(Qmutex);
+                if(enRet != CSUDI_SUCCESS)
+                {
+                    CSDEBUG(MODULE_NAME,INFO_LEVEL,"CSDestroyMutex=%d\r\n",enRet);
+                }
+            }
+
+            if(CSUDI_NULL != Qptr)
+            {
+                free (Qptr);
+            }
+        }
+    }
+
+    return enRet ;
+}
+
+CSUDI_Error_Code CSUDIOSMsgQueueDestroy(CSUDI_HANDLE hMsgQueue)
+{
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	CSUDI_HANDLE 			Qmutex;
+	MSG_QUEUE   			*Qptr;
+
+	if (hMsgQueue == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}        
+
+	Qptr = (MSG_QUEUE *) hMsgQueue;
+	Qmutex = Qptr->QMutex;
+
+	if ( Qmutex != 0 )
+	{
+	    /*=============================================
+	    * Delete queue event, mutex and memory
+	    *============================================*/
+	    enRet = CSUDIOSMutexWait( Qmutex, CSUDIOS_TIMEOUT_INFINITY );
+	    if(enRet == CSUDI_SUCCESS)
+	    {
+	        if ( Qptr->m_bIsRun == TRUE )
+	        {
+	            Qptr->m_bIsRun = FALSE;
+				
+	            enRet = CSUDIOSEventDestroy(Qptr->QEvent);
+	            enRet = CSUDIOSEventDestroy(Qptr->QEventAvailSpace);
+	            enRet = CSUDIOSMutexRelease (Qmutex);				
+	            enRet = CSUDIOSMutexDestroy (Qmutex);
+
+	            Qptr->QMutex = 0;
+	            Qptr->QEvent = 0;
+	            Qptr->QEventAvailSpace = 0;
+
+	            free (Qptr);
+
+	            enRet = CSUDI_SUCCESS;
+	        }
+	    }
+	}
+
+    CSASSERT(enRet == CSUDI_SUCCESS);
+
+    return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSMsgQueueSend(CSUDI_HANDLE hMsgQueue, const void * pvMsg, int nMsgBytes, unsigned int dwTimeout)
+{
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	CSUDI_HANDLE 			Qmutex;
+	MSG_QUEUE   			*Qptr;
+	DWORD 				Tail;//Head
+
+	CSASSERT(hMsgQueue != NULL && pvMsg != NULL && nMsgBytes > 0);
+	if (hMsgQueue == CSUDI_NULL || pvMsg == CSUDI_NULL || nMsgBytes <= 0 )
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	Qptr = (MSG_QUEUE *) hMsgQueue;
+	Qmutex = Qptr->QMutex;
+
+	enRet = CSUDIOSEventWait( Qptr->QEventAvailSpace, dwTimeout);
+
+	if ( enRet == CSUDI_SUCCESS)
+	{
+	    enRet  = CSUDIOSMutexWait( Qmutex, CSUDIOS_TIMEOUT_INFINITY );
+
+	    if ( enRet == CSUDI_SUCCESS)
+	    {
+	        Tail = Qptr->Tail;
+
+	        if ( Qptr->ByteQueueSize >= ( ( Qptr->MsgCount + 1 ) * Qptr->ByteNodeSize ) )
+	        {
+	            DWORD dwCopySize = ( (DWORD)nMsgBytes > ( Qptr->ByteNodeSize / 2 ) ? ( Qptr->ByteNodeSize / 2 ) : (DWORD)nMsgBytes );
+
+	            memcpy( Qptr->StartPtr + Tail, pvMsg, dwCopySize );
+
+	            Tail += Qptr->ByteNodeSize;
+
+	            if ( Tail >= Qptr->ByteQueueSize )
+	            {
+	                Tail = 0;
+	            }
+
+	            Qptr->Tail = Tail;
+	            Qptr->MsgCount++;
+
+	            if ( Qptr->MsgCount >= ( Qptr->ByteQueueSize/Qptr->ByteNodeSize ) )
+	            {
+	                CSUDIOSEventReset(Qptr->QEventAvailSpace);
+	            }
+
+	            CSUDIOSEventSet( Qptr->QEvent );            /* Set the queue event  */
+
+	            enRet = CSUDI_SUCCESS;
+	        }
+
+	        CSUDIOSMutexRelease(Qmutex);
+	    }
+	    else
+	    {
+	        CSASSERT( enRet == CSUDI_SUCCESS);
+	    }
+	}
+	else if ( enRet == CSUDIOS_ERROR_TIMEOUT )
+	{
+	    enRet = CSUDIOS_ERROR_TIMEOUT;
+	}
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSMsgQueueReceive(CSUDI_HANDLE hMsgQueue,void * pvMsg,int nMaxMsgBytes,unsigned int dwTimeout)
+{
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	CSUDI_HANDLE Qmutex;
+	MSG_QUEUE   *Qptr;
+	DWORD      Head = 0;//, Tail;
+
+	CSASSERT(hMsgQueue != NULL && pvMsg != NULL && nMaxMsgBytes > 0);
+
+	if (hMsgQueue == NULL || pvMsg == NULL || nMaxMsgBytes <= 0)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+        Qptr = (MSG_QUEUE *) hMsgQueue;
+        Qmutex = Qptr->QMutex;
+
+        enRet = CSUDIOSEventWait(Qptr->QEvent, dwTimeout);
+
+        if ( enRet == CSUDI_SUCCESS)
+        {
+            enRet = CSUDIOSMutexWait( Qmutex, CSUDIOS_TIMEOUT_INFINITY );
+
+            if ( enRet == CSUDI_SUCCESS )
+            {
+                Head = Qptr->Head;
+                //Tail = Qptr->Tail;
+
+                if ( Qptr->MsgCount > 0 )
+                {
+                    DWORD dwCopySize = (DWORD)nMaxMsgBytes > ( Qptr->ByteNodeSize / 2 ) ? ( Qptr->ByteNodeSize / 2 ) : (DWORD)nMaxMsgBytes;
+
+                    memcpy ( pvMsg, Qptr->StartPtr + Head, dwCopySize );
+                    memset( Qptr->StartPtr + Head, 0, dwCopySize );
+
+                    Head += Qptr->ByteNodeSize;
+
+                    if ( Head >= Qptr->ByteQueueSize )
+                    {
+                        Head = 0;
+                    }
+
+                    Qptr->Head = Head;
+                    Qptr->MsgCount--;
+
+                    if ( Qptr->MsgCount == 0 )
+                    {
+                        CSUDIOSEventReset(Qptr->QEvent);
+                    }
+
+                    CSUDIOSEventSet( Qptr->QEventAvailSpace );
+
+                    enRet = CSUDI_SUCCESS;
+                }
+
+                CSUDIOSMutexRelease( Qmutex );
+            }
+            else
+            {
+                CSASSERT( enRet == CSUDI_SUCCESS );
+            }
+        }
+        else if (enRet == CSUDIOS_ERROR_TIMEOUT)
+        {
+            enRet = CSUDIOS_ERROR_TIMEOUT;
+        }
+
+    CSASSERT( enRet == CSUDI_SUCCESS || enRet == CSUDIOS_ERROR_TIMEOUT);
+
+    return enRet;
+}
+
+/*******************************************************************
+ **                     Semaphore definitions                     **
+ *******************************************************************/
+CSUDI_Error_Code CSUDIOSSemCreate(const char * pstrName,int nInitialCount,int nMaxCount,CSUDI_HANDLE * phSemaphore)
+{
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	DWORD dwNameLen = 0;
+
+	CSASSERT(pstrName != NULL);
+
+	if(pstrName != NULL)
+	{
+	    dwNameLen = strlen(pstrName);
+	}
+
+	CSASSERT((dwNameLen <= 32) && (nMaxCount >= nInitialCount) && (nInitialCount >= 0) && (nMaxCount > 0));
+	if ((dwNameLen <= 32) && (nMaxCount >= nInitialCount) && (nInitialCount >= 0) && (nMaxCount > 0))
+	{
+	    int nRet = 1;
+
+	    sem_t *sem = NULL;
+
+		*phSemaphore = NULL;
+
+	    sem = ( sem_t *)malloc( sizeof( sem_t ) ); /* allocate Memory  */
+
+	    CSASSERT(sem != NULL);
+
+	    if ( sem != NULL )
+	    {
+	        /*the semaphore is local to the current process( pshared is zero ) */
+	        nRet = sem_init( sem, 0,  (DWORD)nInitialCount );
+	        /*return 0 on success and -1 on unknown error */
+	        if ( nRet == 0 )
+	        {
+	            *phSemaphore = (CSUDI_HANDLE)sem;
+			enRet = CSUDI_SUCCESS;
+	        }
+	        else
+	        {
+	            CSASSERT(0);
+	            free( sem ); /* free memory.  */
+	        }
+	    }
+	}
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+    return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSSemWait(CSUDI_HANDLE hSemaphore,unsigned int dwTimeout)
+{
+   CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+
+    CSASSERT(hSemaphore != NULL);
+
+    if (hSemaphore != NULL)
+    {
+        int nRet;
+
+        if(dwTimeout == 0xFFFFFFFF)
+        {
+            nRet = sem_wait((sem_t *)hSemaphore);
+            if (nRet == 0)
+            {
+                enRet = CSUDI_SUCCESS;
+            }
+            else
+            {
+                //printf("Wait(%d)nRet is %d\n", dwTimeout, nRet);
+                enRet = CSUDI_FAILURE;
+            }
+        }
+        else if (dwTimeout == 0)
+        {
+            nRet = sem_trywait((sem_t *)hSemaphore);
+            if (nRet == 0)
+            {
+                enRet = CSUDI_SUCCESS;
+            }
+            else if(errno == EAGAIN)
+            {
+                enRet = CSUDIOS_ERROR_TIMEOUT;
+            }
+            else
+            {
+                /*printf("Wait(%d)nRet is %d\n", dwTimeout, nRet);*/
+                enRet = CSUDI_FAILURE;
+            }
+        }
+        else
+        {
+            struct timespec ts;
+            struct timeval tv;
+
+            nRet = gettimeofday (&tv, NULL);
+            CSASSERT(nRet == 0);
+
+            ts.tv_sec = tv.tv_sec + (int)(dwTimeout/1000);
+            ts.tv_nsec = tv.tv_usec*1000 + (int)(dwTimeout%1000)*1000000;
+
+            adjusttimespec(&ts);
+
+            nRet = sem_timedwait((sem_t *)hSemaphore, &ts);
+
+            if (nRet == 0)
+            {
+                enRet = CSUDI_SUCCESS;
+            }
+            else if(errno == ETIMEDOUT)
+            {
+                enRet = CSUDIOS_ERROR_TIMEOUT;
+            }
+            else
+            {
+                enRet = CSUDI_FAILURE;
+                CSDEBUG("CS_OS",ERROR_LEVEL,"CSWaitForSemaphore.CS_OSP_FAILURE.errno=%d",errno);
+            }
+        }
+    }
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+    return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSSemRelease(CSUDI_HANDLE hSemaphore)
+{
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+
+	CSASSERT(hSemaphore != CSUDI_NULL);
+
+	if (hSemaphore != CSUDI_NULL)
+	{
+	        if (0 == sem_post((sem_t *)hSemaphore))
+	        {
+			enRet = CSUDI_SUCCESS;
+	        }
+	}
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+	return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSSemDestroy(CSUDI_HANDLE hSemaphore)
+{
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+
+	CSASSERT(hSemaphore != NULL);
+
+	if (hSemaphore != NULL)
+	{
+	    if (sem_destroy((sem_t *)hSemaphore) == 0)
+	    {
+	        free((sem_t *)hSemaphore); /* free memory.  */
+	        enRet = CSUDI_SUCCESS;
+	    }
+	}
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSMutexCreate(const char * pstrName, unsigned int dwFlags,CSUDI_HANDLE * phMutex)
+{
+	cs_mutex_t* 			mutex = NULL;
+	DWORD 				dwNameLen = 0;
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+
+	CSSTD_UNUSED(dwFlags);
+
+	if(pstrName != CSUDI_NULL)
+	{
+	    dwNameLen = strlen(pstrName);
+	}
+
+	if(phMutex == CSUDI_NULL)
+	{
+		CSASSERT(phMutex != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	if(dwNameLen >= 31)
+	{
+	    return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	*phMutex = CSUDI_NULL;
+	mutex =(cs_mutex_t*) CSUDIOSMalloc(sizeof(cs_mutex_t));
+
+	CSASSERT(mutex);
+
+	if( CSUDI_NULL != mutex )
+	{
+		CSUDI_HANDLE semaphore;
+		enRet = CSUDIOSSemCreate (pstrName,1,1,&semaphore) ;
+		CSASSERT(semaphore);
+
+		if( enRet == CSUDI_SUCCESS)
+		{
+			if (dwFlags == CSUDIOS_MUTEX_OBTAIN)
+			{
+				enRet = CSUDIOSSemWait(semaphore,CSUDIOS_TIMEOUT_IMMEDIATE);
+				CSASSERT(enRet == CSUDI_SUCCESS);
+				if (enRet == CSUDI_SUCCESS)
+				{
+					mutex->count = 1;
+					mutex->owner = CSGetThreadId();
+				}
+			}
+			else
+			{
+				mutex->count = 0;
+				mutex->owner = (DWORD)CSUDI_NULL;
+			}
+			mutex->semaphore = semaphore;
+			*phMutex = mutex;
+		}
+
+		if (enRet != CSUDI_SUCCESS)
+		{
+		        if(mutex)
+		        {
+		            CSUDIOSFree(mutex);
+		            mutex = CSUDI_NULL;
+		        }
+		        CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[USP_OSP] can't create semaphore for a mutex  !\n");
+		}
+	}
+	else
+	{
+	    CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[USP_OSP] can't malloc memory for  a mutex  !\n");
+	}
+
+    return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSMutexDestroy(CSUDI_HANDLE hMutex)
+{
+    CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+
+    if(hMutex)
+    {
+        cs_mutex_t* mutex = (cs_mutex_t*) hMutex;
+
+        if(CSUDIOSSemDestroy( mutex->semaphore) == CSUDI_SUCCESS)
+        {
+        	CSUDIOSFree(mutex);
+              enRet = CSUDI_SUCCESS;
+        }
+        //CSDEBUG(MODULE_NAME,INFO_LEVEL,"[CS_OS]: DestroyMutex %xh\r\n", hMutex);
+    }
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+    return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSMutexWait(CSUDI_HANDLE hMutex,unsigned int uTimeout)
+{
+    CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+    CSASSERT(hMutex);
+    if(hMutex)
+    {
+        cs_mutex_t* mutex = (cs_mutex_t*) hMutex;
+
+        DWORD  tid;
+
+        tid = CSGetThreadId();
+
+        if(mutex->owner == tid)
+        {
+            ++mutex->count;
+            enRet = CSUDI_SUCCESS;
+        }
+        else
+        {
+            enRet = CSUDIOSSemWait(mutex->semaphore,uTimeout);
+            if( enRet == CSUDI_SUCCESS)
+            {
+                mutex->owner = tid;
+                mutex->count = 1;
+            }
+            else
+            {
+                CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[CS_OS] can't  acquire semaphore for a mutex %xh, dwTimeout=%d !\r\n", mutex, uTimeout);
+            }
+        }
+    }
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+    return enRet;
+}
+
+
+CSUDI_Error_Code CSUDIOSMutexRelease(CSUDI_HANDLE hMutex)
+{
+     CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+
+    if(hMutex)
+    {
+        cs_mutex_t* mutex = (cs_mutex_t*) hMutex;
+
+        DWORD  tid;
+        tid = CSGetThreadId();
+
+        if (mutex->owner != tid)
+        {
+            CSDEBUG(MODULE_NAME,WARN_LEVEL,"[USP_OSP] can't release mutex %08x, count=%d, owner=%x, curtask=%x\n", hMutex, mutex->count, mutex->owner, tid);
+            return CSUDI_FAILURE;
+        }
+
+        if(mutex->count > 1 )
+        {
+            enRet = CSUDI_SUCCESS;
+            --mutex->count;
+            //CSDEBUG(MODULE_NAME,INFO_LEVEL,"[USP_OSP]: Release Mutex %xh  but  Count > 0\r\n", hMutex);
+        }
+        else if (mutex->count == 1)
+        {
+            //save
+            DWORD pOwner = mutex->owner ;
+            int nCount = mutex->count;
+
+            //clear
+            mutex->owner = (DWORD)CSUDI_NULL;
+            mutex->count = 0;
+
+            //release
+            if((enRet=CSUDIOSSemRelease(mutex->semaphore)) != CSUDI_SUCCESS)
+            {
+                //failed then restore
+                mutex->owner = pOwner;
+                mutex->count = nCount;
+                CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[USP_OSP] can't relase semaphore for a mutex %08X !\n", hMutex);
+            }
+        }
+        else
+        {
+            CSDEBUG(MODULE_NAME,WARN_LEVEL,"[USP_OSP] can't release mutex %08XH, count=%d!\n", hMutex, mutex->count);
+        }
+    }
+	else
+	{
+		enRet = CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+    return enRet;
+
+}
+
+/*******************************************************************
+ **                     Event definitions                         **
+ *******************************************************************/
+typedef struct
+{
+    pthread_cond_t	condvar;
+    pthread_mutex_t	mutex;
+    int				signaled;
+    int				manual_reset;
+}T_CSOSPEvnt;
+
+CSUDI_Error_Code CSUDIOSEventCreate(const char * pstrName,unsigned int  dwFlags,CSUDI_HANDLE * phEvent)
+{
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	T_CSOSPEvnt			*pEvent;
+	DWORD 				dwNameLen = 0;
+	int 					nRet;
+
+	if(pstrName != CSUDI_NULL)
+	{
+	    dwNameLen = strlen(pstrName);
+	}
+
+	if (dwNameLen > 32 || phEvent == CSUDI_NULL)
+	{
+		CSASSERT(dwNameLen <=32);
+		CSASSERT(phEvent != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	*phEvent = CSUDI_NULL;
+	pEvent = (T_CSOSPEvnt *)malloc(sizeof(T_CSOSPEvnt));
+	CSASSERT(pEvent != NULL);
+	if (pEvent != NULL)
+	{
+		if((dwFlags&CSUDIOS_EVENT_AUTO_RESET) ==  CSUDIOS_EVENT_AUTO_RESET)
+		{
+		    pEvent->manual_reset = FALSE;
+		}
+		else
+		{
+		    //????????????????????????????????????????????????
+		    // always manual reset now, need to be confirmed.
+		    //????????????????????????????????????????????????
+		    pEvent->manual_reset = TRUE;
+		}
+
+		if((dwFlags&CSUDIOS_EVENT_INITIAL_STATUS) == CSUDIOS_EVENT_INITIAL_STATUS)
+		{
+		    pEvent->signaled = TRUE;
+		}
+		else
+		{
+		    pEvent->signaled = FALSE;
+		}
+
+		nRet = pthread_mutex_init( &pEvent->mutex, NULL );
+		CSASSERT(nRet == 0);
+		if(nRet == 0) 
+		{
+	    		nRet = pthread_cond_init( &pEvent->condvar, NULL );
+			CSASSERT(nRet == 0);
+			if (nRet == 0)
+			{
+				enRet = CSUDI_SUCCESS;
+				*phEvent = (CSUDI_HANDLE)pEvent;
+			}
+		}
+		
+		if (enRet != CSUDI_SUCCESS)
+		{
+			free(pEvent);
+		}
+	}
+	
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSEventReset(CSUDI_HANDLE hEvent)
+{
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	T_CSOSPEvnt 			*event;
+	int 					nRet;
+
+	if (hEvent == CSUDI_NULL)
+	{
+		CSASSERT(hEvent != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+
+	event = (T_CSOSPEvnt *)hEvent;
+
+	nRet = pthread_mutex_lock(&event->mutex);
+
+	event->signaled = FALSE;
+
+	nRet += pthread_mutex_unlock(&event->mutex);
+
+	CSASSERT(nRet == 0);
+
+	if (nRet == 0)
+	{
+	    enRet = CSUDI_SUCCESS;
+	}
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSEventSet(CSUDI_HANDLE hEvent)
+{
+	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	T_CSOSPEvnt 			*event;
+	int 					nRet;
+
+	if (hEvent == CSUDI_NULL)
+	{
+		CSASSERT(hEvent != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+	
+	event = (T_CSOSPEvnt *)hEvent;
+
+	nRet = pthread_mutex_lock(&event->mutex);
+
+	event->signaled = TRUE;
+	/* Wake up one or all depending on whether the event is auto-reseting. */
+	if( event->manual_reset )
+	    nRet += pthread_cond_broadcast(&event->condvar);
+	else
+	    nRet += pthread_cond_signal(&event->condvar);
+
+	nRet += pthread_mutex_unlock(&event->mutex);
+
+	CSASSERT(nRet == 0);
+
+	if (nRet == 0)
+	{
+	    enRet = CSUDI_SUCCESS;
+	}
+
+
+	CSASSERT(enRet == CSUDI_SUCCESS);
+
+	return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSEventDestroy(CSUDI_HANDLE hEvent)
+{
+   	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	T_CSOSPEvnt 			*event;
+	int 					nRet;
+
+	if (hEvent == CSUDI_NULL)
+	{
+		CSASSERT(hEvent != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+	
+        event = (T_CSOSPEvnt *)hEvent;
+
+        nRet = pthread_cond_broadcast( &event->condvar );
+        CSASSERT(nRet == 0);
+		
+        nRet = pthread_cond_destroy( &event->condvar );
+        CSASSERT(nRet == 0);
+
+        nRet = pthread_mutex_destroy(&event->mutex);
+        CSASSERT(nRet == 0);
+
+   	free(event);
+	enRet = CSUDI_SUCCESS;
+
+	return enRet;
+}
+
+CSUDI_Error_Code CSUDIOSEventWait(CSUDI_HANDLE hEvent,unsigned int dwTimeout)
+{
+    	CSUDI_Error_Code 		enRet = CSUDI_FAILURE;
+	T_CSOSPEvnt 			*event;
+	int 					nRet;
+
+	if (hEvent == CSUDI_NULL)
+	{
+		CSASSERT(hEvent != CSUDI_NULL);
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+	
+        event = (T_CSOSPEvnt *)hEvent;
+
+        nRet = pthread_mutex_lock(&event->mutex);
+        CSASSERT(nRet == 0);
+
+        /* Return immediately if the event is signalled. */
+        if(event->signaled)
+        {
+            if(!event->manual_reset)
+            {
+                event->signaled = FALSE;
+            }
+
+            nRet += pthread_mutex_unlock(&event->mutex);
+            CSASSERT(nRet == 0);
+            return( CSUDI_SUCCESS);
+        }
+
+        /* If just testing the state, return OSAL_TIMEOUT. */
+        if( dwTimeout == 0 )
+        {
+            nRet += pthread_mutex_unlock(&event->mutex);
+            CSASSERT(nRet == 0);
+            enRet = CSUDIOS_ERROR_TIMEOUT;
+        }
+        else if (dwTimeout == 0xFFFFFFFF)
+        {
+            /* Wait for condition variable to be signaled or broadcast. */
+            nRet = pthread_cond_wait(&event->condvar, &event->mutex);
+            if (nRet == 0)
+            {
+                enRet = CSUDI_SUCCESS;
+            }
+            else
+            {
+                CSDEBUG(MODULE_NAME,ERROR_LEVEL, "[CSWaitForSingleEvent]ERROR: pthread_cond_wait(%d) return %d\n", dwTimeout, nRet);
+                enRet = CSUDI_FAILURE;
+            }
+        }
+        else
+        {
+            struct timespec ts;
+            struct timeval tv;
+
+            nRet = gettimeofday (&tv, NULL);
+            CSASSERT(nRet == 0);
+
+            ts.tv_sec = tv.tv_sec + (int)(dwTimeout/1000);
+            ts.tv_nsec = tv.tv_usec*1000 + (int)((dwTimeout%1000)*1000000);
+
+            adjusttimespec(&ts);
+
+            nRet = pthread_cond_timedwait(&event->condvar, &event->mutex, &ts);
+            //CSDEBUG(MODULE_NAME,3, "nRet=%d, EINVAL:%d, ETIMEDOUT:%d\n", nRet, EINVAL, ETIMEDOUT);
+            if (nRet == 0)
+            {
+                enRet = CSUDI_SUCCESS;
+            }
+            else if (nRet == ETIMEDOUT)
+            {
+                enRet = CSUDIOS_ERROR_TIMEOUT;
+            }
+            else
+            {
+                CSDEBUG(MODULE_NAME,ERROR_LEVEL, "[CSWaitForSingleEvent]ERROR: pthread_cond_timedwait(%d) return %d\n", dwTimeout, nRet);
+                enRet = CSUDI_FAILURE;
+            }
+
+        }
+
+        if(CSUDI_SUCCESS == enRet)
+        {
+            if(!event->manual_reset)
+            {
+                event->signaled = FALSE;
+            }
+        }
+        nRet = pthread_mutex_unlock(&event->mutex);
+        CSASSERT(nRet == 0);
+
+    CSASSERT(enRet == CSUDI_SUCCESS || enRet == CSUDIOS_ERROR_TIMEOUT);
+    return enRet;
+}
+
+/*******************************************************************
+ **                     Memory definitions                        **
+ *******************************************************************/
+void * CSUDIOSMalloc( unsigned int nMemorySize )
+{
+    PVOID pvMem =  NULL;
+
+    CSASSERT(nMemorySize > 0);
+
+    if(nMemorySize > 0)
+    {
+        pvMem =  malloc(nMemorySize);
+    }
+
+    CSASSERT(pvMem != NULL);
+    if(NULL == pvMem)
+    {
+
+        CSDEBUG(MODULE_NAME,ERROR_LEVEL, "[CSMalloc]ERROR[errno=%d]: malloc %x fail\r\n", errno,nMemorySize);
+    }
+    return pvMem;
+}
+
+void* CSUDIOSCalloc(unsigned int nElements, unsigned int nElementSize)
+{
+    PVOID pvMem =  NULL;
+
+    CSASSERT(nElements > 0);
+    CSASSERT(nElementSize > 0);
+
+    if((nElements>0) && (nElementSize>0))
+    {
+        pvMem =  calloc(nElements,nElementSize);
+    }
+
+    CSASSERT(pvMem != NULL);
+    if(NULL == pvMem)
+    {
+        CSDEBUG(MODULE_NAME,ERROR_LEVEL, "[CSCalloc]ERROR[errno=%d]: calloc %x %x fail\r\n", errno,nElements,nElementSize);
+    }
+
+    return pvMem;
+}
+
+void* CSUDIOSRealloc( void * pvAddr,unsigned int uSize )
+{
+    PVOID pvMem =  NULL;
+
+    if(uSize > 0)
+    {
+        pvMem =  realloc(pvAddr,uSize);
+    }
+
+    CSASSERT(pvMem != NULL);
+
+    return pvMem;
+}
+
+CSUDI_Error_Code CSUDIOSFree( void * pvAddr )
+{
+    if (pvAddr != NULL)
+    {
+        free(pvAddr);
+    }
+
+    return CSUDI_SUCCESS;
+}
+
+
+CSUDI_Error_Code CSUDIOSGetTime(CSUDIOSTimeVal_S * psTime)
+{
+	struct timeval stTime;
+
+	if (psTime == CSUDI_NULL)
+	{
+		return CSUDIOS_ERROR_BAD_PARAMETER;
+	}
+	
+	gettimeofday(&stTime, NULL);
+
+	psTime->m_nSecond = stTime.tv_sec;
+	psTime->m_nMiliSecond = stTime.tv_usec/1000;
+	psTime->m_lUSecond = stTime.tv_usec%1000;
+
+	return CSUDI_SUCCESS;
+}
+
+#if 0
+/*******************************************************************
+ **                     Timer definitions                         **
+ *******************************************************************/
+#define CS_TIMER_LIMIT		30   
+#define CS_TIMER_INITTAG	0xf1  
+
+typedef struct _TimerStruct
+{
+    DWORD			dwStartTime;
+    DWORD			dwTimerOut;
+    TIMER_MODE		enmMode;
+    BYTE			cInitFlag;
+    BOOL			bEnabled;
+    TimerCallback	pEntry;
+    void*			pParam;
+    struct _TimerStruct*	prev;
+    struct _TimerStruct*	next;
+} T_TimerStruct;
+
+static BOOL	g_bTimerInstalled = FALSE;		/* Driver Initialize Flag */
+static int	g_nTimerCounts = 0;
+static T_TimerStruct*	g_pTimerListStart;
+static T_TimerStruct*	g_pTimerListEnd;
+
+static void CSTIMTaskEntry(void);
+static void CSTIMPeriodHandler(void);
+
+static HCSHANDLE	g_hTimerMutex;
+
+///////////////////////////////////////////////
+DWORD  CSInitTimer(void)
+{
+    DWORD dwRet = CS_OSP_FAILURE;
+
+    if (g_bTimerInstalled)  /* this function should only be called once */
+    {
+        CSDEBUG(MODULE_NAME,WARN_LEVEL, "[CS_OS] Timer Module Already Installed!\n");
+        dwRet = CS_OSP_SUCCESS;
+    }
+    else
+    {
+        HCSHANDLE	hThread;
+        DWORD		dwThreadID;
+        cs_time_t stTime;
+        int nRet;
+
+        CSDEBUG(MODULE_NAME,INFO_LEVEL,"[CS_OS] CSInitTimer at tick %d\r\n",CSGetTickCount());
+
+        stTime.tv_sec = 1;
+        stTime.tv_usec = 0;
+        nRet = settimeofday(&stTime, NULL);
+
+        CSASSERT(nRet == 0);
+
+        if(nRet != 0)
+        {
+            CSDEBUG(MODULE_NAME,INFO_LEVEL,"[CS_OS] settimeofday failed %d\r\n",CSGetTickCount());
+        }
+
+        CSDEBUG(MODULE_NAME,INFO_LEVEL,"[CS_OS] CSInitTimer reset tick %d\r\n",CSGetTickCount());
+
+        g_bTimerInstalled = TRUE;
+
+        g_nTimerCounts		= 0;			/* Number of Timers Created */
+        g_pTimerListStart	= NULL;			/* Head-of-the-List Timer */
+        g_pTimerListEnd		= NULL;			/* End-of-the-List Timer */
+
+        g_hTimerMutex = CSCreateMutex("SafeTimer", CS_OSP_MUTEX_NOTOBTAIN);
+
+        hThread = CSCreateThread("CS_Timer", 8*17, 1024 * 64, (ThreadEntry*)CSTIMTaskEntry, NULL, &dwThreadID);
+
+        if(hThread != NULL)
+        {
+            dwRet = CS_OSP_SUCCESS;
+        }
+        else
+        {
+            CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[CS_OS] CSCreateThread Failed.\n");
+        }
+    }
+
+    CSASSERT(dwRet == CS_OSP_SUCCESS);
+
+    return dwRet;
+}
+
+DWORD CSCreateTimer(TIMER_MODE enmTimerMode, TimerCallback pCallback, PVOID pUserData, HCSHANDLE *phTimer)
+{
+    DWORD dwRet = CS_OSP_FAILURE;
+
+    CSASSERT(pCallback != NULL && phTimer != 0);
+    CSASSERT(enmTimerMode < TIM_MODE_END);
+
+    do
+    {
+        if(g_nTimerCounts >= CS_TIMER_LIMIT)
+        {
+            CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[CS_OS] Try to create too many timers.\n");
+            break;
+        }
+
+        if(pCallback != NULL && phTimer != NULL && enmTimerMode < TIM_MODE_END)
+        {
+            BOOL bQueryTimer = FALSE;
+            T_TimerStruct* pTimer = NULL;
+
+            DWORD dwRetMutex = CSWaitForMutex(g_hTimerMutex, 2000);
+            CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+            pTimer = g_pTimerListStart;
+
+            while(pTimer != NULL)
+            {
+                if (pTimer->cInitFlag == 0)
+                {
+                    bQueryTimer = TRUE;
+
+                    break;
+                }
+
+                pTimer = pTimer->next;
+            }
+
+            if (!bQueryTimer)
+            {
+                pTimer = (T_TimerStruct*)malloc(sizeof(T_TimerStruct));
+            }
+
+            CSASSERT(pTimer != NULL);
+
+            pTimer->pEntry		= pCallback;
+            pTimer->pParam		= pUserData;
+            pTimer->dwTimerOut	= 0;
+            pTimer->dwStartTime	= 0;
+            pTimer->bEnabled	= FALSE;
+            pTimer->enmMode		= enmTimerMode;
+            pTimer->cInitFlag	= CS_TIMER_INITTAG;
+
+            if (!bQueryTimer)
+            {
+                /* This is the first timer in the list */
+                if(g_pTimerListStart == NULL)
+                {
+                    g_pTimerListStart = pTimer;
+                    pTimer->prev = NULL;
+                }
+                else /* Add the timer to the end of the list */
+                {
+                    g_pTimerListEnd->next = pTimer;
+                    pTimer->prev = g_pTimerListEnd;
+                }
+                pTimer->next		= NULL;
+
+                g_pTimerListEnd = pTimer;
+            }
+
+            g_nTimerCounts ++;
+            *phTimer = (HCSHANDLE)pTimer;
+
+            dwRetMutex = CSReleaseMutex(g_hTimerMutex);
+            CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+            dwRet = CS_OSP_SUCCESS;
+        }
+        else
+        {
+            CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[CS_OS] create timer parameter error.\n");
+            break;
+        }
+    }while(0);
+    CSASSERT(dwRet == CS_OSP_SUCCESS);
+
+    return dwRet;
+}
+
+DWORD CSStartTimer(HCSHANDLE hTimer, DWORD dwMilliSeconds)
+{
+    DWORD dwRet = CS_OSP_FAILURE;
+
+    CSASSERT(hTimer != NULL && dwMilliSeconds != 0);
+
+    if (hTimer != NULL && dwMilliSeconds != 0)
+    {
+        T_TimerStruct* pTimer = (T_TimerStruct*)hTimer;
+
+        DWORD dwRetMutex = CSWaitForMutex(g_hTimerMutex, 1000);
+
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+        if (pTimer->cInitFlag != CS_TIMER_INITTAG)
+        {
+            CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[CS_OS] Try to start a not-created timer.\n");
+        }
+        else
+        {
+            pTimer->dwTimerOut	= dwMilliSeconds;
+            pTimer->dwStartTime	= CSGetTickCount();
+            pTimer->bEnabled	= TRUE;
+
+            dwRet = CS_OSP_SUCCESS;
+        }
+
+        dwRetMutex = CSReleaseMutex(g_hTimerMutex);
+
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+    }
+
+    CSASSERT(dwRet == CS_OSP_SUCCESS);
+
+    return dwRet;
+}
+
+DWORD CSStopTimer(HCSHANDLE hTimer)
+{
+    DWORD dwRet = CS_OSP_FAILURE;
+
+    CSASSERT(hTimer != NULL);
+
+    if (hTimer != NULL)
+    {
+        T_TimerStruct* pTimer = (T_TimerStruct*)hTimer;
+
+        DWORD dwRetMutex = CSWaitForMutex(g_hTimerMutex, 2000);
+
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+        if (pTimer->cInitFlag != CS_TIMER_INITTAG)
+        {
+            CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[CS_OS] Try to stop a not-created timer.\n");
+        }
+        else
+        {
+            pTimer->bEnabled = FALSE;
+            pTimer->dwStartTime = CSGetTickCount();
+
+            dwRet = CS_OSP_SUCCESS;
+        }
+
+        dwRetMutex = CSReleaseMutex(g_hTimerMutex);
+
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+    }
+
+    CSASSERT(dwRet == CS_OSP_SUCCESS);
+
+    return dwRet;
+}
+
+DWORD CSResetTimer(HCSHANDLE hTimer)
+{
+    DWORD dwRet = CS_OSP_FAILURE;
+
+    CSASSERT(hTimer != NULL);
+
+    if (hTimer != NULL)
+    {
+        T_TimerStruct* pTimer = (T_TimerStruct*)hTimer;
+
+        DWORD dwRetMutex = CSWaitForMutex(g_hTimerMutex, 2000);
+
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+        if (pTimer->cInitFlag != CS_TIMER_INITTAG)
+        {
+            CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[CS_OS] Try to reset a not-created timer.\n");
+        }
+        else
+        {
+            pTimer->dwStartTime	= CSGetTickCount();
+
+            dwRet = CS_OSP_SUCCESS;
+        }
+
+        dwRetMutex = CSReleaseMutex(g_hTimerMutex);
+
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+    }
+
+    CSASSERT(dwRet == CS_OSP_SUCCESS);
+
+    return dwRet;
+}
+
+DWORD CSDestroyTimer(HCSHANDLE hTimer)
+{
+    DWORD dwRet = CS_OSP_FAILURE;
+
+    CSASSERT(hTimer != NULL);
+
+    if (hTimer != NULL)
+    {
+        T_TimerStruct* pTimer = (T_TimerStruct*)hTimer;
+
+        DWORD dwRetMutex = CSWaitForMutex(g_hTimerMutex, 2000);
+
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+        if (pTimer->cInitFlag == CS_TIMER_INITTAG)
+        {
+            pTimer->cInitFlag	= 0;
+            pTimer->bEnabled	= FALSE;
+            pTimer->pEntry		= NULL;
+            pTimer->dwStartTime	= 0;
+            pTimer->dwTimerOut	= 0;
+#if 0
+            if(pTimer->prev == NULL) /* This is the first timer of the list */
+            {
+                if(pTimer->next == NULL)  /* This is the only timer of the list */
+                {
+                    g_pTimerListStart = NULL;
+                    g_pTimerListEnd = NULL;
+                }
+                else
+                {
+                    (pTimer->next)->prev = NULL;
+                    g_pTimerListStart = (g_pTimerListStart->next);
+                }
+            }
+            else
+            {
+                if(pTimer->next == NULL)  /* This is the last timer of the list */
+                {
+                    (pTimer->prev)->next = NULL;
+                    g_pTimerListEnd = pTimer->prev;
+                }
+                else
+                {
+                    pTimer1 = pTimer;
+                    (pTimer->prev)->next = pTimer->next;
+                    (pTimer->next)->prev = pTimer1->prev;//2005-05-13 双向链表应有两个指针
+                }
+            }
+
+            free((PVOID*)pTimer);
+#endif
+            g_nTimerCounts --; /* Update total timer count */
+
+            dwRet = CS_OSP_SUCCESS;
+        }
+        else
+        {
+            CSDEBUG(MODULE_NAME,ERROR_LEVEL,"[CS_OS] Try to delete a not-created timer.\n");
+        }
+
+        dwRetMutex = CSReleaseMutex(g_hTimerMutex);
+
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+    }
+
+    return dwRet;
+}
+////////////////////////////////////////////////////////
+
+static void CSTIMTaskEntry(void)
+{
+    for(;;)
+    {
+        CSSleep(40);
+        CSTIMPeriodHandler();
+    }
+}
+
+static void CSTIMPeriodHandler(void)
+{
+    T_TimerStruct  *pRunningTimer;
+    DWORD                      dwNow = 0;
+    TimerCallback pCallback = NULL;
+    VOID*                           pUserData = NULL;
+
+    DWORD dwRetMutex = CSWaitForMutex(g_hTimerMutex, 2000);
+
+    CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+    if((pRunningTimer = g_pTimerListStart) == NULL)  /* Timer List is Empty */
+    {
+        dwRetMutex = CSReleaseMutex(g_hTimerMutex);
+
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+        return;
+    }
+
+    while(pRunningTimer != NULL && g_nTimerCounts != 0)
+    {
+        if (!pRunningTimer->bEnabled || (pRunningTimer->cInitFlag != CS_TIMER_INITTAG))
+        {
+            pRunningTimer = pRunningTimer->next;
+            continue;
+        }
+
+        pCallback = NULL;
+
+        dwNow = CSGetTickCount();
+
+        if(((dwNow > pRunningTimer->dwStartTime) && (dwNow >= (pRunningTimer->dwStartTime + pRunningTimer->dwTimerOut))) //timer 到时间了
+                || ((dwNow < pRunningTimer->dwStartTime) && (((0xffffffff - pRunningTimer->dwStartTime) + dwNow) >= pRunningTimer->dwTimerOut)))        //时间溢出
+        {
+            //remark:(now  - start) + elapsedroundtime > timeout
+            //remark:oneroundtime - (start - now)  + (elapsedroundtime - oneroundtime) > timeout
+            if(pRunningTimer->enmMode == TIM_MODE_REPEAT)
+            {
+                pRunningTimer->dwStartTime = dwNow;
+            }
+            else
+            {
+                pRunningTimer->bEnabled = FALSE;
+            }
+
+            pCallback = pRunningTimer->pEntry;
+            pUserData = pRunningTimer->pParam;
+        }
+
+        dwRetMutex = CSReleaseMutex(g_hTimerMutex);
+
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+        if (pCallback != NULL)
+        {
+            pCallback(pUserData);
+        }
+
+        dwRetMutex = CSWaitForMutex(g_hTimerMutex, 2000);
+
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+        pRunningTimer = pRunningTimer->next;
+    }
+
+    dwRetMutex = CSReleaseMutex(g_hTimerMutex);
+
+    CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+    return;
+}
+
+#if 0
+static void CSTIMPeriodHandler(void)
+{
+    T_TimerStruct	*pRunningTimer;
+    DWORD			dwNow = 0;
+    TimerCallback	pCallback = NULL;
+    VOID*			pUserData = NULL;
+
+    if((pRunningTimer = g_pTimerListStart) == NULL)  /* Timer List is Empty */
+        return;
+
+    while(pRunningTimer != NULL && g_nTimerCounts != 0)
+    {
+        DWORD dwRetMutex = CSWaitForMutex(g_hTimerMutex, 2000);
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+        if (!pRunningTimer->bEnabled || (pRunningTimer->cInitFlag != CS_TIMER_INITTAG))
+        {
+            pRunningTimer = pRunningTimer->next;
+
+            dwRetMutex = CSReleaseMutex(g_hTimerMutex);
+
+            CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+            continue;
+        }
+
+        pCallback = NULL;
+
+        dwNow = CSGetTickCount();
+        if( dwNow >= (pRunningTimer->dwStartTime + pRunningTimer->dwTimerOut) //timer 到时间了
+                ||dwNow < pRunningTimer->dwStartTime)	//时间溢出
+        {
+            if(pRunningTimer->enmMode == TIM_MODE_REPEAT)
+            {
+                pRunningTimer->dwStartTime = dwNow;
+            }
+            else
+            {
+                pRunningTimer->dwStartTime = 0;
+                pRunningTimer->bEnabled = FALSE;
+            }
+
+            pCallback = pRunningTimer->pEntry ;
+            pUserData = pRunningTimer->pParam ;
+        }
+
+        pRunningTimer = pRunningTimer->next;
+
+        dwRetMutex = CSReleaseMutex(g_hTimerMutex);
+        CSASSERT(dwRetMutex == CS_OSP_SUCCESS);
+
+        if (pCallback != NULL)
+        {
+            pCallback(pUserData);
+        }
+    }
+}
+#endif
+#endif
+
+#if 0
+/////////////////////////////////////////////////////////////
+//Set system date, zzp.2006.10.19
+
+/*******************************************************************
+ **                     Time definitions                          **
+ *******************************************************************/
+#define START_YEAR  1970
+#define START_MONTH 1
+#define START_DAY   1
+
+/*闰年，有366天*/
+#define DAY_OF_LEAP_YEAR	(366)
+/*非闰年，有366天*/
+#define DAY_OF_COMMON_YEAR	(365)
+/*1970年是非闰年，有365天*/
+#define DAY_OF_START_YEAR   (DAY_OF_COMMON_YEAR)
+
+static cs_time_t g_baseClock;
+static DWORD g_dwBaseTime = 0;
+
+#if 0 /*<!-- shenshaohui 2009/2/17 19:28:06 do not need this function*/
+static int function_acount_leaving_days(void)
+{	//计算出开始年份的剩余天数
+    int i = 0;
+    int iCount = 0;
+
+    for(i = 1; i < START_MONTH ; i++)//随月份增加天数
+    {
+        switch(i)
+        {
+case 1: case 3: case 5: case 7: case 8: case 10: case 12:
+            iCount=iCount+31;// 1 ，3，5，7，8，10，腊，有31天
+            break;
+case 4: case 6: case 9: case 11:
+            iCount=iCount+30;
+            break;
+        case 2:
+            if((START_YEAR%400 == 0) || ((START_YEAR%100 != 0) && (START_YEAR%4 == 0)))
+            {
+                iCount = iCount+29;
+                break;
+            }
+            else
+            {
+                iCount=iCount+28;
+                break;
+            }
+        }//end of switch
+    }//end of for
+
+    iCount = iCount + START_DAY - 1;
+
+    if((START_YEAR%400 == 0) || ((START_YEAR%100 != 0) && (START_YEAR%4 == 0)))
+        iCount = 366 - iCount;
+    else
+        iCount = 365 - iCount;
+
+    return iCount;
+}
+#endif /*0*//* shenshaohui 2009/2/17 19:28:06 --!>*/
+
+/*
+计算是否是闰年,
+其实关键是闰年的算法，也就是闰年的来历。先看完下面的资料，估计就大体明白了。
+关于公历闰年是这样规定的：地球绕太阳公转一周叫做一回归年，一回归年长365日5时48
+分46秒。因此，公历规定有平年和闰年，平年一年有365日，比回归年短0.2422
+日，四年共短0.9688 日，故每四年增加一日，这一年有366
+日，就是闰年。但四年增加一日比四个回归年又多0.0312日,400年后将多3.12日,故在400
+年中少设3个闰年,也就是在400年中只设97
+个闰年，这样公历年的平均长度与回归年就相近似了。由此规定：年份是整百数的必须是
+400的倍数才是闰年，例如1900 年、2100年就不是闰年。 
+ 我们居住的地球总是绕着太阳旋转的。地球绕太阳转一圈需要365天5时48分46
+秒，也就是365.2422天。为了方便，一年定为365
+天，叫做平年；这样每过四年差不多就要多出一天来，把这一天加在2月里，这一年就有
+366天，叫做闰年。 
+通常，每四年里有三个平年一个闰年。公历年份是4的倍数的，一般都是闰年。 
+
+按照每四年一个闰年计算，平均每年就要多算出0.0078
+天，这样经过四百年就会多算出大约3
+天来，因此，每四百年中要减少三个闰年。所以规定，公历年份是整百数的，必须是400
+的倍数的才是闰年，不是400的倍数的就是平年。 
+
+也就是我们通常所说的： 
+四年一闰，百年不闰，四百年再闰。 
+所以在写的时候就可以这样写.
+                if ($year%4 == 0)
+                {
+                    if ($year%100 == 0)
+                    {
+                        if ($year%400 == 0)
+                        {
+                              echo "闰年";
+                        }
+                    }
+                    else
+                    {
+                        echo "不是闰年";}
+                }
+                else{
+                       echo "不是闰年";
+                  }
+
+*/
+
+/*计算出1970年1月1日以来总共的天数*/
+static DWORD calculate_days(DWORD year,DWORD month,DWORD day,DWORD start_date_leaving_days)
+{
+    DWORD iCount = 0;
+
+    if( year == START_YEAR )
+    {
+        if( month == START_MONTH )
+        {
+            iCount = (day - START_DAY) +1;
+        }
+        else
+        {
+            DWORD i = 0;
+            for(i = START_MONTH + 1; i < month ; i++)//随月份增加天数
+            {
+                switch(i)
+                {
+                case 1:
+                case 3:
+                case 5:
+                case 7:
+                case 8:
+                case 10:
+                case 12:
+                    iCount=iCount+31;// 1，3，5，7，8，10，腊，有31天
+                    break;
+
+                case 4:
+                case 6:
+                case 9:
+                case 11:
+                    iCount=iCount+30;
+                    break;
+
+                case 2:
+                    {
+                        if((year%400 == 0) || ((year%100 != 0) && (year%4 == 0)))
+                        {
+                            iCount = iCount+29;
+                        }
+                        else
+                        {
+                            iCount=iCount+28;
+                        }
+                    }
+                    break;
+                default:
+                    break;
+                }
+            }
+
+            iCount += day;
+
+            switch(START_MONTH)
+            {
+            case 1:
+            case 3:
+            case 5:
+            case 7:
+            case 8:
+            case 10:
+            case 12:
+                iCount = iCount + 31 - START_DAY; // 1，3，5，7，8，10，腊，有31天
+                break;
+
+            case 4:
+            case 6:
+            case 9:
+            case 11:
+                iCount = iCount + 30 - START_DAY;
+                break;
+
+            case 2:
+                {
+                    if((year%400 == 0) || ((year%100 != 0) && (year%4 == 0)))
+                    {
+                        iCount = iCount + 29 - START_DAY;
+                    }
+                    else
+                    {
+                        iCount = iCount + 28 - START_DAY;
+                    }
+                }
+                break;
+
+            default:
+                break;
+            }
+        }
+    }
+    else
+    {
+        DWORD i = 0;
+        DWORD j;
+
+        for( j=START_YEAR + 1; j < year ; j++)
+        {
+            if((j%400 == 0) || ((j%100 != 0) && (j%4 == 0)))
+                iCount += 366;
+            else
+                iCount += 365;
+        }
+        for(i = 1; i < month ; i++)//随月份增加天数
+        {
+            switch(i)
+            {
+            case 1:
+            case 3:
+            case 5:
+            case 7:
+            case 8:
+            case 10:
+            case 12:
+                iCount=iCount+31; // 1, 3，5，7，8，10，腊，有31天
+                break;
+
+            case 4:
+            case 6:
+            case 9:
+            case 11:
+                iCount=iCount+30;
+                break;
+
+            case 2:
+                {
+                    if((year%400 == 0) || ((year%100 != 0) && (year%4 == 0)))
+                    {
+                        iCount = iCount+29;
+                    }
+                    else
+                    {
+                        iCount=iCount+28;
+                    }
+                }
+                break;
+            default:
+                break;
+            }
+        }
+
+        iCount = iCount + day + start_date_leaving_days;
+    }
+
+    return (iCount - 1);
+}
+
+
+static void CalcTime2Second(DWORD nYear, DWORD nMonth, DWORD nDay, DWORD nHour, DWORD nMin, DWORD nSec, DWORD* pdwSecond)
+{
+    DWORD dwStartDate_LeftDays = DAY_OF_START_YEAR;
+    DWORD dwCountDays = 0;
+    DWORD dwLeftSec = 0;
+
+    CSASSERT(NULL != pdwSecond);
+
+    //nStartDate_LeftDays = function_acount_leaving_days();//取出当年剩余天数
+    dwCountDays = calculate_days(nYear,nMonth,nDay,dwStartDate_LeftDays);//计算出最终的天数
+
+    dwLeftSec = (nHour*60*60) + (nMin*60) + nSec;
+    if(NULL != pdwSecond)
+    {
+        *pdwSecond = (dwCountDays*24*60*60) + dwLeftSec;
+    }
+}
+
+static void CalcSecond2Time(DWORD* pnYear, DWORD* pnMonth, DWORD* pnDay, DWORD* pnHour, DWORD* pnMin, DWORD* pnSec, DWORD dwSecond)
+{
+    DWORD nYear = 0;
+    DWORD nMonth = 0;
+    DWORD nDay = 0;
+    DWORD nHour = 0;
+    DWORD nMinute = 0;
+    DWORD nSecond = 0;
+    DWORD nDayPerYear = DAY_OF_COMMON_YEAR;
+    DWORD nDayPerMonth = 30;
+    DWORD nSec2Day =0;
+    DWORD nSec2Sec =0;
+
+    CSASSERT((pnYear != NULL)&&(pnMonth != NULL)&&(pnDay != NULL)&&(pnHour != NULL)&&(pnMin != NULL)&&(pnSec != NULL));
+
+    if((pnYear != NULL)&&(pnMonth != NULL)&&(pnDay != NULL)&&(pnHour != NULL)&&(pnMin != NULL)&&(pnSec != NULL))
+    {
+        nSec2Day = dwSecond / (60*60*24);
+        nSec2Sec = dwSecond % (60*60*24);
+
+        nYear = START_YEAR;
+
+        // find YEAR
+        nDayPerYear = DAY_OF_COMMON_YEAR;//function_acount_leaving_days();
+
+        while(nSec2Day >= nDayPerYear)
+        {
+            nSec2Day -= nDayPerYear;
+            nYear++;
+
+            if ((nYear % 400 == 0) || ((nYear % 100 != 0) && (nYear % 4 == 0)))
+            {
+                nDayPerYear = DAY_OF_LEAP_YEAR;
+            }
+            else
+            {
+                nDayPerYear = DAY_OF_COMMON_YEAR;
+            }
+        }
+
+        // find MONTH
+        for(nMonth = 1; nMonth <= 12; nMonth++)
+        {
+            switch(nMonth)
+            {
+            case 1:
+            case 3:
+            case 5:
+            case 7:
+            case 8:
+            case 10:
+            case 12:
+                nDayPerMonth = 31;
+                break;
+
+            case 4:
+            case 6:
+            case 9:
+            case 11:
+                nDayPerMonth = 30;
+                break;
+
+            case 2:
+                if((nYear%400 == 0) || ((nYear%100 != 0) && (nYear%4 == 0)))
+                {
+                    nDayPerMonth = 29;
+                }
+                else
+                {
+                    nDayPerMonth = 28;
+                }
+                break;
+
+            default:
+                break;
+            }
+
+            if (nSec2Day >= nDayPerMonth)
+            {
+                nSec2Day -= nDayPerMonth;
+            }
+            else //next month
+            {
+                break;
+            }
+        }
+
+        // find DAY
+        nDay = nSec2Day + 1;
+
+        // find HOUR
+        nHour = nSec2Sec / (60 * 60);
+        nSec2Sec -= (nHour * 60 * 60);
+
+        // find MINUTE
+        nMinute = nSec2Sec / 60;
+        nSec2Sec -= (nMinute * 60);
+
+        // find SECOND
+        nSecond = nSec2Sec;
+
+        *pnYear	= nYear;
+        *pnMonth= nMonth;
+        *pnDay	= nDay;
+        *pnHour = nHour;
+        *pnMin	= nMinute;
+        *pnSec	= nSecond;
+    }
+}
+
+
+
+BOOL CSSetSoftClock(DWORD dwSeconds)
+{
+    /*cs_time_t g_baseClock;*/
+
+    g_dwBaseTime = dwSeconds;
+
+    gettimeofday(&g_baseClock, NULL);
+
+    return TRUE;
+}
+
+BOOL CSGetSoftClock(DWORD* pdwSeconds)
+{
+    BOOL bRet = FALSE;
+
+    CSASSERT(pdwSeconds != NULL);
+
+    if (pdwSeconds != NULL)
+    {
+        cs_time_t timenow;
+        DWORD dwElapsedSecond;
+
+        gettimeofday(&timenow, NULL);
+
+        /*g_baseClock 总是比timenow小，除非系统时间出现环绕*/
+        dwElapsedSecond = (DWORD)(timenow.tv_sec -g_baseClock.tv_sec);
+
+
+        if (timenow.tv_sec <= g_baseClock.tv_sec)
+        {
+            g_dwBaseTime = g_dwBaseTime + dwElapsedSecond;
+            gettimeofday(&g_baseClock, NULL);
+        }
+
+        *pdwSeconds = (DWORD)(g_dwBaseTime + dwElapsedSecond);
+
+        //CSDEBUG(MODULE_NAME,INFO_LEVEL, "[CS_OS] CSGetSoftClock(minus, seconds)=(0x%x, 0x%x).\n", dwElapsedSecond, *pdwSeconds);
+
+        bRet = TRUE;
+    }
+
+    return bRet;
+}
+
+BOOL CSSetSoftTime(TSYSTEMTIME* pDateTime)
+{
+    BOOL bRet = FALSE;
+
+    CSASSERT(pDateTime != NULL);
+
+    if (pDateTime != NULL)
+    {
+        DWORD	dwSecond;
+        /*(pDateTime->m_TDATE.m_dwWeek_3 <= 7) m_dwWeek_3是3bit肯定<= 7*/
+        CSASSERT((pDateTime->m_TDATE.m_dwYear_13 >= 1970) &&
+                 (pDateTime->m_TDATE.m_dwMonth_8 <= 12) &&
+                 (pDateTime->m_TDATE.m_dwDay_8 <= 31) &&
+                 /* (pDateTime->m_TDATE.m_dwWeek_3 <= 7) && */
+                 (pDateTime->m_TTIME.m_dwHour_8 <= 23) &&
+                 (pDateTime->m_TTIME.m_dwMinute_8 <= 59) &&
+                 (pDateTime->m_TTIME.m_dwSecond_8 <= 59));
+
+        if((pDateTime->m_TDATE.m_dwYear_13 >= 1970) &&
+                (pDateTime->m_TDATE.m_dwMonth_8 <= 12) &&
+                (pDateTime->m_TDATE.m_dwDay_8 <= 31) &&
+                /* (pDateTime->m_TDATE.m_dwWeek_3 <= 7) && */
+                (pDateTime->m_TTIME.m_dwHour_8 <= 23) &&
+                (pDateTime->m_TTIME.m_dwMinute_8 <= 59) &&
+                (pDateTime->m_TTIME.m_dwSecond_8 <= 59))
+        {
+            CalcTime2Second(pDateTime->m_TDATE.m_dwYear_13, pDateTime->m_TDATE.m_dwMonth_8, pDateTime->m_TDATE.m_dwDay_8,
+                            pDateTime->m_TTIME.m_dwHour_8,pDateTime->m_TTIME.m_dwMinute_8, pDateTime->m_TTIME.m_dwSecond_8, &dwSecond);
+
+            bRet = CSSetSoftClock(dwSecond);
+            CSASSERT(bRet);
+        }
+    }
+
+    return bRet;
+}
+
+BOOL CSGetSoftTime(TSYSTEMTIME* pDateTime)
+{
+    BOOL 	bRet = FALSE;
+
+    CSASSERT(pDateTime != NULL);
+
+    if (pDateTime != NULL)
+    {
+        DWORD	dwSeconds;
+        bRet = CSGetSoftClock(&dwSeconds);
+
+        if (bRet)
+        {
+            DWORD nYear,nMonth,nDay,nHour,nMinute,nSecond;
+
+            CalcSecond2Time(&nYear, &nMonth, &nDay,	&nHour,&nMinute, &nSecond, dwSeconds);
+
+            pDateTime->m_TDATE.m_dwYear_13	= nYear;
+            pDateTime->m_TDATE.m_dwMonth_8	= nMonth;
+            pDateTime->m_TDATE.m_dwDay_8	= nDay;
+            pDateTime->m_TTIME.m_dwHour_8	= nHour;
+            pDateTime->m_TTIME.m_dwMinute_8	= nMinute;
+            pDateTime->m_TTIME.m_dwSecond_8	= nSecond;
+
+            CSASSERT((pDateTime->m_TDATE.m_dwYear_13 >= START_YEAR) &&
+                     (pDateTime->m_TDATE.m_dwMonth_8 <= 12) &&
+                     (pDateTime->m_TDATE.m_dwDay_8 <= 31) &&
+                     /* (pDateTime->m_TDATE.m_dwWeek_3 <= 7) && */
+                     (pDateTime->m_TTIME.m_dwHour_8 <= 23) &&
+                     (pDateTime->m_TTIME.m_dwMinute_8 <= 59) &&
+                     (pDateTime->m_TTIME.m_dwSecond_8 <= 59));
+        }
+    }
+
+    return bRet;
+}
+#endif
+/////////////////////end set system time///////////////////////////////////////
+
+/**
+@brief 获取可用的RAM空间
+@param[out] pnFreeCount 系统可用的RAM空间
+@return 获取成功则返回CSUDI_SUCCESS，失败则返回CSUDI_FAILURE。
+
+-------------------------------------------------------------------------------
+ENTROPIC COMMENTS ON COSHIP API
+	2013/11/06
+		This API is NOT required for Android DVB-S2 plus OTT project. 
+-------------------------------------------------------------------------------
+
+*/
+CSUDI_Error_Code CSUDIOSGetFreeRAM(unsigned int * puFreeCount)
+{
+	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
+	return Retcode;
+}
+
+/**
+@brief ??CPU??
+@param[out] pnCpuCount CPU???
+@return ???????CSUDI_SUCCESS,?????CSUDI_FAILURE?
+
+-------------------------------------------------------------------------------
+ENTROPIC COMMENTS ON COSHIP API
+	2013/11/06
+		This API is NOT required for Android DVB-S2 plus OTT project. 
+-------------------------------------------------------------------------------
+
+*/
+CSUDI_Error_Code CSUDIOSGetCPUCount(unsigned int * puCpuCount)
+{
+	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
+	return Retcode;
+}
+/**
+@brief ??????CPU???????(%)
+@param[out] pnUsage CPU??????,?????0--1000;
+@return ???????CSUDI_SUCCESS,?????CSUDI_FAILURE?
+
+-------------------------------------------------------------------------------
+ENTROPIC COMMENTS ON COSHIP API
+	2013/11/06
+		This API is NOT required for Android DVB-S2 plus OTT project. 
+-------------------------------------------------------------------------------
+
+*/
+CSUDI_Error_Code CSUDIOSGetCPUUsage(unsigned int index, unsigned int * puUsage)
+{
+	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
+	return Retcode;
+}
+/**
+@brief ????????????
+@param[out]  hThread ????????????
+@param[in/out]   nSize hThread?????,????Thread???
+@return ???????CSUDI_SUCCESS,?????CSUDI_FAILURE?
+
+-------------------------------------------------------------------------------
+ENTROPIC COMMENTS ON COSHIP API
+	2013/11/06
+		This API is NOT required for Android DVB-S2 plus OTT project. 
+-------------------------------------------------------------------------------
+
+*/
+CSUDI_Error_Code CSUDIOSGetAllThreadHandle(CSUDI_HANDLE* phThread, unsigned int*  puSize)
+{
+	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
+	return Retcode;
+}
+/**
+@brief ???????????,?????????ID??????
+@param[in]   hThread ???????
+@param[out]  psThreadInfo ???????
+@return ???????CSUDI_SUCCESS,psThreadInfo??NULL,?????CSUDI_FAILURE?
+
+-------------------------------------------------------------------------------
+ENTROPIC COMMENTS ON COSHIP API
+	2013/11/06
+		This API is NOT required for Android DVB-S2 plus OTT project. 
+-------------------------------------------------------------------------------
+
+*/
+CSUDI_Error_Code CSUDIOSGetThreadInfo(CSUDI_HANDLE hThread, CSUDIOSThreadInfo_S* psThreadInfo)
+{
+	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
+	return Retcode;
+}
+/**
+@brief ???????RAM??
+@param[in]   hThread ???????
+@param[out]  pnUsedRam ?????RAM??
+@return ???????CSUDI_SUCCESS,?????CSUDI_FAILURE?
+
+-------------------------------------------------------------------------------
+ENTROPIC COMMENTS ON COSHIP API
+	2013/11/06
+		This API is NOT required for Android DVB-S2 plus OTT project. 
+-------------------------------------------------------------------------------
+
+*/
+CSUDI_Error_Code CSUDIOSGetThreadUsedRAM(CSUDI_HANDLE hThread, unsigned int * puUsedRam)
+{
+	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
+	return Retcode;
+}
+/**
+@brief ???????CPU???(%)
+@param[in]   hThread ???????
+@param[out] pnUsage ?????CPU??,?????:0--1000
+@return ???????CSUDI_SUCCESS,?????CSUDI_FAILURE?
+
+-------------------------------------------------------------------------------
+ENTROPIC COMMENTS ON COSHIP API
+	2013/11/06
+		This API is NOT required for Android DVB-S2 plus OTT project. 
+-------------------------------------------------------------------------------
+
+*/
+CSUDI_Error_Code CSUDIOSGetThreadCPUUsage(CSUDI_HANDLE hThread, unsigned int * puUsage)
+{
+	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);    
+	return Retcode;
+}
+

@@ -1,0 +1,199 @@
+/****************************************************************************/
+/*                   Entropic (Shanghai) Co, LTD                            */
+/*                        SOFTWARE FILE/MODULE HEADER                       */
+/*                 Copyright Entropic Co, LTD                               */
+/*                            All Rights Reserved                           */
+/****************************************************************************/
+/*
+ * Filename:        udi2_os.c
+ *
+ *
+ * Description:     API implementation for COSHIP interface layer .
+ *
+ *
+ *-------------------------------------------------------------------------------
+ *ENTROPIC COMMENTS ON COSHIP HEADER FILE:
+	 2013/11/06
+		 The APIs in this header file are required for Android DVB-S2 plus OTT project.
+		 Because there is no EEPROM device in the STB system.
+ *-------------------------------------------------------------------------------
+ ****************************************************************************/ 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h> 
+
+#include <time.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+#include "udiplus_os.h"
+
+
+/**
+@brief 设置系统时间
+
+设置系统时间,之后会自动计时以保证时间是准确的
+@param[in] nSeconds 自1970年1月1日凌晨起至现在的总秒数
+@return 成功返回CSUDI_SUCCESS;失败返回错误代码
+*/
+CSUDI_Error_Code CSUDIPlusOSClockSet(CSUDIPLUS_TIME_T nSeconds)
+{
+	struct timeval tv;
+	tv.tv_sec = nSeconds;
+	tv.tv_usec = 0;
+	settimeofday(&tv, NULL);
+	return CSUDI_SUCCESS;
+}
+
+/**
+@brief 获取当前系统时间
+
+一旦设置之后,会自动开始计时,即使的精度依赖于CSUDIOSGetTime的精度
+@param[out] pnSeconds 自1970年1月1日凌晨起至现在的总秒数
+@return 成功返回CSUDI_SUCCESS;失败返回错误代码
+@note 在未设置时间之前,认为开机时间为1970年1月1日凌晨
+*/
+CSUDI_Error_Code CSUDIPlusOSClockGet(CSUDIPLUS_TIME_T* pnSeconds)
+{
+	struct timeval tv;
+	gettimeofday(&tv,NULL);
+	
+	*pnSeconds = tv.tv_sec;
+	return CSUDI_SUCCESS;
+}
+
+/**
+@brief 获取自系统启动后经过的时间毫秒数
+
+@return 成功返回自系统启动后经过的时间毫秒数，失败返回0
+*/
+unsigned int CSUDIPlusOSGetTickCount(void)
+{
+	struct timespec time ={0 ,0};
+	unsigned int res = 0;
+	clock_gettime (CLOCK_MONOTONIC, &time); 
+	res = (unsigned int)(time.tv_sec*1000+time.tv_nsec/1000000);
+	return 	res;
+}
+
+/**
+@brief 将系统时间转换为秒数
+
+将年月日时分秒形式的时间转换成自1970年1月1日起至现在的总秒数
+@param[in] psDateTime 输入时间,以年月日时分秒表示，结构体中Week,m_MilliSeconds_8字段可不填写
+@param[out] pnSeconds 输出时间，以自1970年1月1日凌晨起至现在的总秒数表示
+@return 成功返回CSUDI_SUCCESS;失败返回错误代码
+*/  	
+CSUDI_Error_Code CSUDIPlusOSSystime2Second(CSUDIPLUSOSSysTime_S* psDateTime,CSUDIPLUS_TIME_T* pnSeconds)
+{
+	struct tm p;
+	time_t t_of_day;
+	p.tm_year = psDateTime->m_sDate.m_nYear_13 - 1900;
+	p.tm_mon = psDateTime->m_sDate.m_nMonth_8-1;
+	p.tm_mday = psDateTime->m_sDate.m_nDay_8;
+	p.tm_hour = psDateTime->m_sTime.m_nHour_5;
+	p.tm_min = psDateTime->m_sTime.m_nMinute_6;
+	p.tm_sec = psDateTime->m_sTime.m_nSecond_6;
+	p.tm_isdst = 0;
+	t_of_day = mktime(&p);
+	*pnSeconds = (CSUDIPLUS_TIME_T)t_of_day;
+	return CSUDI_SUCCESS;
+}
+
+/**
+@brief 将秒数转换为系统时间
+
+将自1970年1月1日起至现在的总秒数转换成年月日时分秒形式
+@param[in] nSeconds 输入时间，以自1970年1月1日起至现在的总秒数表示
+@param[out] psDateTime 输出时间,以年月日时分秒表示，输出结构体中m_MilliSeconds_8总是0
+@return 成功返回CSUDI_SUCCESS;失败返回错误代码
+*/ 
+CSUDI_Error_Code CSUDIPlusOSSecond2Systime(CSUDIPLUS_TIME_T nSeconds,CSUDIPLUSOSSysTime_S* psDateTime)
+{
+	time_t t_of_day = (time_t)nSeconds;
+	
+	struct tm *ptm; 
+	ptm = localtime(&t_of_day);
+	psDateTime->m_sDate.m_nYear_13 = ptm->tm_year + 1900;
+	psDateTime->m_sDate.m_nMonth_8 = ptm->tm_mon + 1;
+	psDateTime->m_sDate.m_nDay_8 = ptm->tm_mday;
+	psDateTime->m_sTime.m_nHour_5 = ptm->tm_hour;
+	psDateTime->m_sTime.m_nMinute_6 = ptm->tm_min;
+	psDateTime->m_sTime.m_nSecond_6 = ptm->tm_sec;
+	
+	return CSUDI_SUCCESS;
+}
+
+/*******************************************************************
+ **                     Timer definitions                         **
+ *******************************************************************/
+ /**
+@brief 创建定时器
+
+@param[in] eMode 定时器工作模式,详将CSUDIPLUSOSTimerMode_E定义
+@param[in] pCallback 定时器触发的回调函数，定时器触发时会在同一个任务中调用此函数
+@param[in] pvArg 定时器回调函数的参数，即调用pCallback时的参数
+@param[out] phTimer 定时器句柄
+@return 成功返回CSUDI_SUCCESS;失败返回错误代码
+@note 定时器的精度约为100ms，超过这个精度的定时器将是非常不准确的
+@note 所以定时器回调在同一个任务中发生，因此请尽快使定时器回调函数返回，否则将对其它定时器产生影响
+@note 定时器回调函数中，仍可以调用定时器函数进行操作
+*/
+CSUDI_Error_Code CSUDIPlusOSTimerCreate(CSUDIPLUSOSTimerMode_E eMode, CSUDIOSTimerCallback_F pCallback, void* pvArg, CSUDI_HANDLE *phTimer)
+{
+
+}
+
+/**
+@brief 启动一个定时器
+
+启动定时器,约nMilliSeconds毫秒后,将触发对应的回调函数
+@param[in] hTimer 定时器句柄，CSUDIPlusOSTimerCreate接口的输出参数
+@param[in] nMilliSeconds 定时时间,单位毫秒
+@return 成功返回CSUDI_SUCCESS;失败返回错误代码
+@note 启动一个已经启动的定时器将重置计时时间,并返回成功
+*/
+CSUDI_Error_Code CSUDIPlusOSTimerStart(CSUDI_HANDLE hTimer, unsigned int unMilliSeconds)
+{
+
+}
+
+/**
+@brief 停止一个定时器
+
+停止一个定时器,回调函数将不再被触发
+@param[in] hTimer 定时器句柄
+@return 成功返回CSUDI_SUCCESS;失败返回错误代码
+@note 停止一个已经停止的定时器仍可返回成功
+*/
+CSUDI_Error_Code CSUDIPlusOSTimerStop(CSUDI_HANDLE hTimer)
+{
+
+}
+
+/**
+@brief 重置一个定时器
+
+重置一个定时器,定时时间在调用后重新开始记录
+@param[in] hTimer 定时器句柄
+@return 成功返回CSUDI_SUCCESS;失败返回错误代码
+@note 重置一个已经停止的定时器仍返回成功,但这个操作没有任何意义
+*/
+CSUDI_Error_Code CSUDIPlusOSTimerReset(CSUDI_HANDLE hTimer)
+{
+
+}
+
+/**
+@brief 销毁一个定时器
+
+销毁一个定时器,销毁后该定时器句柄不再有效,也无法再次启动
+@param[in] hTimer 定时器句柄
+@return 成功返回CSUDI_SUCCESS;失败返回错误代码
+@note 无论是停止还是激活状态，均可以销毁一个定时器
+*/
+CSUDI_Error_Code CSUDIPlusOSTimerDestroy(CSUDI_HANDLE hTimer)
+{
+
+}

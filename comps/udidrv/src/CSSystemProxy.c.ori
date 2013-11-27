@@ -1,0 +1,190 @@
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <unistd.h>
+#include <signal.h>
+#include <fcntl.h>
+
+#include <sys/ipc.h>
+#include <sys/sem.h>
+#include <sys/shm.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+#include "CSSystemDaemon.h"
+#include "CSSystemProxy.h"
+#include "udiplus_debug.h"
+#include "udiplus_typedef.h"
+
+#undef false
+#define false 0
+
+#undef true
+#define true 1
+
+#define MODULE_NAME "cs_storage"
+
+#if 0
+#undef CSASSERT
+#define CSASSERT(expression)  \
+		do{ \
+			if(!(expression)) \
+			printf("Assertion: \"%s\" failed, in file %s, line %d\n", \
+					#expression, __FILE__, __LINE__); \
+		}while(0)
+#endif
+
+#ifdef SYSTEM_DEAMON
+
+static int s_nSem;
+static CSSystemDaemonCmd_S * s_psSystemDaemon;
+static int s_bInited = false;
+
+static int CSSystemProxyInit(void)
+{
+	struct stat sStat;
+	int nFileDes;
+	int nShmem;
+	
+	if(stat(CS_SYSTEM_DAEMON_PATH,&sStat) == -1)
+	{
+		if(-1 == (nFileDes = open(CS_SYSTEM_DAEMON_PATH,O_RDWR|O_CREAT)))
+		{
+			CSDEBUG(MODULE_NAME,ERROR_LEVEL,"Error : Create File %s error with %s\n",CS_SYSTEM_DAEMON_PATH,strerror(errno));
+			return -1;
+		}
+		close(nFileDes);
+	}
+
+	/*Get Creator and Consumer Semaphores*/
+	s_nSem = semget(ftok(CS_SYSTEM_DAEMON_PATH,CS_SYSTEM_DAEMON_SEM_ID),
+		2,CS_SYSTEM_DAEMON_ACCESS_MODE);
+	if(s_nSem == -1)
+	{
+		CSDEBUG(MODULE_NAME,ERROR_LEVEL,"Error : Get Creator/Consumer sem error with %s\n",strerror(errno));
+		return -1;
+	}
+
+	/*Get the Share memory*/
+	nShmem     = shmget(ftok(CS_SYSTEM_DAEMON_PATH,CS_SYSTEM_DAEMON_SHMEM_ID),
+		0,CS_SYSTEM_DAEMON_ACCESS_MODE);
+	if(nShmem == -1)
+	{
+		CSDEBUG(MODULE_NAME,ERROR_LEVEL,"Error : Get share memory error with %s\n",strerror(errno));
+		return -1;
+	}
+
+	s_psSystemDaemon = (CSSystemDaemonCmd_S *)shmat(nShmem,0,0);
+	if(s_psSystemDaemon == (CSSystemDaemonCmd_S *)-1)
+	{
+		CSDEBUG(MODULE_NAME,ERROR_LEVEL,"Error : Get shmat error with %s\n",strerror(errno));
+		return -1;
+	}
+
+	return 0;	
+}
+
+
+/*
+	Lock();
+		write the cmd ;
+
+		signal(creator);
+		wait(consumer);
+
+		get the system return;
+	Unlock();
+*/
+
+int  CSSYSTEMPROXYRun(char * szCmd)
+{
+	struct sembuf sSemOpt;
+	int nRet;
+	
+	if(!s_bInited)
+	{
+		s_bInited = true;
+		
+		nRet = CSSystemProxyInit();
+		if(-1 == nRet)
+		{
+			CSASSERT(0);
+			s_bInited = false;
+			return -1;
+		}
+	}
+
+	/*lock()*/
+	sSemOpt.sem_num = EM_SYSTEM_DAEMON_SEM_PROXY_RUN;
+	sSemOpt.sem_op = -1;
+	sSemOpt.sem_flg = 0;
+	nRet = semop(s_nSem,&sSemOpt,1);
+	if(nRet == -1)
+	{
+		CSASSERT(0);
+		return -1;
+		/*continue;*/
+	}	
+
+	s_psSystemDaemon->nRet = -1;
+	strcpy(s_psSystemDaemon->szCmd,szCmd);
+
+
+	/*signal(Creator)*/
+	sSemOpt.sem_num = EM_SYSTEM_DAEMON_SEM_CMD_START;
+	sSemOpt.sem_op = 1;
+	sSemOpt.sem_flg = 0;
+	nRet = semop(s_nSem,&sSemOpt,1);
+	if(nRet == -1)
+	{
+		CSASSERT(0);
+		/*continue;*/
+	}
+	
+	/*wait(Consumer)*/
+	sSemOpt.sem_num = EM_SYSTEM_DAEMON_SEM_CMD_END;
+	sSemOpt.sem_op = -1;
+	sSemOpt.sem_flg = 0;
+	nRet = semop(s_nSem,&sSemOpt,1);
+	if(nRet == -1)
+	{
+		CSASSERT(0);
+	}
+
+	nRet = s_psSystemDaemon->nRet;
+
+	/*unlock()*/
+	sSemOpt.sem_num = EM_SYSTEM_DAEMON_SEM_PROXY_RUN;
+	sSemOpt.sem_op = 1;
+	sSemOpt.sem_flg = 0;
+	nRet = semop(s_nSem,&sSemOpt,1);
+	if(nRet == -1)
+	{
+		CSASSERT(0);
+		return -1;
+		/*continue;*/
+	}
+
+	return nRet;
+}
+
+#endif
+
+#if 0
+int main()
+{
+	if(CSSYSTEMPROXYRun("ps") == -1)
+	{	
+		CSASSERT(0);
+	}
+	
+	return 0;
+}
+#endif
+
+

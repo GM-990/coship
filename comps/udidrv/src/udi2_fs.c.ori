@@ -1,0 +1,2048 @@
+#include "udi2_fs.h"
+#include "cs_storage.h"
+#include "udi2_os.h"
+#if 1
+#include "udiplus_debug.h"
+#else
+#undef CSASSERT
+#define CSASSERT(x) 
+
+#undef CSASSERT_FAILED
+#define CSASSERT_FAILED(exp) (!(exp))
+#endif
+
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/vfs.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <sys/ioctl.h>
+#include <errno.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+
+#define CSSTD_UNUSED(x) ((void)x)
+
+#define MAX_NOTIFY_COUNT    (8)
+#define MAX_STORAGE_COUNT   (8)
+#define MAX_OPEN_FILE_COUNT (512)
+#define MOUNT_POINT_NAME(i)  "/mnt/hd/HDD"#i
+#define NOTICE_LEVEL		(0x0FFFFFFF)
+#define EXT2_SUPER_MAGIC    (0xEF53)
+#define EXT3_SUPER_MAGIC    (0xEF53)
+#define JFFS2_SUPER_MAGIC   (0x72b6)
+#define MSDOS_SUPER_MAGIC   (0x4d44)
+#define NTFS_SB_MAGIC       (0x5346544e)
+#define UBIFS_SUPER_MAGIC (0x24051905)
+#define YAFFS_MAGIC (0x5941FF53)
+
+#define COMMAND_OPTION ""
+#define MNAME "DriverFS"
+
+#define USB_DEV   (0x0000001)
+#define ATA_DEV   (0x0000010)
+#define RA_DEV 	  (0x0000100)
+#define URA_DEV   (0x0001000)
+#define MAJ_DEV   (0x0010000)
+#define VOL_DEV   (0x0100000)
+#define FLASH_DEV (0x1000000)
+
+#define IVALID_PARENT_DEVICE_ID (0xFFFFFFFF)
+
+#define MODULE_FS "udi2_fs"
+/*for linux block io*/
+#define BLKGETSIZE   _IO(0x12,96)    /* return device size */
+#define BLKGETSIZE64 _IOR(0x12,114,size_t)	/* size in bytes */
+
+#define MAX_UBI_DEVICE (16)
+/* reseeve 0-15 for system */
+#define UBI_DEV_NUM_START (16)
+
+typedef struct _UdiNotifyObject
+{
+	BOOL m_bUsed;
+	CSUDIRDICallback_F m_fnCallback;
+	void * m_pUsrData;
+}UdiNotifyObject;
+
+typedef struct _UdiStorageObject
+{
+	CSUDIFSDeviceInfo_S  m_sStorageInfo;
+	CSUDI_UINT32		 m_devID;
+	BOOL  		         m_bUsed;       /*此结构的使用状态*/
+}UdiStorageObject;
+
+typedef struct _UdiMountPoint
+{
+	CSUDI_UINT32  m_devID;
+	const char   *m_Name;
+	CSUDI_BOOL    m_bUsed;
+}UdiMountPoint;
+
+typedef struct _UdiOpenedFiles
+{
+	CSUDI_BOOL    m_bUsed;
+	CSUDI_BOOL    m_isDir;
+	CSUDI_UINT32  m_devID;
+	CSUDI_HANDLE  m_handle;
+}UdiOpenedFiles;
+
+typedef struct _UBIDevice
+{
+    CSUDI_BOOL    m_bUsed;
+    int 	m_MtdNum;
+    int    m_devNum;
+}UBIDevice;
+
+
+static UdiNotifyObject  s_sNotifyObjects[MAX_NOTIFY_COUNT];
+static UdiStorageObject s_sStorageObjects[MAX_STORAGE_COUNT];
+static UdiOpenedFiles   s_sOpenedFiles[MAX_OPEN_FILE_COUNT];
+static UdiMountPoint    s_sMountPoints[MAX_STORAGE_COUNT] = 
+	{
+		{-1, MOUNT_POINT_NAME(0), CSUDI_FALSE},
+		{-1, MOUNT_POINT_NAME(1), CSUDI_FALSE},
+		{-1, MOUNT_POINT_NAME(2), CSUDI_FALSE},
+		{-1, MOUNT_POINT_NAME(3), CSUDI_FALSE},
+		{-1, MOUNT_POINT_NAME(4), CSUDI_FALSE},
+		{-1, MOUNT_POINT_NAME(5), CSUDI_FALSE},
+		{-1, MOUNT_POINT_NAME(6), CSUDI_FALSE},
+		{-1, MOUNT_POINT_NAME(7), CSUDI_FALSE},
+	};
+
+static UBIDevice s_sUbiDevice[MAX_UBI_DEVICE];
+
+static int GetFreeUbiDevice(int nMtdNum)
+{
+	int nDevNum = -1;
+	int i;
+	int nFirstUnusedDevice = -1;
+	CSUDI_BOOL bMtdUsed = FALSE;
+
+	for(i=0; i<MAX_UBI_DEVICE; i++ )
+	{
+		if(!s_sUbiDevice[i].m_bUsed)
+		{
+			if(nFirstUnusedDevice == -1)
+			{
+				nFirstUnusedDevice = i;
+			}
+		}
+		else
+		{
+			if(s_sUbiDevice[i].m_MtdNum == nMtdNum)
+			{
+				bMtdUsed = TRUE;
+			}
+		}
+	}
+
+	if(nFirstUnusedDevice != -1 && !bMtdUsed)
+	{
+		s_sUbiDevice[nFirstUnusedDevice].m_MtdNum = nMtdNum;
+		s_sUbiDevice[nFirstUnusedDevice].m_bUsed = CSUDI_TRUE;
+		
+		nDevNum = s_sUbiDevice[nFirstUnusedDevice].m_devNum;
+	}
+
+	return nDevNum;
+	
+}
+
+static int ClearFreeUbiDevice(int nMtdNum)
+{
+	int nRet = -1;
+	int i; 
+
+	for(i=0; i<MAX_UBI_DEVICE; i++ )
+	{
+		if(s_sUbiDevice[i].m_bUsed && s_sUbiDevice[i].m_MtdNum == nMtdNum)
+		{
+			s_sUbiDevice[i].m_bUsed = CSUDI_FALSE;
+			s_sUbiDevice[i].m_MtdNum = -1;
+			
+			nRet = 0;
+			
+			break;
+		}
+	}
+
+	return nRet;
+}
+
+
+static CSUDI_HANDLE GetFreeOpenedFile(CSUDI_HANDLE handle, CSUDI_UINT32 devID, CSUDI_BOOL isDir)
+{
+	UdiOpenedFiles *pOpenedFile = s_sOpenedFiles;
+	int i;
+	pOpenedFile++;
+	if(handle == CSUDI_NULL) return CSUDI_NULL;
+	if((int)handle == 0) return CSUDI_NULL;
+	//if(devID == 0) return CSUDI_NULL;
+	for(i = 1; i < MAX_OPEN_FILE_COUNT; i++)
+	{
+		if(pOpenedFile->m_bUsed == CSUDI_FALSE)
+		{
+			pOpenedFile->m_bUsed = CSUDI_TRUE;
+			pOpenedFile->m_isDir = isDir;
+			pOpenedFile->m_devID = devID;
+			pOpenedFile->m_handle = handle;
+			return (CSUDI_HANDLE)i;
+		}
+		pOpenedFile++;
+	}
+	return CSUDI_NULL;
+}
+
+static void ClearOpenedFile(CSUDI_HANDLE handle)
+{
+	s_sOpenedFiles[(int)handle].m_bUsed = CSUDI_FALSE;
+}
+
+CSUDI_BOOL OpenedFiles(CSUDI_UINT32 dwDeviceId)
+{
+	UdiOpenedFiles *pOpenedFile = s_sOpenedFiles;
+	pOpenedFile++;
+	int i;
+	for(i = 1; i < MAX_OPEN_FILE_COUNT; i++)
+	{
+		if(pOpenedFile->m_bUsed == CSUDI_TRUE)
+		{
+			if(pOpenedFile->m_devID == dwDeviceId)
+				return CSUDI_TRUE;
+		}
+		pOpenedFile++;
+	}
+	return CSUDI_FALSE;
+}
+
+
+static BOOL  CSUDIFSGetDiskSize(char * szPartition, unsigned long long *lpSectors) 
+{
+	int nErr;
+	long nSize;
+	long long nBytes;
+	int fd;
+
+	if(CSASSERT_FAILED(szPartition)) 
+	{
+		return FALSE;
+	}
+	
+	if(CSASSERT_FAILED(lpSectors))
+	{
+		return FALSE;
+	}
+
+	fd = open(szPartition,O_RDONLY);
+	if(CSASSERT_FAILED(fd != -1))
+	{
+		return FALSE;
+	}
+	
+	nErr = ioctl(fd, BLKGETSIZE, &nSize);
+	if (nErr!=0) 
+	{
+		nSize = 0;
+		if (errno != EFBIG) 
+		{
+			close(fd);
+			return FALSE;
+		}
+	}
+	
+	nErr = ioctl(fd, BLKGETSIZE64, &nBytes);
+	if (nErr!=0 || nBytes == 0 || nBytes == nSize)
+	{
+		*lpSectors = (unsigned long long)nSize;
+	}
+	else
+	{
+		*lpSectors = (nBytes >> 9);
+	}
+
+	close(fd);
+	return TRUE;
+}
+
+static CSUDI_UINT32 GetID(int flag)
+{
+	static CSUDI_UINT32 usb_ra_maj_id = CSUDI_RDI_STORAGE_MAJOR_DEVICEID;
+	static CSUDI_UINT32 usb_ra_vol_id = CSUDI_RDI_VOLUME_MAJOR_DEVICEID;
+	static CSUDI_UINT32 other_id = 0;
+	CSUDI_UINT32  ret   =  0;
+
+	if((flag & USB_DEV) == USB_DEV && (flag & RA_DEV) == RA_DEV)
+	{
+		if((flag & MAJ_DEV) == MAJ_DEV)
+		{
+			//return ++usb_ra_maj_id;
+			ret   = (++usb_ra_maj_id);
+		}
+		else if((flag & VOL_DEV) == VOL_DEV)
+		{
+			//return ++usb_ra_vol_id;
+			ret = (++usb_ra_vol_id);
+		}
+	}
+	else
+	{
+		//return ++other_id;
+		ret = (++other_id);
+	}
+	return ret;
+}
+
+static UdiStorageObject * CSUDIRDIFindStorageObject(const char * szDeviceName)
+{
+	int i = 0;
+	UdiStorageObject * pStorageObj = s_sStorageObjects;
+	
+	for(i = 0; i < MAX_STORAGE_COUNT; i++)
+	{
+		if(pStorageObj->m_bUsed)
+		{
+			if(strcmp(szDeviceName, pStorageObj->m_sStorageInfo.m_szDeviceName) == 0)
+			{
+				return pStorageObj;
+			}
+		}
+		pStorageObj++;
+	}
+	CSASSERT(0);
+	return CSUDI_NULL;
+}
+static UdiStorageObject * CSUDIRDIGetFreeStorageObject(void)
+{
+	int i;
+	UdiStorageObject * pStorageObj = s_sStorageObjects;
+
+	for(i = 0; i < MAX_STORAGE_COUNT; i++)
+	{
+		if(!pStorageObj->m_bUsed)
+		{
+			pStorageObj->m_bUsed = CSUDI_TRUE;
+			return pStorageObj;		
+		}
+		pStorageObj++;
+	}	
+
+	CSASSERT(0);
+	return CSUDI_NULL;
+}
+
+static BOOL NotifyAll(CSUDIRDIEvent_E eType, CSUDI_UINT32 dwDeviceId)
+{
+	int i;
+	UdiNotifyObject * pNotifyObj = s_sNotifyObjects;
+	for(i = 0; i < MAX_NOTIFY_COUNT; i++)
+	{
+		if(pNotifyObj->m_bUsed)
+		{
+			CSDEBUG(MODULE_FS, ERROR_LEVEL, "eType(0x%x)dwDeviceId(%x)\n",eType,dwDeviceId);
+			(*(pNotifyObj->m_fnCallback))(eType, dwDeviceId, CSUDI_NULL,(void *)(pNotifyObj->m_pUsrData));
+		}
+		
+		pNotifyObj++;
+	}	
+	CSASSERT(0);
+	return TRUE;
+}
+
+static int CSUDIFSMountEX(const char *pcDeviceName, const char * pcDir, const char * option)
+{
+	int nRet;
+	char szCmdLine[256];
+	
+	if(CSASSERT_FAILED(pcDeviceName)) return -1;
+	if(CSASSERT_FAILED(pcDir)) return -1;
+
+    memset(szCmdLine, 0, sizeof(szCmdLine));
+	sprintf(szCmdLine,"mount %s %s %s", option, pcDeviceName, pcDir);
+	CSDEBUG(MODULE_FS, ERROR_LEVEL, "cmdline(%s)\n",szCmdLine);
+	nRet = system(szCmdLine);
+	CSASSERT(nRet != -1);
+
+	return nRet;
+}
+
+static int CSUDIFSMount(const char *pcDeviceName, const char * pcDir)
+{
+	CSDEBUG(MODULE_FS, ERROR_LEVEL, "pcDeviceName(%s)pcDir(%s)\n",pcDeviceName,pcDir);
+	return CSUDIFSMountEX(pcDeviceName, pcDir,"");
+}
+
+static int CSUDIFSUmount(const char *pcDir, const char *option)
+{
+	int nRet;
+	char szCmdLine[256];
+
+	if(CSASSERT_FAILED(pcDir)) return -1;
+    
+	memset(szCmdLine, 0, sizeof(szCmdLine));
+	sprintf(szCmdLine,"umount %s %s",pcDir, option);
+	CSDEBUG(MODULE_FS, ERROR_LEVEL, "cmdline(%s)\n",szCmdLine);
+	nRet = system(szCmdLine);
+	CSASSERT(nRet != -1);
+
+	return nRet;
+}
+
+static int CSUDIFSMountUbi(const char *pcDeviceName, CSUDIFSDeviceInfo_S *pDevInfo)
+{
+	int nRet=-1;
+	char szCmdLine[256];
+	char szUbiVol[256];
+	char szUbiDev[256];
+	int nMtdNum;
+	int nUbiDevNum;
+	int nWaitCnt = 0;
+    CSUDI_UINT64 devSize;
+	struct stat sStat;
+#if defined(MMCP_SUPPORT_LL)    
+    CSUDI_UINT64 VolSize;
+#else
+#define ll_long2uint(a,b)   (b = (unsigned int)((a).low))
+	unsigned int  VolSize;
+#endif
+
+
+	if(CSASSERT_FAILED(pcDeviceName)) return -1;
+	if(CSASSERT_FAILED(pDevInfo)) return -1;
+    
+#if defined(MMCP_SUPPORT_LL)
+    devSize= pDevInfo->m_dwDeviceSize;
+    if(CSASSERT_FAILED(pDevInfo->m_szMountPoint)) return -1;
+    if(CSASSERT_FAILED(devSize > 0)) return -1;
+    
+    /*文件系统本身需要占用大约10%的空间*/
+    VolSize = devSize*9/10;
+    /*align at 4K*/
+	VolSize = VolSize & (~(0x1000-1));
+#else //To DO
+    devSize.low  = pDevInfo->m_dwDeviceSize.low;
+    devSize.high = pDevInfo->m_dwDeviceSize.high;
+
+    if(CSASSERT_FAILED(pDevInfo->m_szMountPoint)) return -1;
+    if(CSASSERT_FAILED(devSize.low > 0 || devSize.high>0)) return -1;
+    
+    ll_long2uint(devSize,VolSize);
+    VolSize = VolSize*9/10;
+    /*align at 4K*/
+    VolSize = VolSize & (~(0x1000-1));
+
+#endif
+
+
+	sscanf(pcDeviceName, "/dev/mtdblock%d", &nMtdNum);
+
+	nUbiDevNum = GetFreeUbiDevice(nMtdNum);
+
+	if(nMtdNum >=0 && nUbiDevNum>=0)
+	{
+        memset(szCmdLine,0,sizeof(szCmdLine));
+		sprintf(szCmdLine,"ubiattach /dev/ubi_ctrl -m %d -d %d", nMtdNum, nUbiDevNum);
+		CSDEBUG(MODULE_FS, DEBUG_LEVEL,"%s\n", szCmdLine);
+		nRet = system(szCmdLine);
+		CSASSERT(nRet != -1);
+
+        memset(szUbiDev,0,sizeof(szUbiDev));
+		sprintf(szUbiDev,"/dev/ubi%d", nUbiDevNum);
+
+		while(nWaitCnt++ < 10)
+		{   
+			nRet = stat(szUbiDev, &sStat);
+
+			if(nRet != 0) 
+			{
+				CSUDIOSThreadSleep(50);
+			}
+			else
+			{
+				break;
+			}
+		}
+
+		if(nRet != -1)
+		{
+    		memset(szUbiVol,0,sizeof(szUbiVol));
+			sprintf(szUbiVol,"/dev/ubi%d_0", nUbiDevNum);
+
+			nRet = stat(szUbiVol,&sStat);
+			if(nRet != 0)
+			{
+       		    memset(szCmdLine,0,sizeof(szCmdLine));
+                #if defined(MMCP_SUPPORT_LL)
+				sprintf(szCmdLine,"ubimkvol /dev/ubi%d -n 0 -N userdata%d -s %lld", nUbiDevNum, nUbiDevNum,VolSize);
+                #else
+                sprintf(szCmdLine,"ubimkvol /dev/ubi%d -n 0 -N userdata%d -s %d", nUbiDevNum, nUbiDevNum,VolSize);
+                #endif
+				CSDEBUG(MODULE_FS, DEBUG_LEVEL,"%s\n", szCmdLine);
+				nRet = system(szCmdLine);
+				CSASSERT(nRet != -1);
+			}
+
+    		memset(szCmdLine,0,sizeof(szCmdLine));
+			sprintf(szCmdLine,"mount -o sync -t ubifs ubi%d_0 %s", nUbiDevNum, pDevInfo->m_szMountPoint);
+			CSDEBUG(MODULE_FS, DEBUG_LEVEL,"%s\n", szCmdLine);
+			nRet = system(szCmdLine);
+			CSASSERT(nRet != -1);
+		}
+	}
+
+	CSDEBUG(MODULE_FS, DEBUG_LEVEL,"CSUDIFSMountUbi nRet = %d\n",  nRet);
+	return nRet;
+    
+}
+
+static int CSUDIFSUmountUbi(CSUDIFSDeviceInfo_S *pDevInfo)
+{
+	int nRet=-1;
+	char szCmdLine[256];
+	int nMtdNum;
+
+ 	memset(szCmdLine,0,sizeof(szCmdLine));
+	sprintf(szCmdLine,"umount %s", pDevInfo->m_szMountPoint);
+	nRet = system(szCmdLine);
+	CSASSERT(nRet != -1);
+
+	sscanf(pDevInfo->m_szDeviceName, "/dev/mtdblock%d", &nMtdNum);
+
+	nRet = ClearFreeUbiDevice(nMtdNum);
+	CSASSERT(nRet == 0);
+
+    	memset(szCmdLine,0,sizeof(szCmdLine));
+	sprintf(szCmdLine,"ubidetach /dev/ubi_ctrl -m %d", nMtdNum);
+	nRet = system(szCmdLine);
+	CSASSERT(nRet != -1);
+
+	return nRet;
+    
+}
+
+static CSUDI_BOOL GetFreeMountPoint(CSUDI_UINT32 dwDevID, const char * psMountPoint)
+{
+	int i = 0;
+	UdiMountPoint *pMountPoint = s_sMountPoints;
+	
+	for(i = 0; i < MAX_STORAGE_COUNT; i++)
+	{
+		if(pMountPoint->m_bUsed == CSUDI_FALSE)
+		{
+			pMountPoint->m_bUsed = CSUDI_TRUE;
+			strcpy((char *)psMountPoint, pMountPoint->m_Name);
+			pMountPoint->m_devID = dwDevID;
+			return CSUDI_TRUE;
+		}
+		pMountPoint++;
+		
+	}	
+
+	CSASSERT(0);
+	return CSUDI_FALSE;
+}
+
+static CSUDI_BOOL ClearMountPoint(const char * psMountPoint)
+{
+	int i = 0;
+	UdiMountPoint *pMountPoint = s_sMountPoints;
+	
+	for(i = 0; i < MAX_STORAGE_COUNT; i++)
+	{
+		if(strcmp(psMountPoint, pMountPoint->m_Name) == 0)
+		{
+			pMountPoint->m_bUsed = CSUDI_FALSE;
+			return CSUDI_TRUE;
+		}
+		pMountPoint ++;
+	}	
+	CSASSERT(0);
+	return CSUDI_FALSE;
+}
+
+CSUDI_UINT32 GetDeviceIDByFileName(const char *pcFileName)
+{
+	int i = 0;
+	UdiMountPoint *pMountPoint = s_sMountPoints;
+	for(i = 0; i < MAX_STORAGE_COUNT; i++)
+	{
+		if(pMountPoint->m_bUsed == CSUDI_TRUE)
+		{
+			if(strncmp(pcFileName, pMountPoint->m_Name, strlen(pMountPoint->m_Name)) == 0)
+			{
+				return pMountPoint->m_devID;
+			}
+		}
+		pMountPoint++;
+	}	
+	return 0;
+}
+
+static int fnCallback (const CSSTRGEvent_E eDevEvent, const void * pEventData, const int nEventData, void *pUserData)
+{
+	int i = 0;
+	int bRet = 0;
+	unsigned long long uSectors = 0;
+	CSUDI_UINT32 id = 0;
+	CSUDI_UINT32 idp = 0;
+	int flag = 0;
+	int nPartition = 0;
+	CSSTRGPartitionInfo_S partitionInfo;
+	UdiStorageObject * pStorageObj = CSUDI_NULL;
+	CSSTRGInfo_S *pSInfo = (CSSTRGInfo_S*)pEventData;
+	CSSTD_UNUSED(nEventData);
+	CSSTD_UNUSED(pUserData);
+	
+	nPartition = CSSTRGGetPartitionCount(pSInfo->m_szStorage);
+
+	if(eDevEvent == EM_STRG_EVT_CREATE)
+	{
+		pStorageObj = CSUDIRDIGetFreeStorageObject();
+		if(CSASSERT_FAILED(CSUDI_NULL != pStorageObj)) //no free obj
+		{
+			return -1;
+		}
+		if(pSInfo->m_eType == EM_STRG_TYPE_USB)
+		{
+			flag |= USB_DEV | RA_DEV;
+		}
+		else
+		{
+			flag |= ATA_DEV | URA_DEV;
+		}
+		id = GetID(flag | MAJ_DEV);
+		pStorageObj->m_devID = pSInfo->m_nId;
+		pStorageObj->m_sStorageInfo.m_dwDeviceId = id;
+		bRet = CSUDIFSGetDiskSize((char*)pSInfo->m_szStorage, &uSectors);
+		CSASSERT(bRet);
+		if(!bRet)
+		{
+			uSectors = 0;
+		}
+		#if defined(MMCP_SUPPORT_LL)
+		pStorageObj->m_sStorageInfo.m_dwDeviceSize = uSectors * 512;
+		#else
+		pStorageObj->m_sStorageInfo.m_dwDeviceSize.low = uSectors * 512;
+		pStorageObj->m_sStorageInfo.m_dwDeviceSize.high = uSectors * 512 >> 32;
+		#endif
+		pStorageObj->m_sStorageInfo.m_dwParentDeviceId = IVALID_PARENT_DEVICE_ID;
+		pStorageObj->m_sStorageInfo.m_eDeviceType = EM_UDIFS_DEVTYPE_STORAGE;
+		strncpy((char *)pStorageObj->m_sStorageInfo.m_szDeviceName, pSInfo->m_szStorage, sizeof(pSInfo->m_szStorage));
+		//pStorageObj->m_sStorageInfo.m_szMountPoint = "";
+		strncpy((char *)pStorageObj->m_sStorageInfo.m_szMountPoint, "\0", sizeof("\0"));
+		NotifyAll(EM_UDIRDI_EVENT_FOUND, id);
+
+		for(i = 0; i < nPartition; i++)
+		{
+			if(CSSTRGGetPartionInfo(pSInfo->m_szStorage, i, &partitionInfo))
+			{
+				pStorageObj = CSUDIRDIGetFreeStorageObject();
+				if(CSASSERT_FAILED(CSUDI_NULL != pStorageObj)) //no free obj
+				{
+					return -1;
+				}
+				idp = GetID(flag | VOL_DEV);
+				pStorageObj->m_sStorageInfo.m_dwDeviceId = idp;
+				bRet = CSUDIFSGetDiskSize((char*)pSInfo->m_szStorage, &uSectors);
+				CSASSERT(bRet);
+				if(!bRet)
+				{
+					uSectors = 0;
+				}
+				#if defined(MMCP_SUPPORT_LL)
+				pStorageObj->m_sStorageInfo.m_dwDeviceSize= uSectors * 512;
+				#else
+				pStorageObj->m_sStorageInfo.m_dwDeviceSize.low = uSectors * 512;
+				pStorageObj->m_sStorageInfo.m_dwDeviceSize.high = uSectors * 512 >> 32;
+				#endif
+				pStorageObj->m_sStorageInfo.m_dwParentDeviceId = id;
+				pStorageObj->m_sStorageInfo.m_eDeviceType = EM_UDIFS_DEVTYPE_VOLUME;
+				strncpy((char *)pStorageObj->m_sStorageInfo.m_szDeviceName, partitionInfo.m_szPartition, sizeof(partitionInfo.m_szPartition));
+				GetFreeMountPoint(id, pStorageObj->m_sStorageInfo.m_szMountPoint);
+				NotifyAll(EM_UDIRDI_EVENT_FOUND, idp);
+				/*<!-- Modify by lili,2010-8-14 16:52:15: */
+				/* Note: fat32 分区需要加-o usefree 选项，否则在用statfs获取大分区信息时会很慢，内核bug。
+				其他格式分区在加了这个选项后会mount失败，因此做了如下处理*/
+				bRet = CSUDIFSMountEX(partitionInfo.m_szPartition, pStorageObj->m_sStorageInfo.m_szMountPoint, "-o usefree");
+				if (bRet != 0)
+				{
+				    CSASSERT(0);
+				    bRet = CSUDIFSMount(partitionInfo.m_szPartition, pStorageObj->m_sStorageInfo.m_szMountPoint);
+				}
+				/* Modify by lili,2010-8-14 16:52:15 --!>*/
+				CSASSERT(bRet);
+				if(bRet == 0)
+				{
+					NotifyAll(EM_UDIRDI_EVENT_READY, idp);
+				}
+				else
+				{
+					ClearMountPoint(pStorageObj->m_sStorageInfo.m_szMountPoint);
+					strncpy((char *)pStorageObj->m_sStorageInfo.m_szMountPoint, "\0", sizeof("\0"));
+					NotifyAll(EM_UDIRDI_EVENT_ERROR, idp);
+				}
+			}
+		}
+	}
+	else if(eDevEvent == EM_STRG_EVT_DELETE)
+	{
+		pStorageObj = CSUDIRDIFindStorageObject(pSInfo->m_szStorage);
+		if(CSASSERT_FAILED(CSUDI_NULL == pStorageObj)) //already exist
+		{
+			NotifyAll(EM_UDIRDI_EVENT_PLUGOUT, pStorageObj->m_sStorageInfo.m_dwDeviceId);
+			pStorageObj->m_bUsed = FALSE;
+		}
+
+		for(i = 0; i < nPartition; i++)
+		{
+			if(CSSTRGGetPartionInfo(pSInfo->m_szStorage, i, &partitionInfo))
+			{
+				pStorageObj = CSUDIRDIFindStorageObject(partitionInfo.m_szPartition);
+				if(CSASSERT_FAILED(CSUDI_NULL != pStorageObj)) //already exist
+				{
+					return 0;
+				}
+				bRet = CSUDIFSUmount(pStorageObj->m_sStorageInfo.m_szMountPoint, "-l");
+				if(bRet == 0)
+				{
+                    ClearMountPoint(pStorageObj->m_sStorageInfo.m_szMountPoint);
+				}
+				if(CSASSERT_FAILED(CSUDI_NULL == pStorageObj)) //already exist
+				{
+					NotifyAll(EM_UDIRDI_EVENT_PLUGOUT, pStorageObj->m_sStorageInfo.m_dwDeviceId);
+					pStorageObj->m_bUsed = CSUDI_FALSE;
+				}
+			}
+		}
+	}
+	return 0;
+}
+
+CSUDI_Error_Code CSUDIFSInit(void)
+{
+	static CSUDI_BOOL s_bInited = CSUDI_FALSE;
+	int i;
+
+	if(s_bInited)
+	{
+		return CSUDI_SUCCESS;
+	}
+	memset(s_sNotifyObjects,0,sizeof(s_sNotifyObjects));
+	memset(s_sStorageObjects,0,sizeof(s_sStorageObjects));
+	memset(s_sOpenedFiles,0,sizeof(s_sOpenedFiles));	
+
+	for(i=0; i<MAX_UBI_DEVICE; i++)
+	{
+	    s_sUbiDevice[i].m_bUsed = CSUDI_FALSE;
+	    s_sUbiDevice[i].m_MtdNum = -1;
+	    s_sUbiDevice[i].m_devNum = i+UBI_DEV_NUM_START;
+	}
+	
+	if (!CSSTRGInit()) //初始化cs_storage
+	{
+		return CSUDI_FAILURE;
+	}
+	CSSTRGRegNotify(fnCallback, CSUDI_NULL);
+
+	s_bInited = CSUDI_TRUE;
+	
+	return CSUDI_SUCCESS;
+}
+
+static UdiNotifyObject * CSUDIRDIFindNotify(const CSUDIRDICallback_F fnCallback, const void *pvUserData)
+{
+	int i;
+	UdiNotifyObject * pNotifyObj = s_sNotifyObjects;
+
+	if(CSASSERT_FAILED(fnCallback))
+	{
+		return CSUDI_NULL;
+	}
+	
+	for(i = 0; i < MAX_NOTIFY_COUNT; i++)
+	{
+		if(pNotifyObj->m_bUsed)
+		{
+			if(fnCallback == pNotifyObj->m_fnCallback && 
+				pvUserData == pNotifyObj->m_pUsrData)
+			{
+				return pNotifyObj;
+			}			
+		}
+		
+		pNotifyObj++;
+	}
+	
+	return CSUDI_NULL;
+}
+
+static UdiNotifyObject * CSUDIRDIGetFreeNotify(void)
+{
+	int i;
+	UdiNotifyObject * pNotifyObj = s_sNotifyObjects;
+
+	for(i = 0; i < MAX_NOTIFY_COUNT; i++)
+	{
+		if(!pNotifyObj->m_bUsed)
+		{
+			pNotifyObj->m_bUsed = CSUDI_TRUE;
+			return pNotifyObj;		
+		}
+		
+		pNotifyObj++;
+	}	
+
+	CSASSERT(0);
+	return CSUDI_NULL;
+}
+
+
+CSUDI_Error_Code CSUDIFSRDIAddCallback(CSUDIRDICallback_F fnCallback,const void * pvUserData)
+{
+	UdiNotifyObject * pNotifyObj = CSUDI_NULL;
+	CSUDIFSDeviceInfo_S * psStorageObj = CSUDI_NULL;
+	int i;
+	if(CSASSERT_FAILED(fnCallback != CSUDI_NULL)) return CSUDI_FAILURE;
+	pNotifyObj = CSUDIRDIFindNotify(fnCallback, pvUserData);
+	if(CSASSERT_FAILED(CSUDI_NULL == pNotifyObj)) //already exist
+	{
+		return CSUDIFS_ERROR_ALREADY_ADDED;
+	}
+	pNotifyObj = CSUDIRDIGetFreeNotify();
+	if(CSASSERT_FAILED(CSUDI_NULL != pNotifyObj)) //no free obj
+	{
+		return CSUDI_FAILURE;
+	}
+	pNotifyObj->m_fnCallback = (CSUDIRDICallback_F)fnCallback;
+	pNotifyObj->m_pUsrData = (void *)pvUserData;
+	for(i = 0; i< MAX_STORAGE_COUNT; i++)
+	{
+		if(s_sStorageObjects[i].m_bUsed)
+		{
+			psStorageObj = &(s_sStorageObjects[i].m_sStorageInfo);
+			if(psStorageObj->m_dwParentDeviceId == IVALID_PARENT_DEVICE_ID)
+			{
+				(*fnCallback)(EM_UDIRDI_EVENT_FOUND, psStorageObj->m_dwDeviceId, CSUDI_NULL,(void *)pvUserData);
+			}
+			else
+			{
+				if(strcmp(psStorageObj->m_szMountPoint, "") == 0)
+				{
+					(*fnCallback)(EM_UDIRDI_EVENT_ERROR, psStorageObj->m_dwDeviceId, CSUDI_NULL,(void *)pvUserData);
+				}
+				else
+				{
+					(*fnCallback)(EM_UDIRDI_EVENT_READY, psStorageObj->m_dwDeviceId, CSUDI_NULL,(void *)pvUserData);
+				}				
+			}			
+		}
+	}
+	return CSUDI_SUCCESS;
+}
+
+
+CSUDI_Error_Code CSUDIFSRDIRemoveCallback(CSUDIRDICallback_F fnCallback,const void * pvUserData)
+{
+	UdiNotifyObject * pNotifyObj = CSUDI_NULL;
+
+	if(CSASSERT_FAILED(fnCallback != CSUDI_NULL)) return CSUDI_FAILURE;
+	
+	pNotifyObj = CSUDIRDIFindNotify(fnCallback, pvUserData);
+	if(CSASSERT_FAILED(CSUDI_NULL != pNotifyObj)) //not exist
+	{
+		return CSUDI_FAILURE;
+	}
+
+	pNotifyObj->m_fnCallback = CSUDI_NULL;
+	pNotifyObj->m_pUsrData = CSUDI_NULL;
+	pNotifyObj->m_bUsed = CSUDI_FALSE;
+
+	return CSUDI_SUCCESS;
+}
+
+CSUDI_Error_Code CSUDIFSRDIRemoveDev(CSUDI_UINT32 dwDeviceId)
+{
+	int i = 0;
+	int bRet = 0;
+	int nPartition = 0;
+	CSUDIFSDeviceInfo_S deviceInfo;
+	CSSTRGPartitionInfo_S partitionInfo;
+	CSUDI_Error_Code errorCode;
+
+    if(OpenedFiles(dwDeviceId) == CSUDI_TRUE)
+		return CSUDI_FAILURE;
+
+    errorCode = CSUDIFSGetDeviceInfo(dwDeviceId, &deviceInfo);
+	if(CSASSERT_FAILED(CSUDI_SUCCESS == errorCode))
+	{
+		return CSUDI_FAILURE;
+	}
+	UdiStorageObject * pStorageObj = CSUDI_NULL;
+	pStorageObj = CSUDIRDIFindStorageObject(deviceInfo.m_szDeviceName);
+	if(CSASSERT_FAILED(CSUDI_NULL == pStorageObj)) //already exist
+	{
+		NotifyAll(EM_UDIRDI_EVENT_PLUGOUT, pStorageObj->m_sStorageInfo.m_dwDeviceId);
+		pStorageObj->m_bUsed = CSUDI_FALSE;
+	}
+	
+	nPartition = CSSTRGGetPartitionCount(deviceInfo.m_szDeviceName);
+	for(i = 0; i < nPartition; i++)
+	{
+		if(CSSTRGGetPartionInfo(deviceInfo.m_szDeviceName, i, &partitionInfo))
+		{
+			pStorageObj = CSUDIRDIFindStorageObject(partitionInfo.m_szPartition);
+			if(CSASSERT_FAILED(CSUDI_NULL != pStorageObj)) //not found
+			{
+				return CSUDI_FAILURE;
+			}
+			bRet = CSUDIFSUmount(pStorageObj->m_sStorageInfo.m_szMountPoint, "");
+			if(bRet == 0)
+				ClearMountPoint(pStorageObj->m_sStorageInfo.m_szMountPoint);
+			else
+				return CSUDI_FAILURE;
+			if(CSASSERT_FAILED(CSUDI_NULL == pStorageObj)) //already exist
+			{
+				pStorageObj->m_bUsed = CSUDI_FALSE;
+				//NotifyAll(EM_UDIRDI_EVENT_PLUGOUT, pStorageObj->m_sStorageInfo.m_dwDeviceId);
+			}
+		}
+	}
+	return CSUDI_SUCCESS;
+}
+
+CSUDI_Error_Code CSUDIFSGetAllDeviceId(CSUDI_UINT32 * pdwIds,int nMaxIdCnt, int * pnActIdCnt)
+{
+	int i;
+	int cur = 0;
+	int count = 0;
+	UdiStorageObject * pStorageObj = s_sStorageObjects;
+
+	if(pnActIdCnt == CSUDI_NULL || (pdwIds != CSUDI_NULL && nMaxIdCnt < 0))
+	{
+		return CSUDI_FAILURE;
+	}
+	
+	if(pdwIds == CSUDI_NULL)
+	{
+		count = 0;
+	}
+	else
+		count = (nMaxIdCnt <= MAX_STORAGE_COUNT) ? nMaxIdCnt : MAX_STORAGE_COUNT;
+
+	*pnActIdCnt = 0;
+	for(i = 0; i < MAX_STORAGE_COUNT; i++)
+	{
+		if(pStorageObj->m_bUsed)
+		{
+			if(cur < count)
+			{
+				*pdwIds = pStorageObj->m_sStorageInfo.m_dwDeviceId;
+				pdwIds++;
+				cur++;
+			}
+			(*pnActIdCnt)++;
+		}
+		pStorageObj++;
+	}	
+	return CSUDI_SUCCESS;
+}
+
+CSUDI_Error_Code CSUDIFSGetDeviceInfo(CSUDI_UINT32 dwDeviceId,CSUDIFSDeviceInfo_S * psDeviceInfo)
+{
+	int i;
+	UdiStorageObject * pStorageObj = s_sStorageObjects;
+
+	if(CSUDI_NULL == psDeviceInfo)
+	{
+		return CSUDI_FAILURE;
+	}
+	for(i = 0; i < MAX_STORAGE_COUNT; i++)
+	{
+		if(pStorageObj->m_bUsed && pStorageObj->m_sStorageInfo.m_dwDeviceId == dwDeviceId)
+		{
+			psDeviceInfo->m_dwDeviceId = pStorageObj->m_sStorageInfo.m_dwDeviceId;
+			psDeviceInfo->m_dwDeviceSize = pStorageObj->m_sStorageInfo.m_dwDeviceSize;
+			psDeviceInfo->m_dwParentDeviceId = pStorageObj->m_sStorageInfo.m_dwParentDeviceId;
+			psDeviceInfo->m_eDeviceType = pStorageObj->m_sStorageInfo.m_eDeviceType;
+			strncpy((char *)psDeviceInfo->m_szDeviceName, pStorageObj->m_sStorageInfo.m_szDeviceName, sizeof(psDeviceInfo->m_szDeviceName));
+			strncpy((char *)psDeviceInfo->m_szMountPoint, pStorageObj->m_sStorageInfo.m_szMountPoint, sizeof(psDeviceInfo->m_szMountPoint));
+			return CSUDI_SUCCESS;
+		}
+		pStorageObj++;
+	}	
+	return CSUDI_FAILURE;
+}
+
+CSUDI_Error_Code CSUDIFSStandby(CSUDI_UINT32 dwDeviceId)
+{
+	CSUDI_Error_Code errorCode;
+	CSUDIFSDeviceInfo_S deviceInfo;
+	errorCode = CSUDIFSGetDeviceInfo(dwDeviceId, &deviceInfo);
+	if(CSUDI_FAILURE == errorCode)
+	{
+		return CSUDI_FAILURE;
+	}
+	if(IVALID_PARENT_DEVICE_ID == deviceInfo.m_dwParentDeviceId)	// 物理设备
+	{
+		 return CSSTRGStandby(deviceInfo.m_szDeviceName);
+	}
+	else
+	{
+		return CSUDI_FAILURE;
+	}
+
+	return CSUDI_SUCCESS;
+}
+
+
+CSUDI_Error_Code CSUDIFSWakeup(CSUDI_UINT32 dwDeviceId)
+{
+	CSUDI_Error_Code errorCode;
+	CSUDIFSDeviceInfo_S deviceInfo;
+	errorCode = CSUDIFSGetDeviceInfo(dwDeviceId, &deviceInfo);
+	if(CSUDI_FAILURE == errorCode)
+	{
+		return CSUDI_FAILURE;
+	}
+	if(IVALID_PARENT_DEVICE_ID== deviceInfo.m_dwParentDeviceId)	// 物理设备
+	{
+		 return CSSTRGWakeup(deviceInfo.m_szDeviceName);
+	}
+	else
+	{
+		return CSUDI_FAILURE;
+	}
+
+	return CSUDI_SUCCESS;
+}
+
+static int DoFormat(const char *pcDeviceName, CSUDIFSPartitionType_E pcFSTypeName)
+{
+	int nRet;
+	char * szCmd;
+	char szCmdLine[256];
+	if(CSASSERT_FAILED(pcDeviceName)) return -1;
+
+	if(pcFSTypeName == EM_UDIFS_PARTITION_AUTO)
+	{
+		szCmd = "mkfs.ext3 -N 6000";
+	}
+	else if(pcFSTypeName == EM_UDIFS_PARTITION_FAT32)
+	{
+		szCmd = "mkfs.vfat";
+	}
+	else if(pcFSTypeName == EM_UDIFS_PARTITION_EXT2)
+	{
+		szCmd = "mkfs.ext2 -N 6000";
+	}
+	else if(pcFSTypeName == EM_UDIFS_PARTITION_EXT3)
+	{
+		szCmd = "mkfs.ext3 -N 6000";
+	}
+	else
+	{
+		CSASSERT(0);
+		return -1;
+	}
+    
+    memset(szCmdLine,0,sizeof(szCmdLine));
+	sprintf(szCmdLine,"%s %s %s",szCmd,pcDeviceName,COMMAND_OPTION);
+	nRet = system(szCmdLine);
+	CSASSERT(nRet != -1);
+
+	return nRet;
+}
+
+static int DoUbiFormat(const char *pcDeviceName, CSUDIFSPartitionType_E pcFSTypeName)
+{
+	int nRet;
+	char szCmdLine[256];
+	int nMtdNum;
+	
+	if(CSASSERT_FAILED(pcDeviceName)) return -1;
+	if(CSASSERT_FAILED(pcFSTypeName == EM_UDIFS_PARTITION_UBIFS)) return -1;
+
+	sscanf(pcDeviceName, "/dev/mtdblock%d", &nMtdNum);
+
+    memset(szCmdLine,0,sizeof(szCmdLine));
+	sprintf(szCmdLine,"ubiformat /dev/mtd%d", nMtdNum);
+	nRet = system(szCmdLine);
+	CSASSERT(nRet != -1);
+
+	return nRet;
+
+}
+
+/*
+根据dwDeviceId判断设备是物理设备还是逻辑分区，
+物理设备unmount所有分区再format后mount一个新增分区，
+逻辑分区先unmount再format后再mount
+*/
+CSUDI_Error_Code CSUDIFSFormat(CSUDI_UINT32 dwDeviceId, CSUDIFSPartitionType_E eType)
+{
+	int nPartition = 0;
+	int i = 0;
+	int idp = 0;
+	int bRet = 0;
+
+	unsigned long long uSectors = 0;
+	CSUDI_Error_Code errorCode;
+	CSUDIFSDeviceInfo_S deviceInfo;
+	CSSTRGPartitionInfo_S partitionInfo;
+	CSUDIFSStatFs_S sStat;
+	
+	if((int)eType < EM_UDIFS_PARTITION_AUTO || eType > EM_UDIFS_PARTITION_UBIFS)
+	{
+		CSASSERT(0);
+		return CSUDI_FAILURE;
+	}
+	
+	errorCode = CSUDIFSGetDeviceInfo(dwDeviceId, &deviceInfo);
+	if(errorCode == CSUDI_FAILURE)
+	{
+		CSASSERT(0);
+		return CSUDI_FAILURE;
+	}
+	UdiStorageObject * pStorageObj = CSUDI_NULL;
+	
+	nPartition = CSSTRGGetPartitionCount(deviceInfo.m_szDeviceName);
+	if(IVALID_PARENT_DEVICE_ID == deviceInfo.m_dwParentDeviceId)	// 物理设备
+	{
+		if(OpenedFiles(dwDeviceId) == CSUDI_TRUE)
+		{
+			CSASSERT(0);
+			return CSUDI_FAILURE;
+		}
+		for(i = 0; i < nPartition; i++)
+		{
+			if(CSSTRGGetPartionInfo(deviceInfo.m_szDeviceName, i, &partitionInfo))
+			{
+				pStorageObj = CSUDIRDIFindStorageObject(partitionInfo.m_szPartition);
+				if(CSASSERT_FAILED(CSUDI_NULL != pStorageObj)) //not found
+				{
+					CSASSERT(0);
+					return CSUDI_FAILURE;
+				}
+                
+				bRet = CSUDIFSUmount(pStorageObj->m_sStorageInfo.m_szMountPoint, "");
+				if(bRet == 0)
+				{
+                    ClearMountPoint(pStorageObj->m_sStorageInfo.m_szMountPoint);
+				}
+				else
+				{
+					CSASSERT(0);
+					return CSUDI_FAILURE;
+				}
+                
+				if(CSASSERT_FAILED(CSUDI_NULL == pStorageObj)) //already exist
+				{
+					NotifyAll(EM_UDIRDI_EVENT_PLUGOUT, pStorageObj->m_sStorageInfo.m_dwDeviceId);
+					pStorageObj->m_bUsed = CSUDI_FALSE;
+				}
+			}
+		}
+		//bRet = DoFormat(deviceInfo.m_szDeviceName, eType);
+		bRet = CSSTRGFormat(deviceInfo.m_szDeviceName, 1);
+		if(bRet != 0)
+		{
+			CSASSERT(0);
+			return CSUDI_FAILURE;
+		}
+		
+		nPartition = CSSTRGGetPartitionCount(deviceInfo.m_szDeviceName);
+		for(i = 0; i < nPartition; i++)
+		{
+			if(CSSTRGGetPartionInfo(deviceInfo.m_szDeviceName, i, &partitionInfo))
+			{
+				pStorageObj = CSUDIRDIGetFreeStorageObject();
+				if(CSASSERT_FAILED(CSUDI_NULL != pStorageObj)) //no free obj
+				{
+					CSASSERT(0);
+					return CSUDI_FAILURE;
+				}
+				
+				idp = GetID(USB_DEV | VOL_DEV | RA_DEV);
+				pStorageObj->m_sStorageInfo.m_dwDeviceId = idp;
+				bRet = CSUDIFSGetDiskSize((char*)deviceInfo.m_szDeviceName, &uSectors);
+				CSASSERT(bRet);
+				if(!bRet)
+				{
+					uSectors = 0;
+				}
+				#if defined(MMCP_SUPPORT_LL)
+				pStorageObj->m_sStorageInfo.m_dwDeviceSize = uSectors * 512;
+				#else
+				pStorageObj->m_sStorageInfo.m_dwDeviceSize.low = uSectors * 512;
+				pStorageObj->m_sStorageInfo.m_dwDeviceSize.high = uSectors * 512 >> 32;
+				#endif
+				pStorageObj->m_sStorageInfo.m_dwParentDeviceId = deviceInfo.m_dwDeviceId;
+				pStorageObj->m_sStorageInfo.m_eDeviceType = EM_UDIFS_DEVTYPE_VOLUME;
+				strncpy((char *)pStorageObj->m_sStorageInfo.m_szDeviceName, partitionInfo.m_szPartition, sizeof(partitionInfo.m_szPartition));
+				GetFreeMountPoint(deviceInfo.m_dwDeviceId, pStorageObj->m_sStorageInfo.m_szMountPoint);
+				NotifyAll(EM_UDIRDI_EVENT_FOUND, idp);
+				bRet = CSUDIFSMount(partitionInfo.m_szPartition, pStorageObj->m_sStorageInfo.m_szMountPoint);
+				CSASSERT(bRet);
+				if(bRet == 0)
+				{
+					NotifyAll(EM_UDIRDI_EVENT_READY, idp);
+				}
+				else
+				{
+					ClearMountPoint(pStorageObj->m_sStorageInfo.m_szMountPoint);
+					strncpy((char *)pStorageObj->m_sStorageInfo.m_szMountPoint, "\0", sizeof("\0"));
+					NotifyAll(EM_UDIRDI_EVENT_ERROR, idp);
+				}
+			}
+		}
+	}
+	else // 逻辑分区
+	{
+		pStorageObj = CSUDIRDIFindStorageObject(deviceInfo.m_szDeviceName);
+		if(CSUDI_NULL != pStorageObj) //already exist
+		{
+			if(OpenedFiles(pStorageObj->m_sStorageInfo.m_dwParentDeviceId) == CSUDI_TRUE)
+			{
+				CSASSERT(0);
+				return CSUDI_FAILURE;
+			}
+
+			bRet = CSUDIFSStatfs(pStorageObj->m_sStorageInfo.m_szMountPoint, &sStat);
+			if(bRet != 0)
+			{
+				CSASSERT(0);
+				return CSUDI_FAILURE;
+			}
+
+			if(EM_UDIFS_PARTITION_UBIFS == sStat.m_eFsType)
+			{
+				bRet = CSUDIFSUmountUbi(&pStorageObj->m_sStorageInfo);
+			}
+			else
+			{
+				bRet = CSUDIFSUmount(pStorageObj->m_sStorageInfo.m_szMountPoint, "");
+			}
+			
+			if(bRet != 0)
+			{
+				CSASSERT(0);
+				return CSUDI_FAILURE;
+			}
+			NotifyAll(EM_UDIRDI_EVENT_PLUGOUT, pStorageObj->m_sStorageInfo.m_dwDeviceId);
+
+			if(EM_UDIFS_PARTITION_UBIFS == sStat.m_eFsType)
+			{
+				bRet = DoUbiFormat(pStorageObj->m_sStorageInfo.m_szDeviceName, eType);
+			}
+			else
+			{
+				bRet = DoFormat(pStorageObj->m_sStorageInfo.m_szDeviceName, eType);
+			}
+			
+			if(bRet != 0)
+			{
+				CSASSERT(0);
+				return CSUDI_FAILURE;
+			}
+			//CSUDIFSDeviceInfo_S deviceInfo;
+			//CSUDIFSGetDeviceInfo(pStorageObj->m_sStorageInfo.m_dwParentDeviceId, &deviceInfo);
+			NotifyAll(EM_UDIRDI_EVENT_FOUND, pStorageObj->m_sStorageInfo.m_dwDeviceId);
+
+			if(EM_UDIFS_PARTITION_UBIFS == sStat.m_eFsType)
+			{
+				bRet = CSUDIFSMountUbi(pStorageObj->m_sStorageInfo.m_szDeviceName, &pStorageObj->m_sStorageInfo);
+			}
+			else
+			{
+				bRet = CSUDIFSMount(pStorageObj->m_sStorageInfo.m_szDeviceName, pStorageObj->m_sStorageInfo.m_szMountPoint);
+			}
+			
+			if(bRet == 0)
+			{
+                pStorageObj->m_bUsed = CSUDI_TRUE;
+
+				NotifyAll(EM_UDIRDI_EVENT_READY, pStorageObj->m_sStorageInfo.m_dwDeviceId);
+			}
+			else
+			{
+				strncpy((char *)pStorageObj->m_sStorageInfo.m_szMountPoint, "", sizeof(""));
+				NotifyAll(EM_UDIRDI_EVENT_ERROR, pStorageObj->m_sStorageInfo.m_dwDeviceId);
+			}
+		}
+	}
+	return CSUDI_SUCCESS;
+}
+
+CSUDI_Error_Code CSUDIFSGetCodePage(int * pnCodePage)
+{
+	CSSTD_UNUSED(pnCodePage);
+	
+	return CSUDI_SUCCESS;
+}
+
+
+//////////////////////////////////////////////////////////////////////
+/*
+由于linux的描述符范围是>= 0，
+这里的句柄范围是!=0 
+所以，open时应该+1后返回；操作时应该先-1 后再操作
+*/
+CSUDI_HANDLE CSUDIFSOpen(const char * pcFileName, const char * pcMode)
+{
+
+	int nLinuxFlags = 0;
+	int nRet = 0;
+	CSUDI_UINT32  devID = 0;
+	struct stat sStat;
+
+	if(CSASSERT_FAILED(pcFileName)) return CSUDI_NULL;
+	if(CSASSERT_FAILED(pcMode)) return CSUDI_NULL;
+	
+	nRet = stat(pcFileName, &sStat);
+	/*路径存在，且为文件夹，则返回失败*/
+	if(nRet == 0 && S_ISDIR(sStat.st_mode)) 
+	{
+		CSASSERT(0);
+		return CSUDI_NULL;
+	}	
+
+	if(strcmp(pcMode, "a") == 0)
+	{
+		nLinuxFlags |= (O_WRONLY | O_CREAT | O_APPEND);
+	}
+	else if(strcmp(pcMode, "a+") == 0)
+	{
+		nLinuxFlags |= (O_RDWR | O_CREAT | O_APPEND);
+	}
+	else if(strcmp(pcMode, "r") == 0)
+	{
+		nLinuxFlags |= O_RDONLY;
+	}
+	else if(strcmp(pcMode, "r+") == 0)
+	{
+		nLinuxFlags |= O_RDWR;
+	}
+	else if(strcmp(pcMode, "w") == 0)
+	{
+		nLinuxFlags |= (O_WRONLY | O_CREAT | O_TRUNC);
+	}
+	else if(strcmp(pcMode, "w+") == 0)
+	{
+		nLinuxFlags |= (O_RDWR | O_CREAT | O_TRUNC);
+	}
+	else
+	{
+		return CSUDI_NULL;
+	}
+	nRet = open(pcFileName, nLinuxFlags);
+	if(nRet == -1)
+	{
+		CSASSERT(0);
+		return CSUDI_NULL;
+	}
+	devID = GetDeviceIDByFileName(pcFileName);
+	
+	return GetFreeOpenedFile((CSUDI_HANDLE)nRet, devID, CSUDI_FALSE);
+}
+
+int CSUDIFSRead(CSUDI_HANDLE hFile,char * pcBuf, unsigned int uCount)
+{
+	int nFile;
+	int nRet;
+	
+	if(CSASSERT_FAILED(hFile != CSUDI_NULL)) return -1;
+	nFile = (int)hFile;
+	if(nFile < 1 || nFile >= MAX_OPEN_FILE_COUNT) return -1;
+	if(CSASSERT_FAILED(pcBuf != CSUDI_NULL)) return -1;
+	if(uCount == 0) return 0;
+	if(s_sOpenedFiles[nFile].m_bUsed == CSUDI_FALSE)
+		return -1;
+	nRet = read((int)s_sOpenedFiles[nFile].m_handle, (void *)pcBuf, uCount);
+	
+	CSASSERT(nRet != -1);
+	
+	return nRet;
+}
+
+int CSUDIFSWrite(CSUDI_HANDLE hFile,char * pcBuf, unsigned int uCount)
+{
+	int nFile;
+	int nRet;
+	
+	if(CSASSERT_FAILED(hFile != CSUDI_NULL)) return -1;
+	nFile = (int)hFile;
+	if(nFile < 1 || nFile >= MAX_OPEN_FILE_COUNT) return -1;
+	if(CSASSERT_FAILED(pcBuf != CSUDI_NULL)) return -1;
+	if(uCount == 0) return 0;
+	
+	if(s_sOpenedFiles[nFile].m_bUsed == CSUDI_FALSE)
+		return -1;
+	nRet = write((int)s_sOpenedFiles[nFile].m_handle, (const void *)pcBuf, uCount);
+
+	CSASSERT(nRet != -1);
+	
+	return nRet;
+}
+
+int CSUDIFSClose(CSUDI_HANDLE hFile)
+{
+	int nFile;
+	int nRet;
+
+	if(CSASSERT_FAILED(hFile != CSUDI_NULL)) return -1;
+	nFile = (int)hFile;
+	if(nFile < 1 || nFile >= MAX_OPEN_FILE_COUNT) return -1;
+	if(s_sOpenedFiles[nFile].m_bUsed == CSUDI_FALSE || s_sOpenedFiles[nFile].m_isDir == CSUDI_TRUE)
+		return -1;
+
+	nRet = close((int)s_sOpenedFiles[nFile].m_handle);
+	CSASSERT(nRet != -1);
+	if(nRet != -1)
+	{
+		ClearOpenedFile(hFile);
+		return 0;
+	}
+	return nRet;
+}
+
+int CSUDIFSSeek(CSUDI_HANDLE hFile, long lOffset, unsigned int uOrigin)
+{
+	int nFile;
+	int nRet;
+	int nWhence;
+	long pos;
+	struct stat sStat;
+	
+	if(CSASSERT_FAILED(hFile != CSUDI_NULL)) return -1;
+	nFile = (int)hFile;
+	if(nFile < 1 || nFile >= MAX_OPEN_FILE_COUNT) return -1;
+	if(s_sOpenedFiles[nFile].m_bUsed == CSUDI_FALSE)
+		return -1;
+	nRet = fstat((int)s_sOpenedFiles[nFile].m_handle, &sStat);
+	
+	if(nRet != 0) return -1;
+
+	switch(uOrigin)
+	{
+		case CSUDIFS_SEEK_SET:
+			nWhence = SEEK_SET;
+			pos  = 0;;
+			break;
+
+		case CSUDIFS_SEEK_CUR:
+			nWhence = SEEK_CUR;
+			pos  = lseek((int)s_sOpenedFiles[nFile].m_handle, 0, SEEK_CUR);
+			break;
+
+		case CSUDIFS_SEEK_END:
+			nWhence = SEEK_END;
+			pos  = sStat.st_size;
+			break;
+
+		default :
+			CSASSERT(0);
+			return -1;
+	}
+
+	pos += lOffset;
+	if(pos < 0 || pos > sStat.st_size) return -1;	
+
+	nRet = lseek((int)s_sOpenedFiles[nFile].m_handle, lOffset, nWhence);
+	CSASSERT(nRet != -1);
+
+	return (nRet == -1)? nRet : 0;
+}
+
+int CSUDIFSLseek(CSUDI_HANDLE hFile,CSUDI_INT64 i64Offset,unsigned int uOrigin)
+{
+#if defined(MMCP_SUPPORT_LL)
+	int nFile;
+	int nWhence;
+	CSUDI_INT64 llRet;
+	int nRet;
+	struct stat sStat;
+	CSUDI_INT64 llPos;
+		
+	if(CSASSERT_FAILED(hFile != CSUDI_NULL)) return -1;
+
+	nFile = (int)hFile;
+	if(nFile < 1 || nFile >= MAX_OPEN_FILE_COUNT) return -1;
+	
+	if(s_sOpenedFiles[nFile].m_bUsed == CSUDI_FALSE)
+		return -1;
+		
+	nRet = fstat((int)s_sOpenedFiles[nFile].m_handle, &sStat);
+	
+	if(nRet != 0) return -1;
+
+	switch(uOrigin)
+	{
+		case CSUDIFS_SEEK_SET:
+			nWhence = SEEK_SET;
+			llPos  = 0;;
+			break;
+	
+		case CSUDIFS_SEEK_CUR:
+			nWhence = SEEK_CUR;
+			llPos  = lseek64((int)s_sOpenedFiles[nFile].m_handle, 0, SEEK_CUR);
+			break;
+	
+		case CSUDIFS_SEEK_END:
+			nWhence = SEEK_END;
+			llPos  = sStat.st_size;
+			break;
+	
+		default :
+			CSASSERT(0);
+			return -1;
+	}
+	
+	llPos += i64Offset;
+	if(llPos < 0 || llPos > sStat.st_size) return -1;	
+
+	llRet = lseek64((int)s_sOpenedFiles[nFile].m_handle,i64Offset, nWhence);
+	if(CSASSERT_FAILED(llRet != (CSUDI_INT64)-1)) return -1;
+
+	return 0;
+#else
+	CSSTD_UNUSED(hFile);
+	CSSTD_UNUSED(i64Offset);
+	CSSTD_UNUSED(uOrigin);
+	
+	return -1;
+#endif
+}
+
+long CSUDIFSTell(CSUDI_HANDLE hFile)
+{
+	loff_t lOff;
+	int nFile;
+
+	
+	if(CSASSERT_FAILED(hFile != CSUDI_NULL)) return -1;
+
+	nFile = (int)hFile;
+	if(nFile < 1 || nFile >= MAX_OPEN_FILE_COUNT) return -1;
+	if(s_sOpenedFiles[nFile].m_bUsed == CSUDI_FALSE)
+		return -1;
+
+	lOff = lseek((int)s_sOpenedFiles[nFile].m_handle, 0, SEEK_CUR);
+	if(CSASSERT_FAILED(lOff != (loff_t)-1)) return -1;
+
+	/*当前偏移大于long能表示的最大范围时(32位机上为2G),返回-1*/
+	if(CSASSERT_FAILED(lOff < (loff_t)0x80000000 )) return -1;
+
+	return (long)lOff;
+}
+
+CSUDI_INT64 CSUDIFSLtell(CSUDI_HANDLE hFile)
+{
+#if defined(MMCP_SUPPORT_LL)
+	int nFile;
+
+	CSUDI_INT64 llRet;
+		
+	if(CSASSERT_FAILED(hFile != CSUDI_NULL)) return -1;
+
+	nFile = (int)hFile;
+	if(nFile < 1 || nFile >= MAX_OPEN_FILE_COUNT) return -1;
+	if(s_sOpenedFiles[nFile].m_bUsed == CSUDI_FALSE)
+	return -1;
+
+	llRet = lseek64((int)s_sOpenedFiles[nFile].m_handle, (CSUDI_INT64)0, SEEK_CUR);
+	if(CSASSERT_FAILED(llRet != (CSUDI_INT64)-1)) return -1;
+
+	return llRet;
+#else
+	CSUDI_INT64 ret = {-1, -1};
+
+	CSSTD_UNUSED(hFile);
+	
+	return ret;
+#endif
+
+}
+
+int CSUDIFSFlush(CSUDI_HANDLE hFile)
+{
+	int nFile;
+	int nRet;
+	
+	if(CSASSERT_FAILED(hFile != CSUDI_NULL)) return -1;
+	
+	nFile = (int)hFile;
+	if(nFile < 1 || nFile >= MAX_OPEN_FILE_COUNT) return -1;
+	if(s_sOpenedFiles[nFile].m_bUsed == CSUDI_FALSE)
+		return -1;
+
+	nRet = fsync((int)s_sOpenedFiles[nFile].m_handle);
+	CSASSERT(nRet != -1);
+	
+	return nRet;
+}
+
+int CSUDIFSRemove(const char * pcFileName)
+{
+	int nRet;
+	
+	if(CSASSERT_FAILED(pcFileName != CSUDI_NULL)) return -1;
+
+	nRet = unlink((const char *)pcFileName);
+	CSASSERT(nRet != -1);
+	
+	return nRet;
+}
+
+int CSUDIFSRename(const char * pcOldPath, const char * pcNewPath)
+{
+	int nRet;
+	struct stat sStat;
+	
+	if(CSASSERT_FAILED(pcOldPath != CSUDI_NULL)) return -1;
+	if(CSASSERT_FAILED(pcNewPath != CSUDI_NULL)) return -1;
+
+	nRet = stat(pcOldPath, &sStat);
+	if(nRet != 0) return -1;
+
+	nRet = stat(pcNewPath, &sStat);
+	if(nRet == 0) return -1;	
+
+	nRet = rename((const char *)pcOldPath, (const char *)pcNewPath);;
+	CSASSERT(nRet != -1);
+	
+	return nRet;
+}
+
+int CSUDIFSTruncate(const char * pcPathName, unsigned long ulLength)
+{
+	int nRet;
+	
+	if(CSASSERT_FAILED(pcPathName != CSUDI_NULL)) return -1;
+	
+	nRet = truncate(pcPathName,(off_t)ulLength);
+	CSASSERT(nRet != -1);
+
+	return nRet;
+}
+
+int CSUDIFSFTruncate(CSUDI_HANDLE hFile, unsigned long ulLength)
+{
+	int nFile;
+	int nRet;
+	
+	if(CSASSERT_FAILED(hFile != CSUDI_NULL)) return -1;
+	
+	nFile = (int)hFile;
+	if(s_sOpenedFiles[nFile].m_bUsed == CSUDI_FALSE)
+		return -1;
+	
+	nRet = ftruncate ((int)s_sOpenedFiles[nFile].m_handle, (off_t)ulLength) ;
+
+	CSASSERT(nRet == 0);
+	
+	return nRet;
+}
+
+int CSUDIFSLTruncate(const char * pcPathName,CSUDI_UINT64 u64Length)
+{
+	CSSTD_UNUSED(pcPathName);
+	CSSTD_UNUSED(u64Length);
+	
+	return -1;
+}
+
+int CSUDIFSLFTruncate(CSUDI_HANDLE hFile,CSUDI_UINT64 u64Length)
+{
+	CSSTD_UNUSED(hFile);
+	CSSTD_UNUSED(u64Length);
+	
+	return -1;
+}
+
+static void iHi3110eToUdi2Stat(CSUDIFSFileStat_S * psUdi2Stat,struct stat *psStat)
+{
+	if(CSASSERT_FAILED(psUdi2Stat)) return;
+	if(CSASSERT_FAILED(psStat)) return ;
+	
+	memset(psUdi2Stat,0,sizeof(CSUDIFSFileStat_S));
+
+	psUdi2Stat->m_lAtime = psStat->st_atime;
+	psUdi2Stat->m_lCtime = psStat->st_ctime;
+	psUdi2Stat->m_lMtime = psStat->st_mtime;
+	
+	psUdi2Stat->m_lBlkCount = psStat->st_blocks;
+	psUdi2Stat->m_lBlkSize = psStat->st_blksize;	
+	psUdi2Stat->m_lSize = psStat->st_size;
+	psUdi2Stat->m_lMode = S_ISDIR(psStat->st_mode) ? CSUDIFS_MODE_DIR : CSUDIFS_MODE_REG;
+		
+}
+
+int CSUDIFSStat(const char * pcFileName, CSUDIFSFileStat_S * psFileStat)
+{
+	int nRet;
+	struct stat sStat;
+
+	if(CSASSERT_FAILED(pcFileName)) return -1;
+	if(CSASSERT_FAILED(psFileStat)) return -1;
+	
+	nRet = stat(pcFileName, &sStat);
+	if(nRet != 0) return -1;
+
+	iHi3110eToUdi2Stat(psFileStat, &sStat);
+
+	return nRet;
+}
+
+int CSUDIFSFstat(CSUDI_HANDLE hFile, CSUDIFSFileStat_S * psFileStat)
+{
+	int nFile;
+	int nRet;
+	struct stat sStat;
+	
+	if(CSASSERT_FAILED(hFile != CSUDI_NULL)) return -1;
+	if(CSASSERT_FAILED(psFileStat != CSUDI_NULL)) return -1;
+
+	nFile = (int)hFile;
+	if(s_sOpenedFiles[nFile].m_bUsed == CSUDI_FALSE)
+		return -1;
+
+	nRet = fstat((int)s_sOpenedFiles[nFile].m_handle, &sStat);
+	CSASSERT(nRet != -1);
+
+	iHi3110eToUdi2Stat(psFileStat, &sStat);
+
+	return nRet;
+}
+
+int CSUDIFSMkdir(const char * pcPathName, int nReserved)
+{
+	int nRet;
+
+	if( nReserved != 0 )
+	{
+		return -1;
+	}
+	if(CSASSERT_FAILED(pcPathName != CSUDI_NULL)) return -1;
+
+	nRet = mkdir((const char *)pcPathName, 0777);
+	CSASSERT(nRet != -1);
+	
+	return nRet;
+}
+
+int CSUDIFSRmdir(const char * pcPathName)
+{
+	int nRet;
+	
+	if(CSASSERT_FAILED(pcPathName != CSUDI_NULL)) return -1;
+
+	nRet = rmdir((const char *)pcPathName);
+	CSASSERT(nRet != -1);
+	
+	return nRet;
+}
+
+typedef struct _UdiCSFSDirImp_S
+{
+	DIR * psLinuxDir;
+	CSUDIFSDirent_S sDirent;
+	char	 pcDirName[256];
+}UdiCSFSDirImp_S;
+
+CSUDI_HANDLE CSUDIFSOpenDir(const char * pcPathName)
+{
+	CSUDI_UINT32 devID;
+	UdiCSFSDirImp_S * psDirImp = CSUDI_NULL;
+	
+	if(CSASSERT_FAILED(pcPathName != CSUDI_NULL)) return CSUDI_NULL;
+
+	psDirImp = (UdiCSFSDirImp_S *)CSUDIOSMalloc(sizeof(UdiCSFSDirImp_S));
+	if(CSASSERT_FAILED(psDirImp != CSUDI_NULL)) return CSUDI_NULL;
+
+	memset(psDirImp, 0, sizeof(UdiCSFSDirImp_S));
+
+	psDirImp->psLinuxDir = opendir(pcPathName);
+	if(CSASSERT_FAILED(psDirImp->psLinuxDir != CSUDI_NULL)) 
+	{
+		CSUDIOSFree(psDirImp);
+		return CSUDI_NULL;
+	}
+
+	strncpy(psDirImp->pcDirName,pcPathName,sizeof(psDirImp->pcDirName)-1);
+
+	devID = GetDeviceIDByFileName(pcPathName);
+
+	return GetFreeOpenedFile((CSUDI_HANDLE)psDirImp, devID, CSUDI_TRUE);
+	
+}
+
+int CSUDIFSCloseDir(CSUDI_HANDLE hDir)
+{
+	UdiCSFSDirImp_S * psDirImp;
+	int nRet;
+	int nDir;
+	if(CSASSERT_FAILED(hDir != CSUDI_NULL)) return -1;
+	nDir = (int)hDir;
+	if(nDir < 1 || nDir >= MAX_OPEN_FILE_COUNT) return -1;
+	if(s_sOpenedFiles[nDir].m_bUsed == CSUDI_FALSE || s_sOpenedFiles[nDir].m_isDir == CSUDI_FALSE)
+		return -1;
+	psDirImp = (UdiCSFSDirImp_S *)s_sOpenedFiles[nDir].m_handle; 
+	if(CSASSERT_FAILED(psDirImp)) return -1;
+	if(CSASSERT_FAILED(psDirImp->psLinuxDir)) return -1;
+
+	nRet = closedir(psDirImp->psLinuxDir);
+	if(CSASSERT_FAILED(nRet ==  0)) return -1;
+
+	CSUDIOSFree(psDirImp);
+
+	ClearOpenedFile(hDir);
+	return 0;
+}
+
+CSUDIFSDirent_S *CSUDIFSReadDir(CSUDI_HANDLE hDir)
+{
+	UdiCSFSDirImp_S * psDirImp;
+	struct dirent * psDirent;
+	CSUDIFSDirent_S *psUdiDirent;
+	char subFileName[256] = {0};
+	struct stat sStat;
+	int nDir;
+	
+	nDir = (int)hDir;
+	if(nDir < 1 || nDir >= MAX_OPEN_FILE_COUNT) return CSUDI_NULL;
+	if(s_sOpenedFiles[nDir].m_bUsed == CSUDI_FALSE || s_sOpenedFiles[nDir].m_isDir == CSUDI_FALSE)
+		return CSUDI_NULL;
+	psDirImp = (UdiCSFSDirImp_S *)s_sOpenedFiles[nDir].m_handle; 
+	if(CSASSERT_FAILED(psDirImp)) return CSUDI_NULL;
+	if(CSASSERT_FAILED(psDirImp->psLinuxDir)) return CSUDI_NULL;
+
+	psDirent = readdir(psDirImp->psLinuxDir);
+	if(CSASSERT_FAILED(psDirent != CSUDI_NULL)) return CSUDI_NULL;
+	
+	psUdiDirent = &(psDirImp->sDirent);
+
+	memset(psUdiDirent,0,sizeof(CSUDIFSDirent_S));	
+
+	strncpy(psUdiDirent->m_cDirName, psDirent->d_name, sizeof(psUdiDirent->m_cDirName)-1);
+	snprintf(subFileName, sizeof(subFileName), "%s/%s",
+		psDirImp->pcDirName,
+		psUdiDirent->m_cDirName);
+	
+	stat(subFileName,&sStat);
+	if(S_ISDIR(sStat.st_mode))
+	{
+		psUdiDirent->m_ucDirType = 1;
+	}
+	else
+	{
+		psUdiDirent->m_ucDirType = 0;
+	}
+	
+	return psUdiDirent;
+}
+
+static void iConvert2UdiStatfs(CSUDIFSStatFs_S * psUdiStat, struct statfs *psStatFs)
+{
+	if(CSASSERT_FAILED(psUdiStat)) return;
+	if(CSASSERT_FAILED(psStatFs)) return;
+
+	memset(psUdiStat, 0, sizeof(CSUDIFSStatFs_S));
+
+	switch(psStatFs->f_type)
+	{
+		case EXT2_SUPER_MAGIC: /*0xEF53*/
+			psUdiStat->m_eFsType = EM_UDIFS_PARTITION_EXT2;
+			break;
+
+		//case EXT3_SUPER_MAGIC: /*0xEF53*/
+		//	psUdiStat->m_eFsType = EM_UDIFS_PARTITION_EXT3;
+		//	break;
+
+		case JFFS2_SUPER_MAGIC: /*0x72b6*/
+			psUdiStat->m_eFsType = EM_UDIFS_PARTITION_JFFS2;
+			break;
+
+		case NTFS_SB_MAGIC: /*0x5346544e*/
+			psUdiStat->m_eFsType = EM_UDIFS_PARTITION_NTFS;
+			break;
+
+		case MSDOS_SUPER_MAGIC: /*0x4d44*/
+			psUdiStat->m_eFsType = EM_UDIFS_PARTITION_FAT32;
+			break;
+
+		case UBIFS_SUPER_MAGIC:
+		       psUdiStat->m_eFsType = EM_UDIFS_PARTITION_UBIFS;
+			break;
+
+		case YAFFS_MAGIC:
+		       psUdiStat->m_eFsType = EM_UDIFS_PARTITION_YAFFS2;
+			break;
+
+		default:
+			psUdiStat->m_eFsType = -1;
+			break;			
+	}
+	
+	psUdiStat->m_lBavail = psStatFs->f_bavail;
+	psUdiStat->m_lBfree = psStatFs->f_bfree;
+	psUdiStat->m_lBlocks = psStatFs->f_blocks;
+	psUdiStat->m_lBsize = psStatFs->f_bsize;
+	psUdiStat->m_lFfree = psStatFs->f_ffree;
+	psUdiStat->m_lFiles = psStatFs->f_files;
+	psUdiStat->m_lNamelen = psStatFs->f_namelen;
+}
+
+int CSUDIFSStatfs(const char * pcPathName, CSUDIFSStatFs_S * psFsStat)
+{
+	int nRet;
+	struct statfs sStatFs;
+
+	if(CSASSERT_FAILED(pcPathName)) return -1;
+	if(CSASSERT_FAILED(psFsStat)) return -1;
+
+	nRet = statfs(pcPathName,&sStatFs);
+	if(CSASSERT_FAILED(nRet != -1)) return -1;
+
+	iConvert2UdiStatfs(psFsStat,&sStatFs);
+
+	return 0;	
+}
+
+int CSUDIFSFstatfs(CSUDI_HANDLE hFile, CSUDIFSStatFs_S * psFsStat)
+{
+	int nRet;
+	struct statfs sStatFs;
+	int nFile;
+	
+	if(CSASSERT_FAILED(hFile != CSUDI_NULL)) return -1;
+	if(CSASSERT_FAILED(psFsStat != CSUDI_NULL)) return -1;
+
+	nFile = (int)hFile;
+	if(nFile < 1 || nFile >= MAX_OPEN_FILE_COUNT) return -1;
+	if(s_sOpenedFiles[nFile].m_bUsed == CSUDI_FALSE)
+		return -1;
+	nRet = fstatfs((int)s_sOpenedFiles[nFile].m_handle, &sStatFs);
+	if(CSASSERT_FAILED(nRet == 0)) return -1;
+
+	iConvert2UdiStatfs(psFsStat,&sStatFs);
+
+	return 0;	
+}
+
+static CSUDI_BOOL CSUDIFSAddFlash(const char * szPartitionName, CSUDIFSPartitionType_E eFsType)
+{
+	int flag = 0;
+	CSUDI_UINT32 idp = 0;
+	CSUDI_UINT32 id = 0;
+	int bRet = 0;
+	unsigned long long uSectors = 0;
+	UdiStorageObject * pStorageObj = CSUDI_NULL;
+
+	if(szPartitionName == CSUDI_NULL) return CSUDI_FALSE;
+
+	pStorageObj = CSUDIRDIGetFreeStorageObject();
+	if(CSASSERT_FAILED(CSUDI_NULL != pStorageObj)) //no free obj
+	{
+		return -1;
+	}
+	
+	flag |= FLASH_DEV | URA_DEV;
+	id = GetID(flag);
+	
+	pStorageObj->m_devID = id;
+	pStorageObj->m_sStorageInfo.m_dwDeviceId = id;
+	
+	bRet = CSUDIFSGetDiskSize((char*)szPartitionName, &uSectors);
+	CSASSERT(bRet);
+	if(!bRet)
+	{
+		uSectors = 0;
+	}
+	
+#if defined(MMCP_SUPPORT_LL)
+	pStorageObj->m_sStorageInfo.m_dwDeviceSize = uSectors * 512;
+#else
+	pStorageObj->m_sStorageInfo.m_dwDeviceSize.low = uSectors * 512;
+	pStorageObj->m_sStorageInfo.m_dwDeviceSize.high = uSectors * 512 >> 32;
+#endif
+
+	pStorageObj->m_sStorageInfo.m_dwParentDeviceId = -1;
+	pStorageObj->m_sStorageInfo.m_eDeviceType = EM_UDIFS_DEVTYPE_STORAGE;
+	strcpy((char *)pStorageObj->m_sStorageInfo.m_szDeviceName, szPartitionName);
+	strncpy((char *)pStorageObj->m_sStorageInfo.m_szMountPoint, "\0", sizeof("\0"));
+
+	pStorageObj = CSUDIRDIGetFreeStorageObject();
+	if(CSASSERT_FAILED(CSUDI_NULL != pStorageObj)) //no free obj
+	{
+		return -1;
+	}
+
+	flag |= FLASH_DEV | URA_DEV;
+	idp = GetID(flag);
+	pStorageObj->m_sStorageInfo.m_dwDeviceId = idp;
+	bRet = CSUDIFSGetDiskSize((char*)szPartitionName, &uSectors);
+	CSASSERT(bRet);
+	if(!bRet)
+	{
+		uSectors = 0;
+	}
+	#if defined(MMCP_SUPPORT_LL)
+	pStorageObj->m_sStorageInfo.m_dwDeviceSize = uSectors * 512;
+	#else
+	pStorageObj->m_sStorageInfo.m_dwDeviceSize.low = uSectors * 512;
+	pStorageObj->m_sStorageInfo.m_dwDeviceSize.high = uSectors * 512 >> 32;
+	#endif
+	pStorageObj->m_sStorageInfo.m_dwParentDeviceId = idp;
+	pStorageObj->m_sStorageInfo.m_eDeviceType = EM_UDIFS_DEVTYPE_VOLUME;
+	strcpy((char *)pStorageObj->m_sStorageInfo.m_szDeviceName, szPartitionName);
+	GetFreeMountPoint(idp, pStorageObj->m_sStorageInfo.m_szMountPoint);
+
+	if(EM_UDIFS_PARTITION_JFFS2 == eFsType)
+	{
+		bRet = CSUDIFSMountEX(szPartitionName, pStorageObj->m_sStorageInfo.m_szMountPoint, "-t jffs2");
+	}
+	else if(EM_UDIFS_PARTITION_UBIFS == eFsType)
+	{
+		bRet = CSUDIFSMountUbi(szPartitionName, &pStorageObj->m_sStorageInfo);
+	}
+	else if(EM_UDIFS_PARTITION_YAFFS2 == eFsType)
+	{
+		bRet = CSUDIFSMountEX(szPartitionName, pStorageObj->m_sStorageInfo.m_szMountPoint, "-t yaffs2");
+	}
+	CSASSERT(bRet);
+	if(bRet == 0)
+	{
+        pStorageObj->m_bUsed = CSUDI_TRUE;
+		return CSUDI_TRUE;
+	}
+	else
+	{
+		ClearMountPoint(pStorageObj->m_sStorageInfo.m_szMountPoint);
+		strncpy((char *)pStorageObj->m_sStorageInfo.m_szMountPoint, "\0", sizeof("\0"));
+		return CSUDI_FALSE;
+	}
+}
+
+CSUDI_Error_Code CSUDIFSAddPartition(const char * szPartition, CSUDIFSPartitionType_E eFsType)
+{
+	CSUDI_BOOL bRet = CSUDI_FALSE;
+	
+	if(CSASSERT_FAILED(szPartition)) return CSUDIFS_ERROR_BAD_PARAMETER;
+
+	switch(eFsType)
+	{
+		case EM_UDIFS_PARTITION_JFFS2:
+		case EM_UDIFS_PARTITION_UBIFS:
+		case EM_UDIFS_PARTITION_YAFFS2:
+			bRet = CSUDIFSAddFlash(szPartition, eFsType);
+			return bRet ? CSUDI_SUCCESS : CSUDI_FAILURE;
+			break;
+
+		default:
+			return CSUDIFS_ERROR_FEATURE_NOT_SUPPORTED;
+	}
+}
+

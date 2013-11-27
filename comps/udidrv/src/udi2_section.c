@@ -1,31 +1,34 @@
 /****************************************************************************/
-/*                 Copyright Entropic Co, LTD                               */
-/*                            All Rights Reserved                           */
-/****************************************************************************/
 /*
- * Filename:        udi2_section.c
- *
- *
- * Description:     API implementation for COSHIP interface layer .
- *
- *
- *-------------------------------------------------------------------------------
- *ENTROPIC COMMENTS ON COSHIP HEADER FILE:
-	 2013/11/06
-		 The APIs in this header file are required for Android DVB-S2 plus OTT project.
-		 Because there is no EEPROM device in the STB system.
- *-------------------------------------------------------------------------------
- ****************************************************************************/
-#include "udi2_error.h"
-#include "udi2_public.h"
-#include "udi2_typedef.h"
-#include "udidrv_log.h"
+* Filename:        udi2_demux.h
+*
+*
+* Description:     API implementation for COSHIP interface layer .
+*
+*
+* Author:          Trident Design-In Team
+*
+****************************************************************************/
 
-#include "udi2_section.h"
 #include "generic_include.h"
 
 #define MODULE_NAME "CS_SECTION"
 
+#if 0
+extern CNXT_STATUS cnxt_cbuf_read_data_mmapped_dest(
+                            CNXT_CBUF_HANDLE hHandle,
+                            void *pData,
+                            u_int32 uNumBytes,
+                            u_int32 *pNumBytesRead);
+#endif
+
+extern CS_TM_PIPE_OBJECTS gTmPipeObject;
+
+extern CNXT_QUEUE_ID injectDataQueue;
+extern bool bPlayerStarted;
+
+
+/* Local Functions and Variables */
 static SECTION_REQUEST           gSectionTable[MAX_SECTION_FILTERS];
 static PIPE_DEMUX_FILTER_OBJECT *gDmxFltObj[MAX_SECTION_FILTERS] = {NULL, };
 static CNXT_SEM_ID  gSectionSem;
@@ -33,48 +36,273 @@ u_int32     guSectionFilterCount[MAX_NUM_TSI_DEMUX+1]={0};
 u_int8      *gCbufSection;
 
 u_int32 cntDmxFilterInInjectMode = 0;
-u_int32 uGlobaltag = 0; 
 
-extern CNXT_STATUS cnxt_cbuf_read_data_mmapped_dest(
-                            CNXT_CBUF_HANDLE hHandle,
-                            void *pData,
-                            u_int32 uNumBytes,
-                            u_int32 *pNumBytesRead);
 
-extern CS_TM_PIPE_OBJECTS gTmPipeObject;
+static int get_free_Filter_tableID(void);
 
-extern CNXT_QUEUE_ID injectDataQueue;
+static void print_filter_config(PIPE_DEMUX_FILTER_CFG dmxFilterCfg);
 
-extern bool bPlayerStarted;
-
-/**
-@brief 请求Filter过滤数据
-
-常用来过滤PSI、SI，也可用于过滤PES、RAW等数据,需要与CSUDIFILTERStart配合使用
-@param[in] psRequestInfo Filter参数，详情请参见CSUDISECTIONRequestInfo_S
-@param[in] fnSectionCallback 回调函数，当有符合条件的数据到来时，调用本函数通知，所有回调必须在同一线程且建议不要在调用线程中执行太多操作，详情请参见CSUDISECTIONCallback_F
-@param[in] pvUserData 用户数据，可以为CSUDI_NULL
-@param[out] phFilterHandle	用于接收返回的Filter句柄，返回值为0认为非法
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 
-- 详细的过滤规则，请参考CSUDISECTIONRequestInfo_S结构的定义
-- 对应的设备句柄在CSUDISECTIONRequestInfo_S结构中
-- CSUDIFILTERAlloc成功后，调用CSUDIFILTERStart开始接收数据
-- CSUDIFILTERAlloc可以多次调用，直到Filter通道数全部分配完为止
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project.
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIFILTERAllocate(const CSUDISECTIONRequestInfo_S * psRequestInfo, CSUDISECTIONCallback_F fnSectionCallback, const void * pvUserData ,CSUDI_HANDLE * phFilterHandle)
+static CSUDI_Error_Code Soft_Section_Filtering(u_int32 FltId,u_int8 *gSectionData)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
+    u_int8 i;
+    u_int8 Old_Bytes,New_Bytes;
+    bool   bMatchFailed = FALSE;
+    for(i = 12; i < PIPE_DEMUX_MAX_FILTER_LEN; i++)
+    {
+       Old_Bytes = gSectionTable[FltId].DmxFilterCfg.FilterCfg.SectionFilter.uFilterMatch[i] & \
+                   gSectionTable[FltId].DmxFilterCfg.FilterCfg.SectionFilter.uFilterMask[i];
 
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	int FilterID;
+       New_Bytes = gSectionData[i] & \
+                   gSectionTable[FltId].DmxFilterCfg.FilterCfg.SectionFilter.uFilterMask[i];
+
+       if(gSectionTable[FltId].DmxFilterCfg.FilterCfg.SectionFilter.uNegativeMask[i])
+       {
+         if(Old_Bytes == New_Bytes)
+         {
+            bMatchFailed = TRUE;
+            break;
+         }
+       }
+       else
+       {
+          if(Old_Bytes != New_Bytes)
+          {
+            bMatchFailed = TRUE;
+            break;
+          }
+       }
+    }
+    
+    if (bMatchFailed != FALSE)
+        return CSUDI_FAILURE;
+    
+    return CSUDI_SUCCESS;
+}
+
+void Section_filter_event_notifier(struct pipe_pipeline_obj *pPipe,
+                                   void                     *pUserData,
+                                   PIPE_NOTIFY_EVENT         Event,
+                                   void                     *pData,
+                                   void                     *pTag )
+{
+
+  PIPE_DEMUX_FILTER_DATA    *pFilterData = NULL;
+  CNXT_STATUS                Status      = CNXT_STATUS_OK;
+  u_int32                    TempFltID;
+  CSUDISECTIONCallbackData_S Section_Data;
+  u_int32                    uBytesRead;
+  
+  if ( cnxt_kal_sem_get(gSectionSem,CNXT_KAL_WAIT_FOREVER) != CNXT_STATUS_OK)
+  {
+      CSDebug(MODULE_NAME, ERROR_LEVEL, "Filter Device is busy ....\n");
+      return;
+  }
+  switch(Event) 
+  {
+     case PIPE_EVENT_DEMUX_SYNC_ACQUIRED:
+            break;
+     case PIPE_EVENT_DEMUX_SYNC_LOST:
+            break;
+     case PIPE_EVENT_DEMUX_HDR_ERROR:
+            break;
+     case PIPE_EVENT_DEMUX_FILTER_BUF_OVERFLOW:
+            break;
+     case PIPE_EVENT_DEMUX_FILTER_ERROR:
+            break;
+     case PIPE_EVENT_DEMUX_FILTER_DATA_PES:
+          pFilterData = (PIPE_DEMUX_FILTER_DATA*)pData;
+
+#if 0
+          if (pFilterData->uLength >= DEMUX_SECTION_MAX_SIZE)
+          {
+             printf("Large DATA Chunk Size(%d).....\n",pFilterData->uLength);
+             break;
+          }
+#endif
+
+          for ( TempFltID = 0; TempFltID < MAX_SECTION_FILTERS; TempFltID++ )
+          {
+             if ( gDmxFltObj[TempFltID] == pFilterData->pDemuxFilter[0] )
+             {
+                break;
+             }
+          }
+          if(TempFltID >= MAX_SECTION_FILTERS)
+          {
+             printf("No PES Filter Found....\n");
+             break;
+          }
+
+		  if( gSectionTable[TempFltID].InUseFlag == FALSE )
+		  {
+			break;
+		  }
+
+		  #if 0
+          Status = cnxt_cbuf_read_data_mmapped_dest(pFilterData->hCbuf,
+                                                    gCbufSection,
+                                                    pFilterData->uLength,
+                                                    &uBytesRead);
+		  #endif
+		  Status = CNXT_STATUS_NOT_INIT;
+          if(Status != CNXT_STATUS_OK)
+          {
+              //printf(" Failed to Read PES Data From Cbuf Status(%d)\n",Status);
+              //printf("uBytesRead(%d) uLength(%d)\n",uBytesRead,pFilterData->uLength);
+              break;
+          }
+
+
+          if ( (gSectionTable[TempFltID].InUseFlag != TRUE) || 
+               (gSectionTable[TempFltID].state != SF_FILTERING) )
+          {
+             printf("Filter is Not in Use FltId=%d, [%d][%d]\n",
+			 	TempFltID, gSectionTable[TempFltID].InUseFlag, gSectionTable[TempFltID].state);
+             break;
+          }
+          if(gSectionTable[TempFltID].fnSectionCallback != NULL)
+          {
+              Section_Data.m_nDataLen = pFilterData->uLength;
+              Section_Data.m_pucData  = gCbufSection;
+  
+              //printf("PES Filter(%d) PvtData(%d) Notify ......\n",TempFltID,gSectionTable[TempFltID].pvUserData);
+              /* Call Back Function */
+              gSectionTable[TempFltID].fnSectionCallback(
+                                        EM_UDI_REQ_PES_DATA ,
+                                        &Section_Data,
+                                        gSectionTable[TempFltID].pvUserData );
+              break;
+          }
+          else
+          {
+             printf("No Call Back function found \n");
+          }
+          
+          break;
+
+     case PIPE_EVENT_DEMUX_FILTER_DATA:
+             
+             pFilterData = (PIPE_DEMUX_FILTER_DATA*)pData;
+
+			 int i = 0;
+#if 0
+             Status = cnxt_cbuf_read_data_mmapped_dest(pFilterData->hCbuf,
+                                                       gCbufSection,
+                                                       pFilterData->uLength,
+                                                       &uBytesRead);
+#endif
+			 Status = CNXT_STATUS_NOT_INIT;
+             if(Status != CNXT_STATUS_OK)
+             {
+                 CSDebug(MODULE_NAME, INFO_LEVEL, " Failed to Read From Cbuf %x, status %d\n",pFilterData->hCbuf,Status);
+                 break;
+             }
+            
+			 for ( i = 0; i < pFilterData->uNumOfFilters; i++ )
+			 {
+				for ( TempFltID = 0; TempFltID < MAX_SECTION_FILTERS; TempFltID++ )
+				{
+				  if ( gDmxFltObj[TempFltID] == pFilterData->pDemuxFilter[i] )
+				  {
+					 break;
+				  }
+				} 
+
+                if( TempFltID>= MAX_SECTION_FILTERS)
+                    continue;
+                            
+				//if((gSectionTable[TempFltID].InUseFlag == FALSE)||(gSectionTable[TempFltID].pTag != pFilterData->pTag[i]))
+				if((gSectionTable[TempFltID].InUseFlag == FALSE))
+				{
+					continue;
+				}
+				else
+				{
+					break;
+				}
+			 }
+
+			 if((i >= pFilterData->uNumOfFilters)||(gSectionTable[TempFltID].InUseFlag==FALSE))
+			 {
+				 break;
+			 }
+			 
+
+#if 0
+             int k;
+             printf("\nSection Data(%d)Bytes::",pFilterData->uLength);
+             for (k = 0; k< 5; k ++ )
+             {
+               printf("[0x%X] ", gCbufSection[k]);
+             }
+             printf("\n");
+#endif
+
+             for ( i = 0; i < pFilterData->uNumOfFilters; i++ )
+             {
+                for ( TempFltID = 0; TempFltID < MAX_SECTION_FILTERS; TempFltID++ )
+                {
+                  if ( gDmxFltObj[TempFltID] == pFilterData->pDemuxFilter[i] )
+                  {
+                     break;
+                  }
+                }   
+              
+                //if ((gSectionTable[TempFltID].InUseFlag != TRUE)||(gSectionTable[TempFltID].pTag != pFilterData->pTag[i]) )
+				if ((gSectionTable[TempFltID].InUseFlag != TRUE) )
+                {
+                   printf("Filter is Not in Use FltId=%d,%08X,%08X,%08X\n",TempFltID,
+				   	gSectionTable[TempFltID].InUseFlag,
+				   	gSectionTable[TempFltID].pTag,
+				   	0);
+                   continue;
+                }
+                
+                if(gSectionTable[TempFltID].state != SF_FILTERING)
+                {
+                   printf(" Notify : Incorrect Filter State FltId=%d\n ",TempFltID);
+                   continue;
+                }
+                
+                /* 12 Byte Filtering is Done by H/W rest 4Bytes need to check Here */
+                if(  Soft_Section_Filtering( TempFltID ,gCbufSection) != CSUDI_SUCCESS)
+                {
+                   //printf(" Notify : Sotware Section Filtering Failed\n" );
+                   continue;
+                }
+                
+                if(gSectionTable[TempFltID].fnSectionCallback != NULL)
+                {
+                    Section_Data.m_nDataLen = pFilterData->uLength;
+                    Section_Data.m_pucData  = gCbufSection;
+
+                    //printf("Filter(%d) PvtData(%d) Notify ......\n",TempFltID,gSectionTable[TempFltID].pvUserData);
+                    /* Call Back Function */
+                    gSectionTable[TempFltID].fnSectionCallback(
+                                              EM_UDI_REQ_SECTION_DATA ,
+                                              &Section_Data,
+                                              gSectionTable[TempFltID].pvUserData );
+                }    
+             }
+
+         break;
+
+         default:
+             break;
+     }
+  
+  cnxt_kal_sem_put(gSectionSem);
+  
+}
+
+u_int32 uGlobaltag = 0;  
+
+CSUDI_Error_Code CSUDIFILTERAllocate(const CSUDISECTIONRequestInfo_S * psRequestInfo,
+                                     CSUDISECTIONCallback_F fnSectionCallback,
+                                     const void *pvUserData,
+                                     CSUDI_HANDLE *phFilterHandle)
+{
+    int FilterID;
     u_int8 i = 0;
     CSUDI_Error_Code retCode = CSUDI_FAILURE;
     if(psRequestInfo == NULL)
@@ -194,7 +422,7 @@ CSUDI_Error_Code CSUDIFILTERAllocate(const CSUDISECTIONRequestInfo_S * psRequest
            gSectionTable[FilterID].DmxFilterCfg.FilterCfg.SectionFilter.uFilterMask[2]   = 0;
            gSectionTable[FilterID].DmxFilterCfg.FilterCfg.SectionFilter.uNegativeMask[2] = 0;
 		   
-           //gSectionTable[FilterID].DmxFilterCfg.pTag = uGlobaltag; //commented by frank.zhou
+           //gSectionTable[FilterID].DmxFilterCfg.pTag = uGlobaltag;
 		   
 		   uGlobaltag++;
    
@@ -233,32 +461,16 @@ CSUDI_Error_Code CSUDIFILTERAllocate(const CSUDISECTIONRequestInfo_S * psRequest
          retCode = CSUDI_SUCCESS;
         
     }while(0);
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	
-	return Retcode;
+
+    //printf("Filter(%d) PvtData(%d) Allocated ......\n",FilterID,gSectionTable[FilterID].pvUserData);
+    
+    cnxt_kal_sem_put(gSectionSem);
+    return retCode;
 }
 
-/**
-@brief 启动Filter过滤数据
-
-@param[in] hFilterHandle 由CSUDIFILTERAllocate分配得到的filter通道句柄
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note
-- Start成功后，即开始接收、过滤相应数据
-- 第一次调用后，再次(多次)调用将返回失败
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project.
--------------------------------------------------------------------------------
-
-*/    
 CSUDI_Error_Code CSUDIFILTERStart(CSUDI_HANDLE hFilterHandle)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	int FilterID;
+    int FilterID;
     int *FtId;
     CSUDI_Error_Code retCode = CSUDI_FAILURE;
     if(hFilterHandle == NULL)
@@ -372,10 +584,9 @@ CSUDI_Error_Code CSUDIFILTERStart(CSUDI_HANDLE hFilterHandle)
     }while(0);
 
     cnxt_kal_sem_put(gSectionSem);
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	
-	return Retcode;
+    
+    return retCode;
 }
-
 
 static CSUDI_Error_Code CSUDIFILTERStop_Priv(CSUDI_HANDLE hFilterHandle )
 {
@@ -459,30 +670,8 @@ static CSUDI_Error_Code CSUDIFILTERStop_Priv(CSUDI_HANDLE hFilterHandle )
     return retCode;
 }
 
-
-/**
-@brief 停止Filter过滤数据,但并不释放Filter资源
-
-仅停止，不释放资源
-@param[in] hFilterHandle 由CSUDIFILTERAllocate分配得到的filter通道句柄
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note
-- Stop成功后，即停止接收、过滤相应数据
-- 试图去停止一个未启动的Filter返回CSUDISECTION_ERROR_INVALID_STATUS
-- 第一次调用后，再次(多次)调用将返回失败
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project.
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIFILTERStop(CSUDI_HANDLE hFilterHandle )
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
 	CSUDI_Error_Code enRet;
 	
 	 if ( cnxt_kal_sem_get(gSectionSem,CNXT_KAL_WAIT_FOREVER) != CNXT_STATUS_OK)
@@ -494,8 +683,8 @@ CSUDI_Error_Code CSUDIFILTERStop(CSUDI_HANDLE hFilterHandle )
 	enRet = CSUDIFILTERStop_Priv(hFilterHandle);
 	 
 	cnxt_kal_sem_put(gSectionSem);
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	
-	return Retcode;
+
+	return enRet;
 }
 
 static CSUDI_Error_Code CSUDIFILTERFree_Priv(CSUDI_HANDLE hFilterHandle)
@@ -543,27 +732,9 @@ static CSUDI_Error_Code CSUDIFILTERFree_Priv(CSUDI_HANDLE hFilterHandle)
     return retCode;
 }
 
-/**
-@brief 停止Filter接收数据,并释放Filter资源
-
-@param[in] hFilterHandle 由CSUDIFILTERAllocate分配得到的filter通道句柄
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note
-- Free成功后，即停止接收、过滤相应数据
-- 第一次调用后，再次(多次)调用将返回失败
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project.
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIFILTERFree(CSUDI_HANDLE hFilterHandle)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
+	CSUDI_Error_Code enRet;
 	
 	 if ( cnxt_kal_sem_get(gSectionSem,CNXT_KAL_WAIT_FOREVER) != CNXT_STATUS_OK)
 	{
@@ -571,38 +742,16 @@ CSUDI_Error_Code CSUDIFILTERFree(CSUDI_HANDLE hFilterHandle)
 		return CSUDISECTION_ERROR_UNKNOWN_ERROR;
 	}
 
-	Retcode= CSUDIFILTERFree_Priv(hFilterHandle);
+	enRet = CSUDIFILTERFree_Priv(hFilterHandle);
 	 
 	cnxt_kal_sem_put(gSectionSem);
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	
-	return Retcode;
+
+	return enRet;
 }
 
-
-/**
-@brief 修改Fillter设置
-
-@param[in] hFilterHandle 由CSUDIFILTERAllocate分配得到的filter通道句柄
-@param[in] psMMFilter Filter 参数详见 CSUDIFILTERMatchMask_S定义,若为CSUDI_NULL表示不更改此项
-@param[in] bCRCCheck 是否检测CRC
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note
-- 必须在Stop状态下才能修改filter参数，否则返回CSUDISECTION_ERROR_INVALID_STATUS
-- 第一次调用后，再次(多次)调用将返回失败
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project.
--------------------------------------------------------------------------------
-
-*/
-CSUDI_Error_Code CSUDIFILTERModify(CSUDI_HANDLE hFilterHandle, const CSUDIFILTERMatchMask_S * psMMFilter,  CSUDI_BOOL bCRCCheck)
+CSUDI_Error_Code CSUDIFILTERModify(CSUDI_HANDLE hFilterHandle, const CSUDIFILTERMatchMask_S *psMMFilter,  CSUDI_BOOL bCRCCheck)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	int FilterID;
+    int FilterID;
     int *FtId;
     u_int8 i=0;
 
@@ -695,33 +844,12 @@ CSUDI_Error_Code CSUDIFILTERModify(CSUDI_HANDLE hFilterHandle, const CSUDIFILTER
     }while(0);
 
     cnxt_kal_sem_put(gSectionSem);
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	
-	return Retcode;
+    return retCode;
 }
 
-
-/**
-@brief 设置Fillter的底层buffer大小
-
-主要用于需要过滤大量数据,上层可能会来不及取走的情况
-@param[in] hFilterHandle 由CSUDIFILTERAlloc分配的过滤器句柄
-@param[in] nBufSize 要设置的底层buffer的大小，必须为2的n次方，最小1K，最大值根据各个平台差异不同
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 设置Fillter的底层buffer大小时必须让Fillter处于stop状态，否则返回CSUDISECTION_ERROR_INVALID_STATUS	
-
--------------------------------------------------------------------------------
-ENTROPIC COMMENTS ON COSHIP API
-	2013/11/06
-		This API is required for Android DVB-S2 plus OTT project.
--------------------------------------------------------------------------------
-
-*/
 CSUDI_Error_Code CSUDIFILTERSetBufSize(CSUDI_HANDLE hFilterHandle,  int nBufSize)
 {
-	UDIDRV_LOGI("%s %s begin\n", __FUNCTION__, UDIDRV_IMPLEMENTED);
-
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
-	int FilterID;
+    int FilterID;
     int *FtId;
     CSUDI_Error_Code retCode = CSUDI_FAILURE;
 
@@ -757,11 +885,46 @@ CSUDI_Error_Code CSUDIFILTERSetBufSize(CSUDI_HANDLE hFilterHandle,  int nBufSize
     
     cnxt_kal_sem_put(gSectionSem);
     retCode = CSUDI_SUCCESS;
-	UDIDRV_LOGI("%s (Retcode =%d)end\n", __FUNCTION__, Retcode);	
-	return Retcode;
+    
+    return retCode;
 }
 
-//frank.zhou following functions are for internal usage
+CSUDI_Error_Code CSUDIDEMUXGetFreeFilterCount(int nDemuxIndex, int *pnFreeFilterCount)
+{
+   if((nDemuxIndex >= MAX_DEMUX_OBJECTS)||(nDemuxIndex < 0)||(pnFreeFilterCount == NULL))
+   {
+       CSDebug(MODULE_NAME, ERROR_LEVEL, "FAIL: CSUDIDEMUXGetFreeFilterCount Wrong DmxID %d\n", nDemuxIndex);
+       return CSUDIDEMUX_ERROR_BAD_PARAMETER;
+   }
+
+   if ( cnxt_kal_sem_get(gSectionSem,CNXT_KAL_WAIT_FOREVER) != CNXT_STATUS_OK)
+   {
+       CSDebug(MODULE_NAME, ERROR_LEVEL, "Demux Device is busy ....\n");
+       return CSUDISECTION_ERROR_UNKNOWN_ERROR;
+   }
+
+   do 
+   {
+       if(nDemuxIndex < MAX_NUM_TSI_DEMUX)
+       {
+           *pnFreeFilterCount = ( 26 -guSectionFilterCount[nDemuxIndex]);
+       }
+       else if(nDemuxIndex == 2)
+       {
+            *pnFreeFilterCount = ( 12 -guSectionFilterCount[nDemuxIndex]);
+       }
+       else
+       {
+           *pnFreeFilterCount = 0;
+       }
+       
+   }while(0);
+
+   cnxt_kal_sem_put(gSectionSem);
+   
+   return CSUDI_SUCCESS;
+}
+
 CSUDI_Error_Code tm_section_init(void)
 {
     u_int8       uIndex=0;
@@ -898,251 +1061,4 @@ void print_filter_config(PIPE_DEMUX_FILTER_CFG dmxFilterCfg)
   return;
 }
 
-static CSUDI_Error_Code Soft_Section_Filtering(u_int32 FltId,u_int8 *gSectionData)
-{
-    u_int8 i;
-    u_int8 Old_Bytes,New_Bytes;
-    bool   bMatchFailed = FALSE;
-    for(i = 12; i < PIPE_DEMUX_MAX_FILTER_LEN; i++)
-    {
-       Old_Bytes = gSectionTable[FltId].DmxFilterCfg.FilterCfg.SectionFilter.uFilterMatch[i] & \
-                   gSectionTable[FltId].DmxFilterCfg.FilterCfg.SectionFilter.uFilterMask[i];
 
-       New_Bytes = gSectionData[i] & \
-                   gSectionTable[FltId].DmxFilterCfg.FilterCfg.SectionFilter.uFilterMask[i];
-
-       if(gSectionTable[FltId].DmxFilterCfg.FilterCfg.SectionFilter.uNegativeMask[i])
-       {
-         if(Old_Bytes == New_Bytes)
-         {
-            bMatchFailed = TRUE;
-            break;
-         }
-       }
-       else
-       {
-          if(Old_Bytes != New_Bytes)
-          {
-            bMatchFailed = TRUE;
-            break;
-          }
-       }
-    }
-    
-    if (bMatchFailed != FALSE)
-        return CSUDI_FAILURE;
-    
-    return CSUDI_SUCCESS;
-}
-
-void Section_filter_event_notifier(struct pipe_pipeline_obj *pPipe,
-                                   void                     *pUserData,
-                                   PIPE_NOTIFY_EVENT         Event,
-                                   void                     *pData,
-                                   void                     *pTag )
-{
-
-  PIPE_DEMUX_FILTER_DATA    *pFilterData = NULL;
-  CNXT_STATUS                Status      = CNXT_STATUS_OK;
-  u_int32                    TempFltID;
-  CSUDISECTIONCallbackData_S Section_Data;
-  u_int32                    uBytesRead;
-  
-  if ( cnxt_kal_sem_get(gSectionSem,CNXT_KAL_WAIT_FOREVER) != CNXT_STATUS_OK)
-  {
-      CSDebug(MODULE_NAME, ERROR_LEVEL, "Filter Device is busy ....\n");
-      return;
-  }
-  switch(Event) 
-  {
-     case PIPE_EVENT_DEMUX_SYNC_ACQUIRED:
-            break;
-     case PIPE_EVENT_DEMUX_SYNC_LOST:
-            break;
-     case PIPE_EVENT_DEMUX_HDR_ERROR:
-            break;
-     case PIPE_EVENT_DEMUX_FILTER_BUF_OVERFLOW:
-            break;
-     case PIPE_EVENT_DEMUX_FILTER_ERROR:
-            break;
-     case PIPE_EVENT_DEMUX_FILTER_DATA_PES:
-          pFilterData = (PIPE_DEMUX_FILTER_DATA*)pData;
-
-#if 0
-          if (pFilterData->uLength >= DEMUX_SECTION_MAX_SIZE)
-          {
-             printf("Large DATA Chunk Size(%d).....\n",pFilterData->uLength);
-             break;
-          }
-#endif
-
-          for ( TempFltID = 0; TempFltID < MAX_SECTION_FILTERS; TempFltID++ )
-          {
-             if ( gDmxFltObj[TempFltID] == pFilterData->pDemuxFilter[0] )
-             {
-                break;
-             }
-          }
-          if(TempFltID >= MAX_SECTION_FILTERS)
-          {
-             printf("No PES Filter Found....\n");
-             break;
-          }
-
-		  if( gSectionTable[TempFltID].InUseFlag == FALSE )
-		  {
-			break;
-		  }
-		  
-          Status = cnxt_cbuf_read_data_mmapped_dest(pFilterData->hCbuf,
-                                                    gCbufSection,
-                                                    pFilterData->uLength,
-                                                    &uBytesRead);
-          if(Status != CNXT_STATUS_OK)
-          {
-              //printf(" Failed to Read PES Data From Cbuf Status(%d)\n",Status);
-              //printf("uBytesRead(%d) uLength(%d)\n",uBytesRead,pFilterData->uLength);
-              break;
-          }
-
-
-          if ( (gSectionTable[TempFltID].InUseFlag != TRUE) || 
-               (gSectionTable[TempFltID].state != SF_FILTERING) )
-          {
-             printf("Filter is Not in Use FltId=%d, [%d][%d]\n",
-			 	TempFltID, gSectionTable[TempFltID].InUseFlag, gSectionTable[TempFltID].state);
-             break;
-          }
-          if(gSectionTable[TempFltID].fnSectionCallback != NULL)
-          {
-              Section_Data.m_nDataLen = pFilterData->uLength;
-              Section_Data.m_pucData  = gCbufSection;
-  
-              //printf("PES Filter(%d) PvtData(%d) Notify ......\n",TempFltID,gSectionTable[TempFltID].pvUserData);
-              /* Call Back Function */
-              gSectionTable[TempFltID].fnSectionCallback(
-                                        EM_UDI_REQ_PES_DATA ,
-                                        &Section_Data,
-                                        gSectionTable[TempFltID].pvUserData );
-              break;
-          }
-          else
-          {
-             printf("No Call Back function found \n");
-          }
-          
-          break;
-
-     case PIPE_EVENT_DEMUX_FILTER_DATA:
-             
-             pFilterData = (PIPE_DEMUX_FILTER_DATA*)pData;
-
-			 int i = 0;
-
-             Status = cnxt_cbuf_read_data_mmapped_dest(pFilterData->hCbuf,
-                                                       gCbufSection,
-                                                       pFilterData->uLength,
-                                                       &uBytesRead);
-             if(Status != CNXT_STATUS_OK)
-             {
-                 CSDebug(MODULE_NAME, INFO_LEVEL, " Failed to Read From Cbuf %x, status %d\n",pFilterData->hCbuf,Status);
-                 break;
-             }
-            
-			 for ( i = 0; i < pFilterData->uNumOfFilters; i++ )
-			 {
-				for ( TempFltID = 0; TempFltID < MAX_SECTION_FILTERS; TempFltID++ )
-				{
-				  if ( gDmxFltObj[TempFltID] == pFilterData->pDemuxFilter[i] )
-				  {
-					 break;
-				  }
-				} 
-
-                if( TempFltID>= MAX_SECTION_FILTERS)
-                    continue;
-
-				#if 0 //commented by frank.zhou
-				if((gSectionTable[TempFltID].InUseFlag == FALSE)||(gSectionTable[TempFltID].pTag != pFilterData->pTag[i]))
-				{
-					continue;
-				}
-				else
-				{
-					break;
-				}
-				#endif
-			 }
-
-			 if((i >= pFilterData->uNumOfFilters)||(gSectionTable[TempFltID].InUseFlag==FALSE))
-			 {
-				 break;
-			 }
-			 
-
-#if 0
-             int k;
-             printf("\nSection Data(%d)Bytes::",pFilterData->uLength);
-             for (k = 0; k< 5; k ++ )
-             {
-               printf("[0x%X] ", gCbufSection[k]);
-             }
-             printf("\n");
-#endif
-
-             for ( i = 0; i < pFilterData->uNumOfFilters; i++ )
-             {
-                for ( TempFltID = 0; TempFltID < MAX_SECTION_FILTERS; TempFltID++ )
-                {
-                  if ( gDmxFltObj[TempFltID] == pFilterData->pDemuxFilter[i] )
-                  {
-                     break;
-                  }
-                }   
-            #if 0 //commented by frank.zhou
-                if ((gSectionTable[TempFltID].InUseFlag != TRUE)||(gSectionTable[TempFltID].pTag != pFilterData->pTag[i]) )
-                {
-                   printf("Filter is Not in Use FltId=%d,%08X,%08X,%08X\n",TempFltID,
-				   	gSectionTable[TempFltID].InUseFlag,
-				   	gSectionTable[TempFltID].pTag,
-				   	pFilterData->pTag[i]);
-                   continue;
-                }
-			#endif
-                
-                if(gSectionTable[TempFltID].state != SF_FILTERING)
-                {
-                   printf(" Notify : Incorrect Filter State FltId=%d\n ",TempFltID);
-                   continue;
-                }
-                
-                /* 12 Byte Filtering is Done by H/W rest 4Bytes need to check Here */
-                if(  Soft_Section_Filtering( TempFltID ,gCbufSection) != CSUDI_SUCCESS)
-                {
-                   //printf(" Notify : Sotware Section Filtering Failed\n" );
-                   continue;
-                }
-                
-                if(gSectionTable[TempFltID].fnSectionCallback != NULL)
-                {
-                    Section_Data.m_nDataLen = pFilterData->uLength;
-                    Section_Data.m_pucData  = gCbufSection;
-
-                    //printf("Filter(%d) PvtData(%d) Notify ......\n",TempFltID,gSectionTable[TempFltID].pvUserData);
-                    /* Call Back Function */
-                    gSectionTable[TempFltID].fnSectionCallback(
-                                              EM_UDI_REQ_SECTION_DATA ,
-                                              &Section_Data,
-                                              gSectionTable[TempFltID].pvUserData );
-                }    
-             }
-
-         break;
-
-         default:
-             break;
-     }
-  
-  cnxt_kal_sem_put(gSectionSem);
-  
-}

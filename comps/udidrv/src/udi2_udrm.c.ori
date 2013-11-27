@@ -1,0 +1,471 @@
+//#ifndef _UTI_DRIVER_SYSTEM_API_H_
+//#define _UTI_DRIVER_SYSTEM_API_H_
+
+#include "basetype.h"
+#include "kal_types.h"
+#include "kal.h"
+#include <signal.h>
+#include "generic_include.h"
+#include "status_codes.h"
+
+#include "uti_driver.h"
+#include "isa.h"
+
+#include <stdio.h>
+
+#include "unitend.h"
+
+#define UTIFAILURE	(-1)
+#define UTISUCCESS	(0)
+#define TRIDENT_UTI_BASE	(0x00)
+//#define NXP_UTI_BASE	(0xF2000000)
+//#define NXP_UTI_BASE	(0x0)
+
+static CNXT_ISA_HANDLE hUtiHandle;
+
+CNXT_STATUS cs_cnxt_utidriver_test(void);
+    
+CNXT_STATUS cs_cnxt_utidriver_init(void)
+{
+    CNXT_ISA_HANDLE hHandle;
+    CNXT_ISA_CAPS Caps;
+    CNXT_STATUS reCode = CNXT_STATUS_OK;
+
+    printf("App try to open ISA....\n");
+
+    
+    if ( (reCode=cnxt_isa_init(NULL) ) != CNXT_STATUS_OK )
+    {
+       printf("cnxt_isa_init failed\n" );
+       return reCode;
+    }
+    
+    Caps.addrHold = 100;
+    Caps.csHold = 100;
+    Caps.csPin = 4;
+    Caps.csSetup = 100;
+    Caps.ctlSetup = 200;
+    Caps.ioCfg = CNXT_ISA_MEM_RD_WR;
+    Caps.readWaitTime = 50;
+    Caps.regAccess = 50;
+    Caps.regSetup = 50;
+    Caps.waitTimeout = 1000;
+    Caps.writeWaitTime = 50;
+    Caps.xoeMask = FALSE;
+    
+    if ((reCode = cnxt_isa_open(&hHandle, &Caps, NULL, NULL))==CNXT_STATUS_OK)
+    {
+       printf("Success open ISA, handle = 0x%x\n", hHandle);
+       hUtiHandle = hHandle;
+    }
+    else
+    {
+        printf("failed open ISA\n");
+    }
+
+    //cs_cnxt_utidriver_test();
+    
+    return reCode;
+}
+
+UTI_SINT32 UTDriverTerm(void)
+{
+    if ( ( cnxt_isa_close(hUtiHandle) != CNXT_STATUS_OK ))
+    {
+       printf("cnxt_isa_close failed\n" );
+       return UTIFAILURE;
+    }
+
+    if ( ( cnxt_isa_term() != CNXT_STATUS_OK ))
+    {
+       printf("cnxt_isa_term failed\n" );
+       return UTIFAILURE;
+    }
+    
+    return UTISUCCESS;
+}
+
+UTI_SINT32 UTIDriverReadRegU8(UTI_UINT32 address, UTI_UINT8 *u8_data)
+{
+	if (u8_data == NULL)
+	{
+		return UTIFAILURE;
+	}
+	if (CNXT_STATUS_OK == cnxt_isa_read_reg_buf(hUtiHandle, address+TRIDENT_UTI_BASE,(u_int8 *)u8_data,1))
+	{
+		return UTISUCCESS;
+	}
+
+	return UTIFAILURE;
+}
+
+UTI_SINT32 UTIDriverWriteRegU8(UTI_UINT32 address, UTI_UINT8 u8_data)
+{
+	if (CNXT_STATUS_OK == cnxt_isa_write_reg_buf(hUtiHandle, address+TRIDENT_UTI_BASE,(u_int8 *)&u8_data,1))
+	{
+		return UTISUCCESS;
+	}
+
+	return UTIFAILURE;
+}
+UTI_SINT32 UTIDriverReadRegU16(UTI_UINT32 address, UTI_UINT16 *u16_data)
+{
+	if (u16_data == NULL)
+	{
+		return UTIFAILURE;
+	}
+	if (CNXT_STATUS_OK == cnxt_isa_read_reg_buf(hUtiHandle, address+TRIDENT_UTI_BASE,(u_int8 *)u16_data,2))
+	{
+		return UTISUCCESS;
+	}
+
+	return UTIFAILURE;
+}
+UTI_SINT32 UTIDriverWriteRegU16(UTI_UINT32 address, UTI_UINT16 u16_data)
+{
+	if (CNXT_STATUS_OK == cnxt_isa_write_reg_buf(hUtiHandle, address+TRIDENT_UTI_BASE,(u_int8 *)&u16_data,2))
+	{
+		return UTISUCCESS;
+	}
+
+	return UTIFAILURE;
+}
+UTI_SINT32 UTIDriverReadRegU32(UTI_UINT32 address, UTI_UINT32 *u32_data)
+{
+	if (u32_data == NULL)
+	{
+		return UTIFAILURE;
+	}
+	if (CNXT_STATUS_OK == cnxt_isa_read_reg_buf(hUtiHandle, address+TRIDENT_UTI_BASE,(u_int8 *)u32_data,4))
+	{
+		return UTISUCCESS;
+	}
+
+	return UTIFAILURE;
+}
+UTI_SINT32 UTIDriverWriteRegU32(UTI_UINT32 address, UTI_UINT32 u32_data)
+{
+	if (CNXT_STATUS_OK == cnxt_isa_write_reg_buf(hUtiHandle, address+TRIDENT_UTI_BASE,(u_int8 *)&u32_data,4))
+	{
+		return UTISUCCESS;
+	}
+
+	return UTIFAILURE;
+}
+UTI_SINT32 UTIDriverReadRegBuffer(UTI_UINT32 address, UTI_UINT8 *u8_data, UTI_UINT32 buffer_len)
+{
+	if (u8_data == NULL)
+	{
+		return UTIFAILURE;
+	}
+	if (CNXT_STATUS_OK == cnxt_isa_read_reg_buf(hUtiHandle, address+TRIDENT_UTI_BASE,(u_int8 *)u8_data,buffer_len))
+	{
+		return UTISUCCESS;
+	}
+
+	return UTIFAILURE;
+}
+UTI_SINT32 UTIDriverWriteRegBuffer(UTI_UINT32 address, UTI_UINT8 *u8_data, UTI_UINT32 buffer_len)
+{
+	if (u8_data == NULL)
+	{
+		return UTIFAILURE;
+	}
+	if (CNXT_STATUS_OK == cnxt_isa_write_reg_buf(hUtiHandle, address+TRIDENT_UTI_BASE,(u_int8 *)u8_data,buffer_len))
+	{
+		return UTISUCCESS;
+	}
+
+	return UTIFAILURE;
+}
+UTI_SINT32 UTIDriverSetBaseAddress(void *address)
+{
+	return -1;
+}
+
+
+#include <string.h>
+#define GET_VAL(data, shift,mask)	((data&mask)>>shift)
+
+static void test_print_buffer(u_int8 * buffaddr , int bufferlen)
+{
+	int ii = 0;
+	for (ii=0; ii<bufferlen; ii++)
+	{
+		printf("0x%x ",buffaddr[ii]);
+		if((ii%8==0)&&( ii>0))
+		{
+			printf("\r\n");
+		}
+	}
+	printf("\r\n");
+	return;
+}
+static CSUDI_BOOL check_data_valid(u_int8 value8,u_int16 value16, u_int32 value32,u_int8 uReadbuffer[4])
+{
+	CSUDI_BOOL bValid = CSUDI_FALSE;
+	
+	if((value8 ==  GET_VAL(value16,0,0x00ff)) 
+		&& (value8 ==  GET_VAL(value32,0,0x000000ff)) 
+		&&(value16 ==  GET_VAL(value32,0,0x0000ffff))
+		&&(uReadbuffer[0] == GET_VAL(value32,0,0x000000ff))
+		&&(uReadbuffer[1] == GET_VAL(value32,8,0x0000ff00))
+		&&(uReadbuffer[2] == GET_VAL(value32,16,0x00ff0000))
+		&&(uReadbuffer[3] == GET_VAL(value32,24,0xff000000))
+		)
+		{
+			bValid = CSUDI_TRUE;
+		}
+
+	return bValid;
+}
+
+CNXT_STATUS cs_cnxt_utidriver_test(void)
+{
+	u_int8 value8=0,i, jj;
+	u_int16 value16 ;
+	u_int32 value32;
+	u_int32 uAddr;
+	UTI_SINT32 err = 0;
+	u_int8 uRegVal[4] = {0};
+	u_int8 uReadbuffer[4];		
+	
+	u_int8 udrm_register_buffer[256];
+	
+	const u_int32 udrm_register_size = 0x30;
+	const u_int8 udrm_register_default_vaule[0x30] =
+	{
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x91, 
+		0x95, 0x94, 0xf0, 0x1f, 0xf0, 0x1f, 0xf1, 0x1f, 
+		0xff, 0x1f, 0xff, 0x1f, 0xff, 0x1f, 0xff, 0x1f, 
+		0xff, 0x1f, 0xff, 0x1f, 0xff, 0x1f, 0xff, 0x1f, 
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x92, 0xf2, 0x1f
+	};
+
+{
+
+	uAddr = 0x980;
+	// read all register
+	memset(udrm_register_buffer, 0x0, sizeof(udrm_register_buffer));
+	for (i=0; i<udrm_register_size; i++)
+	{
+		err = UTIDriverReadRegU8(i+uAddr, &udrm_register_buffer[i]);
+
+		if (err != UTISUCCESS)
+		{
+			printf("self test read register[0x%x] failed! \n", i);
+			continue;
+		}
+		
+		if (udrm_register_buffer[i] != udrm_register_default_vaule[i])
+		{
+			printf("self test read register[0x%x] error, current is 0x%x, default is 0x%x. \n", i, udrm_register_buffer[i], udrm_register_default_vaule[i]);
+		}
+	}
+	
+	if(memcmp(udrm_register_default_vaule,udrm_register_buffer,udrm_register_size) == 0)
+	{
+		printf("addr 0x%x len 0x%x read successful \r\n",uAddr,udrm_register_size);
+	}
+	else
+	{
+		printf("addr 0x%x len 0x%x read fail \r\n",uAddr,udrm_register_size);
+	}
+	
+	memset(udrm_register_buffer, 0x0, sizeof(udrm_register_buffer));	
+	
+	err = UTIDriverReadRegBuffer(uAddr, udrm_register_buffer,udrm_register_size);
+	if (err != UTISUCCESS)
+	{
+		printf("self test read register[0x%x] failed! \n", i);			
+	}
+	
+	if(memcmp(udrm_register_default_vaule,udrm_register_buffer,udrm_register_size) == 0)
+	{
+		printf("addr 0x%x len 0x%x read successful \r\n",uAddr,udrm_register_size);
+	}
+	else
+	{
+		printf("addr 0x%x len 0x%x read fail \r\n",uAddr,udrm_register_size);
+	}
+	
+	memset(udrm_register_buffer, 0x0, sizeof(udrm_register_buffer));
+	for (i=0; i<udrm_register_size/2; i++)
+	{
+		err = UTIDriverReadRegU16(i*2+uAddr,((u_int16*)udrm_register_buffer)+i);
+
+		if (err != UTISUCCESS)
+		{
+			printf("self test read register[0x%x] failed! \n", i);
+			continue;
+		}
+		if (*(((u_int16*)udrm_register_buffer)+i) != *(((u_int16*)udrm_register_buffer)+i))
+		{
+			printf("self test read register[0x%x] error, current is 0x%x, default is 0x%x. \n", i, udrm_register_buffer[i], udrm_register_default_vaule[i]);
+		}
+	}
+	
+	if(memcmp(udrm_register_default_vaule,udrm_register_buffer,udrm_register_size) == 0)
+	{
+		printf("addr 0x%x len 0x%x read successful \r\n",uAddr,udrm_register_size);
+	}
+	else
+	{
+		printf("addr 0x%x len 0x%x read fail \r\n",uAddr,udrm_register_size);
+	}
+
+	memset(udrm_register_buffer, 0x0, sizeof(udrm_register_buffer));
+	for (i=0; i<udrm_register_size/4; i++)
+	{
+		err = UTIDriverReadRegU32(i*4+uAddr, (((u_int32*)udrm_register_buffer)+i));
+
+		if (err != UTISUCCESS)
+		{
+			printf("self test read register[0x%x] failed! \n", i);
+			continue;
+		}
+		
+		if (*(((u_int32*)udrm_register_buffer)+i) != *(((u_int32*)udrm_register_buffer)+i))
+		{
+			printf("self test read register[0x%x] error, current is 0x%x, default is 0x%x. \n", i, udrm_register_buffer[i], udrm_register_default_vaule[i]);
+		}
+		
+	}
+	
+	if(memcmp(udrm_register_default_vaule,udrm_register_buffer,udrm_register_size) == 0)
+	{
+		printf("addr 0x%x len 0x%x read successful \r\n",uAddr,udrm_register_size);
+	}
+	else
+	{
+		printf("addr 0x%x len 0x%x read fail \r\n",uAddr,udrm_register_size);
+	}
+	
+	uAddr = 0x988;
+	for(jj=0; jj<4; jj++)
+	{
+		uAddr = uAddr+ jj;
+		UTIDriverReadRegU8(uAddr, &value8);
+		printf("addr 0x%x :8: %x\r\n",uAddr, value8);
+		
+		UTIDriverReadRegU16(uAddr, &value16);
+		printf("addr 0x%x :16: %x\r\n",uAddr, value16);
+		
+		UTIDriverReadRegU32(uAddr,&value32);
+		printf("addr 0x%x :32: %x\r\n",uAddr ,value32);
+		
+		memset(uReadbuffer,0,sizeof(uReadbuffer));
+		if (UTIDriverReadRegBuffer(uAddr,uReadbuffer,4))
+		{
+			printf("error line %d\r\n",__LINE__);
+		}
+		printf("addr 0x%x \r\n",uAddr);
+		test_print_buffer(uReadbuffer,4);
+
+		for(i=0; i<4; i++)
+		{
+			UTIDriverReadRegU8(uAddr+i, &uRegVal[i]);
+			printf("addr 0x%x :8: %x\r\n",uAddr+i, uRegVal[i]);
+		}
+		
+		for(i=0; i<4; i++)
+		{
+			u_int16 value16_4[4] ;
+			UTIDriverReadRegU16(uAddr+i, &value16_4[i]);
+			printf("addr 0x%x :16: %x\r\n",uAddr+i, value16_4[i]);
+		}
+		
+		for(i=0; i<4; i++)
+		{
+			u_int32 value32_4[4] ;
+			UTIDriverReadRegU32(uAddr+i, &value32_4[i]);
+			printf("addr 0x%x :32: %x\r\n",uAddr+i, value32_4[i]);
+		}
+		
+		if(check_data_valid(value8, value16, value32, uReadbuffer))
+		{
+			printf("addr 0x%x read successful\n",uAddr);
+		}
+		else
+		{
+			printf("addr 0x%x read failed\n",uAddr);
+		}
+
+	}
+
+	// test write
+	{
+		uAddr = 0x7a;
+		u_int8 uReadbuffer_bak[4];	
+
+		//recode the reg before write
+		if (UTIDriverReadRegBuffer(uAddr,uReadbuffer_bak,4))
+		{
+			printf("error line %d\r\n",__LINE__);
+		}
+		
+		uRegVal[0] = 0x12;
+		uRegVal[1] = 0x34;
+		uRegVal[2] = 0x56;
+		uRegVal[3] = 0x78;
+		if (UTIDriverWriteRegBuffer(uAddr,uRegVal,4))
+		{
+			printf("error line %d\r\n",__LINE__);
+		}
+
+		memset(uReadbuffer,0,sizeof(uReadbuffer));
+		if (UTIDriverReadRegBuffer(uAddr,uReadbuffer,4))
+		{
+			printf("error line %d\r\n",__LINE__);
+		}
+		printf("addr 0x%x \r\n",uAddr);
+		test_print_buffer(uReadbuffer,4);
+
+		UTIDriverReadRegU32(uAddr,&value32);
+		printf("====value32:%x\n",value32);
+		
+		value8 = 0x55;
+		UTIDriverWriteRegU8(uAddr,value8);
+		value8 = 0;
+		UTIDriverReadRegU8(uAddr, &value8);
+		printf("addr 0x%x :8: %x\r\n",uAddr, value8);
+
+		value16 = 0x55aa;
+		UTIDriverWriteRegU16(uAddr,value16);
+		value16 = 0;
+		UTIDriverReadRegU16(uAddr, &value16);
+		printf("addr 0x%x :8: %x\r\n",uAddr, value16);
+
+		value32 = 0x12345678;
+		UTIDriverWriteRegU32(uAddr,value32);
+		value32 = 0;
+		UTIDriverReadRegU32(uAddr, &value32);
+		printf("addr 0x%x :32: %x\r\n",uAddr, value32);
+		
+		memset(uReadbuffer,0,sizeof(uReadbuffer));
+		if (UTIDriverReadRegBuffer(uAddr,uReadbuffer,4))
+		{
+			printf("error line %d\r\n",__LINE__);
+		}
+		printf("addr 0x%x \r\n",uAddr);
+		test_print_buffer(uReadbuffer,4);
+		
+		//recover  the reg after write test
+		if (UTIDriverWriteRegBuffer(uAddr,uReadbuffer_bak,4))
+		{
+			printf("recover error line %d\r\n",__LINE__);
+		}
+		
+		memset(uReadbuffer,0,sizeof(uReadbuffer));
+		if (UTIDriverReadRegBuffer(uAddr,uReadbuffer,4))
+		{
+			printf("error line %d\r\n",__LINE__);
+		}
+	}//test write
+	
+}	
+	return CNXT_STATUS_OK;
+}
+
+//#endif

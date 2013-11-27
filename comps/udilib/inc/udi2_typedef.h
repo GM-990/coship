@@ -151,7 +151,7 @@ typedef unsigned long	    CSUDI_UINT32;           ///< 32位无符号数,注意禁止使用
 @note 该宏定义必须由平台决定是否支持，并进行定义
 */
 
-#define MMCP_SUPPORT_LL
+//#define MMCP_SUPPORT_LL
 
 #ifdef MMCP_SUPPORT_LL
 

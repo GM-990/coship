@@ -17,7 +17,7 @@ ENTROPIC COMMENTS ON COSHIP HEADER FILE:
 #ifndef _CS_FS_PLUS_H_
 #define _CS_FS_PLUS_H_
 
-#include  "udiplus_typedef.h"
+#include "udiplus_typedef.h"
 #include "udi2_fs.h"
 
 

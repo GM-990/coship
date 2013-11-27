@@ -1,0 +1,655 @@
+/****************************************************************************/
+/*                   Trident Multimedia Technologies (Shanghai) Co, LTD                                   */
+/*                        SOFTWARE FILE/MODULE HEADER                                                        */
+/*                 Copyright Trident Multimedia Technologies (Shanghai) Co, LTD 2004-200       */
+/*                            All Rights Reserved                                                                         */
+/****************************************************************************/
+/*
+* Filename:        udi2_video.c
+*
+*
+* Description:     API implementation for COSHIP interface layer .
+*
+*
+* Author:          Alfred Chen 2010.11
+*
+****************************************************************************/
+#include "generic_include.h"
+#include "udi2_screen.h"
+#define MODULE_NAME              ("CS_SCREEN")
+extern CS_TM_VP_DEVICE_OBJECTS gTmVpDeviceObj;
+extern CS_TM_PIPE_OBJECTS gTmPipeObject;
+extern PIPE_VP_SURFACE_OBJECT        *pHDOSDSurface;
+extern PIPE_VP_SURFACE_OBJECT        *pSDOSDSurface;
+static CNXT_SEM_ID gScreenSem;
+
+extern PIPE_VP_SURFACE_OBJECT        *pgHDOSDSurface;
+extern PIPE_VP_SURFACE_OBJECT        *pgSDOSDSurface;
+extern CS_TM_VP_DEVICE_OBJECTS        gTmVpDeviceObj;
+
+CNXT_STATUS CS_TM_Screen_Init(void)
+{
+	
+	CNXT_STATUS Retcode = CNXT_STATUS_OK ;
+	char sem_name[20];
+	sprintf(sem_name,"ScreenSem0");
+	Retcode=cnxt_kal_sem_create(1, sem_name, &(gScreenSem));
+	if(CNXT_STATUS_OK!=Retcode)
+	{
+		CSDEBUG(MODULE_NAME, ERROR_LEVEL, "sem_create  failed\n");
+		return Retcode;
+	}
+	printf("CS_TM_Screen_Init---success\n");
+	return Retcode;
+}
+
+CSUDI_Error_Code CSUDISCREENGetCapability(CSUDISCREENType_E eScreenDevice,CSUDISCREENCapability_S * psCapabilityInfo)
+{
+	
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	u_int32 index=0;
+	do
+	{
+		if(psCapabilityInfo == NULL)
+		{
+			Retcode = CSUDISCREEN_ERROR_BAD_PARAMETER;
+			break;
+		}
+		if(!(eScreenDevice == EM_UDI_VOUT_DEVICE_HD  || eScreenDevice == EM_UDI_VOUT_DEVICE_SD ))
+		{
+			Retcode = CSUDISCREEN_ERROR_BAD_PARAMETER;
+			break;
+		}
+		if(eScreenDevice == EM_UDI_VOUT_DEVICE_SD)
+		{
+			psCapabilityInfo->m_eResolution[index++] = EM_UDISCREEN_RESOLUTION_NTSC;    
+			psCapabilityInfo->m_eResolution[index++] = EM_UDISCREEN_RESOLUTION_PAL;
+			psCapabilityInfo->m_eResolution[index++] = EM_UDISCREEN_RESOLUTION_PAL_B;
+			psCapabilityInfo->m_eResolution[index++] = EM_UDISCREEN_RESOLUTION_PAL_M;
+			psCapabilityInfo->m_eResolution[index++] = EM_UDISCREEN_RESOLUTION_PAL_G;
+			psCapabilityInfo->m_eResolution[index++] = EM_UDISCREEN_RESOLUTION_PAL_H;
+			psCapabilityInfo->m_eResolution[index++] = EM_UDISCREEN_RESOLUTION_PAL_K;
+			psCapabilityInfo->m_eResolution[index++] = EM_UDISCREEN_RESOLUTION_PAL_N;
+			psCapabilityInfo->m_eResolution[index++] = EM_UDISCREEN_RESOLUTION_INVALID;
+			
+		}
+		else
+		{
+            
+			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_1080I;
+			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_720P;
+			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_720P_24HZ;
+			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_720P_50HZ;
+//			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_576P;   
+			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_1080I;  
+			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_1080I_50HZ;
+//			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_480P;
+			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_1080P;  
+			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_1080P_24HZ;
+			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_1080P_25HZ; 
+			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_1080P_30HZ; 
+			psCapabilityInfo->m_eResolution[index++] =  EM_UDISCREEN_RESOLUTION_INVALID; 
+		}
+		
+	}while(0);
+	return Retcode;
+}
+
+CSUDI_Error_Code CSUDISCREENAddCallback(CSUDISCREENCallback_F fnScreenCallback,void * pvUserData )
+{
+	
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
+	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	u_int32 i = 0;    
+	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"start Function :%s line[%d]Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+	Cnxt_Retcode = cnxt_kal_sem_get(gScreenSem, CNXT_KAL_WAIT_FOREVER);
+	i = 0;
+	do
+	{
+		if(fnScreenCallback == NULL)
+		{
+			Retcode = CSUDISCREEN_ERROR_BAD_PARAMETER;
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"ERROR:start Function :%s line[%d]CSUDISCREEN_ERROR_BAD_PARAMETER\n",__FUNCTION__,__LINE__);
+			break;
+			
+		}
+		while(i < MAX_COSHIP_SCREEN_CALLBACK)
+		{
+			if(gTmVpDeviceObj.ScreenCallback[i].bUsed == FALSE)
+			break;
+			i++;
+		}
+		if(i < MAX_COSHIP_SCREEN_CALLBACK)
+		{
+			gTmVpDeviceObj.ScreenCallback[i].pFnCallBack = fnScreenCallback;
+			gTmVpDeviceObj.ScreenCallback[i].pUserData = pvUserData;
+			gTmVpDeviceObj.ScreenCallback[i].bUsed = TRUE;   
+		}
+		else
+		{
+			Retcode =  CSUDISCREEN_ERROR_BAD_PARAMETER;
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Function :%s callback register array is used up i[%d]\n",
+			__FUNCTION__,__LINE__,i);
+
+		}       
+	}while(0);
+	Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Exit Function :%s line[%d]Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+	return Retcode;
+}
+
+CSUDI_Error_Code CSUDISCREENDelCallback(CSUDISCREENCallback_F fnScreenCallback, void * pvUserData )
+{
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;    
+	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	u_int32 i = 0;
+    
+	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"into Function :%s line[%d]Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+	Cnxt_Retcode = cnxt_kal_sem_get(gScreenSem, CNXT_KAL_WAIT_FOREVER);
+	do
+	{
+		if(fnScreenCallback == NULL)
+		{
+			Retcode = CSUDISCREEN_ERROR_BAD_PARAMETER;
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"ERROR_LEVEL start Function :%s line[%d]CSUDISCREEN_ERROR_BAD_PARAMETER\n",__FUNCTION__,__LINE__);
+			break;
+			
+		}
+		while(i < MAX_COSHIP_SCREEN_CALLBACK)
+		{
+			if(gTmVpDeviceObj.ScreenCallback[i].pFnCallBack == fnScreenCallback && 
+					gTmVpDeviceObj.ScreenCallback[i].pUserData == pvUserData)
+			{
+				gTmVpDeviceObj.ScreenCallback[i].pFnCallBack = NULL;
+				gTmVpDeviceObj.ScreenCallback[i].bUsed = FALSE;   
+				gTmVpDeviceObj.ScreenCallback[i].pUserData = NULL;
+				break;
+			}
+			i++;
+		}
+		if(i >= MAX_COSHIP_SCREEN_CALLBACK)
+		{
+			Retcode = CSUDI_FAILURE;
+		}
+	}while(0);
+	Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Exit Function :%s line[%d] Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+	return Retcode;
+}
+
+CSUDI_Error_Code CSUDISCREENSetResolution(CSUDISCREENType_E* peScreenDevice, CSUDISCREENResolution_E* peResolution,int nCount)
+{
+	// 2011-01-15 TerenceZhang begin:Fix the system block issue in CSTC_ITTEST_IT_00016 test case 
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;
+	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	PIPE_STATUS Status;
+	u_int32 chain=0;    
+	u_int32 i = 0,counter=0;    	
+	bool   bIsMatch = TRUE;
+	
+
+	if((peResolution == NULL)||(peScreenDevice == NULL)||(nCount <= 0))
+	{
+		Retcode = CSUDISCREEN_ERROR_BAD_PARAMETER;
+		return Retcode;
+	}
+	
+    	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"in :%s line[%d]nCount[%d]\n",__FUNCTION__,__LINE__,nCount);
+		
+	for(i=0;i<nCount;i++)
+	{				
+
+		Cnxt_Retcode = cnxt_kal_sem_get(gScreenSem, CNXT_KAL_WAIT_FOREVER);
+		CSDEBUG(MODULE_NAME, ERROR_LEVEL,"%s line[%d]Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+
+	
+		if(!(*(peScreenDevice + i) == EM_UDI_VOUT_DEVICE_HD  || *(peScreenDevice + i) == EM_UDI_VOUT_DEVICE_SD ))
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"in :%s line[%d]nCount[%d]\n",__FUNCTION__,__LINE__,nCount);
+
+			Retcode = CSUDISCREEN_ERROR_BAD_PARAMETER;
+			Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+			return Retcode;
+		}
+	
+        		bIsMatch = TRUE;
+        		CSDEBUG(MODULE_NAME, ERROR_LEVEL,"in :%s line[%d]peResolution[%d]peScreenDevice[%d]\n",__FUNCTION__,__LINE__,*(peResolution + i),*(peScreenDevice + i));
+
+		if(*(peResolution + i) != EM_UDISCREEN_RESOLUTION_INVALID)
+		{
+			if(*(peScreenDevice + i)  == EM_UDI_VOUT_DEVICE_HD)
+			{
+				switch(*(peResolution+i))
+				{
+				case EM_UDISCREEN_RESOLUTION_480P:
+					Status = gTmVpDeviceObj.pHDDevice->set_display_mode(gTmVpDeviceObj.pHDDevice,PIPE_VP_DISPLAY_MODE_480P);
+					break;
+				case EM_UDISCREEN_RESOLUTION_576P:
+					Status = gTmVpDeviceObj.pHDDevice->set_display_mode(gTmVpDeviceObj.pHDDevice,PIPE_VP_DISPLAY_MODE_576p);
+					break;
+				case EM_UDISCREEN_RESOLUTION_720P:
+					Status = gTmVpDeviceObj.pHDDevice->set_display_mode(gTmVpDeviceObj.pHDDevice,PIPE_VP_DISPLAY_MODE_720P);
+					break;
+				case EM_UDISCREEN_RESOLUTION_720P_50HZ:
+					Status = gTmVpDeviceObj.pHDDevice->set_display_mode(gTmVpDeviceObj.pHDDevice,PIPE_VP_DISPLAY_MODE_720P_50Hz);
+					break;                            
+				case EM_UDISCREEN_RESOLUTION_1080I:
+					Status = gTmVpDeviceObj.pHDDevice->set_display_mode(gTmVpDeviceObj.pHDDevice,PIPE_VP_DISPLAY_MODE_1080I);
+					break;
+				case EM_UDISCREEN_RESOLUTION_1080I_50HZ:
+					Status = gTmVpDeviceObj.pHDDevice->set_display_mode(gTmVpDeviceObj.pHDDevice,PIPE_VP_DISPLAY_MODE_1080I_50Hz);
+					break;                            
+				case EM_UDISCREEN_RESOLUTION_1080P:
+					Status = gTmVpDeviceObj.pHDDevice->set_display_mode(gTmVpDeviceObj.pHDDevice,PIPE_VP_DISPLAY_MODE_1080P_50Hz);
+					break;
+				case EM_UDISCREEN_RESOLUTION_1080P_24HZ:
+					Status = gTmVpDeviceObj.pHDDevice->set_display_mode(gTmVpDeviceObj.pHDDevice,PIPE_VP_DISPLAY_MODE_1080P_24Hz);
+					break;
+				case EM_UDISCREEN_RESOLUTION_1080P_25HZ:
+					Status = gTmVpDeviceObj.pHDDevice->set_display_mode(gTmVpDeviceObj.pHDDevice,PIPE_VP_DISPLAY_MODE_1080P_25Hz);
+					break;
+				case EM_UDISCREEN_RESOLUTION_1080P_30HZ:
+					Status = gTmVpDeviceObj.pHDDevice->set_display_mode(gTmVpDeviceObj.pHDDevice,PIPE_VP_DISPLAY_MODE_1080P_30Hz);
+					break;
+				case EM_UDISCREEN_RESOLUTION_1080P_50HZ:
+					Status = gTmVpDeviceObj.pHDDevice->set_display_mode(gTmVpDeviceObj.pHDDevice,PIPE_VP_DISPLAY_MODE_1080P_50Hz);
+					break;
+				case EM_UDISCREEN_RESOLUTION_1250I_50HZ:
+				case EM_UDISCREEN_RESOLUTION_720P_24HZ:                            
+				default:
+					CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"did NOT support in %s line[%d]\n",__FUNCTION__,__LINE__);
+					bIsMatch = FALSE;
+					Status = PIPE_STATUS_NOT_SUPPORTED;
+					break;
+					
+				}         
+				
+				if (Status == PIPE_STATUS_NOT_SUPPORTED)
+				{
+					CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d status :%x\n",__FUNCTION__,__LINE__,Status);
+					Retcode = CSUDISCREEN_ERROR_FEATURE_NOT_SUPPORTED;
+					Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+					return Retcode;					
+				}
+				
+				if (Status != PIPE_STATUS_OK)
+				{
+					CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d status :%x\n",__FUNCTION__,__LINE__,Status);
+					Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+					Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+					return Retcode;	
+				}                    
+				gTmPipeObject.TmDisplaySubSys[chain].uHDResolution = *(peResolution+i);
+			
+			}
+			else
+			{
+				switch(*(peResolution+i))
+				{
+					case EM_UDISCREEN_RESOLUTION_NTSC:
+		                     case EM_UDISCREEN_RESOLUTION_NTSC_443:
+                    			case EM_UDISCREEN_RESOLUTION_NTSC_JAPAN:
+						Status = gTmVpDeviceObj.pSDDevice->set_display_mode(gTmVpDeviceObj.pSDDevice,PIPE_VP_DISPLAY_MODE_NTSC);
+						break;
+					case EM_UDISCREEN_RESOLUTION_PAL:
+					case EM_UDISCREEN_RESOLUTION_PAL_M:
+					case EM_UDISCREEN_RESOLUTION_PAL_N:
+					case EM_UDISCREEN_RESOLUTION_PAL_NC:
+					case EM_UDISCREEN_RESOLUTION_PAL_B:
+					case EM_UDISCREEN_RESOLUTION_PAL_B1:
+					case EM_UDISCREEN_RESOLUTION_PAL_D:
+					case EM_UDISCREEN_RESOLUTION_PAL_D1:
+					case EM_UDISCREEN_RESOLUTION_PAL_G:
+					case EM_UDISCREEN_RESOLUTION_PAL_H:
+					case EM_UDISCREEN_RESOLUTION_PAL_K:
+					case EM_UDISCREEN_RESOLUTION_PAL_I:
+						Status = gTmVpDeviceObj.pSDDevice->set_display_mode(gTmVpDeviceObj.pSDDevice,PIPE_VP_DISPLAY_MODE_PAL);
+						break;
+					case EM_UDISCREEN_RESOLUTION_SECAM:
+						Status = gTmVpDeviceObj.pSDDevice->set_display_mode(gTmVpDeviceObj.pSDDevice,PIPE_VP_DISPLAY_MODE_SECAM);
+						break;
+					default:
+						bIsMatch = FALSE;
+						Status = PIPE_STATUS_NOT_SUPPORTED;
+						break;
+					
+				}            
+				
+				if (Status == PIPE_STATUS_NOT_SUPPORTED)
+				{
+					CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d status :%x\n",__FUNCTION__,__LINE__,Status);
+					Retcode = CSUDISCREEN_ERROR_FEATURE_NOT_SUPPORTED;
+					Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+					return Retcode;	
+				}
+                
+				if (Status != PIPE_STATUS_OK)
+				{
+					CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Error in %s at line :%d status :%x\n",__FUNCTION__,__LINE__,Status);
+					Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+					Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+					return Retcode;	
+				}                    
+				
+				gTmPipeObject.TmDisplaySubSys[chain].uSDResolution = *(peResolution+i);
+			}
+			//gDisplayConfig.hDIsplayHandle[0].bAutoResolution = FALSE;			
+		}
+		
+		Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+		CSDEBUG(MODULE_NAME, ERROR_LEVEL,"%s line[%d] Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+
+		//Since the user application's callback will call other interface in this modules, so we move the callback notify out of semphore.
+		if((bIsMatch == TRUE)&&(Retcode = CSUDI_SUCCESS))
+		{		
+			for(counter=0;counter<MAX_COSHIP_SCREEN_CALLBACK;counter++)
+			{
+
+				if(gTmVpDeviceObj.ScreenCallback[counter].bUsed == TRUE)
+				{			
+					gTmVpDeviceObj.ScreenCallback[counter].pFnCallBack(EM_UDISCREEN_RESOLUTION_CHANGED, *(peScreenDevice + i),  gTmVpDeviceObj.ScreenCallback[counter].pUserData);
+				}
+			}
+		}
+	}
+	
+	// 2011-01-15 TerenceZhang end
+	return Retcode;
+}
+
+CSUDI_Error_Code CSUDISCREENGetResolution(CSUDISCREENType_E eScreenDevice,CSUDISCREENResolution_E * peResolution)
+{
+	CNXT_STATUS Retcode = CNXT_STATUS_OK;       
+	//    PIPE_STATUS Status;            
+	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	int     chain=0;    
+	Cnxt_Retcode = cnxt_kal_sem_get(gScreenSem, CNXT_KAL_WAIT_FOREVER);
+	//CSDEBUG(MODULE_NAME, ERROR_LEVEL,"start Function :%s line[%d]\n",__FUNCTION__,__LINE__);
+	do
+	{
+		if((gTmVpDeviceObj.pHDDevice == NULL) ||(gTmVpDeviceObj.pSDDevice == NULL))
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line: %d error\n",__FUNCTION__,__LINE__);
+			Retcode = CSUDI_FAILURE;
+			break;
+		}
+        if(peResolution == NULL)
+        {
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line: %d error\n",__FUNCTION__,__LINE__);
+			Retcode = CSUDISCREEN_ERROR_BAD_PARAMETER;
+			break;
+        }
+		if((eScreenDevice>EM_UDI_VOUT_DEVICE_HD)||(eScreenDevice<EM_UDI_VOUT_DEVICE_SD))
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line: %d error\n",__FUNCTION__,__LINE__);
+			Retcode = CSUDISCREEN_ERROR_BAD_PARAMETER;
+			break;
+            
+		}
+		if(!((eScreenDevice&EM_UDI_VOUT_DEVICE_HD) == EM_UDI_VOUT_DEVICE_HD || (eScreenDevice&EM_UDI_VOUT_DEVICE_SD) == EM_UDI_VOUT_DEVICE_SD ))
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line: %d error\n",__FUNCTION__,__LINE__);
+			Retcode = CSUDI_FAILURE;
+			break;
+		}                          
+		if((eScreenDevice&EM_UDI_VOUT_DEVICE_HD) == EM_UDI_VOUT_DEVICE_HD)
+		{
+			*peResolution = gTmPipeObject.TmDisplaySubSys[chain].uHDResolution;
+		}
+		else if((eScreenDevice&EM_UDI_VOUT_DEVICE_SD) == EM_UDI_VOUT_DEVICE_SD)
+		{
+			*peResolution = gTmPipeObject.TmDisplaySubSys[chain].uSDResolution;
+		}
+		else
+		{
+			
+		}
+	}while(0);
+	Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+	//CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Exit Function :%s line[%d] Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+	return Retcode;
+}
+
+CSUDI_Error_Code  CSUDISCREENSetOSDTransparency(int nTransparency)
+{
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;       
+	PIPE_STATUS Status;            
+	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	//    int     chain=0;    
+	//PIPE_VP_SURFACE_TYPE Zlist[ PIPE_VP_ZLIST_MAX ];
+	int nTriTran = 0;
+    
+	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"start Function :%s line[%d]nTransparency[%d]\n",__FUNCTION__,__LINE__,nTransparency);
+	Cnxt_Retcode = cnxt_kal_sem_get(gScreenSem, CNXT_KAL_WAIT_FOREVER);
+	do
+	{
+		if((pgHDOSDSurface == NULL) ||(pgSDOSDSurface == NULL))
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line: %d error\n",__FUNCTION__,__LINE__);
+			Retcode = CSUDI_FAILURE;
+			break;
+		}
+		if (nTransparency < 0 ||nTransparency>100)
+		{
+			Retcode = CSUDISCREEN_ERROR_BAD_PARAMETER;
+			break;
+		}
+        
+        nTriTran = nTransparency*255/100;
+	#if 0		
+        Zlist[0] = PIPE_VP_VIDEO_PRIMARY_SURFACE;
+        Zlist[1] = PIPE_VP_VIDEO_SECONDARY_SURFACE;
+        Zlist[2] = PIPE_VP_OSD_SURFACE;
+        Zlist[3] = PIPE_VP_GRAPHICS_SURFACE;
+        Zlist[4] = PIPE_VP_VBI_SURFACE;
+        Status = gTmVpDeviceObj.pSDDevice->set_z_order(gTmVpDeviceObj.pSDDevice,Zlist);
+		if(Status != PIPE_STATUS_OK)
+		{
+            CSDEBUG(MODULE_NAME, ERROR_LEVEL,"error Function :%s line[%d] Status[%d]\n",__FUNCTION__,__LINE__,Status);
+			Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+			break;            
+		}
+        Status = gTmVpDeviceObj.pHDDevice->set_z_order(gTmVpDeviceObj.pHDDevice,Zlist);
+		if(Status != PIPE_STATUS_OK)
+		{
+            CSDEBUG(MODULE_NAME, ERROR_LEVEL,"error Function :%s line[%d] Status[%d]\n",__FUNCTION__,__LINE__,Status);
+			Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+			break;            
+		}
+        #endif
+		Status = pgHDOSDSurface->set_opacity(pgHDOSDSurface,nTriTran);
+		if(Status != PIPE_STATUS_OK)
+		{
+            CSDEBUG(MODULE_NAME, ERROR_LEVEL,"error Function :%s line[%d] Status[%d]\n",__FUNCTION__,__LINE__,Status);
+			Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+			break;            
+		}
+		Status = pgSDOSDSurface->set_opacity(pgSDOSDSurface,nTriTran);
+		if(Status != PIPE_STATUS_OK)
+		{
+            CSDEBUG(MODULE_NAME, ERROR_LEVEL,"error Function :%s line[%d] Status[%d]\n",__FUNCTION__,__LINE__,Status);
+			Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+			break;            
+		}
+	}while(0);
+	Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Exit Function :%s line[%d] Retcode[%d]\n",__FUNCTION__,__LINE__,Retcode);
+	return Retcode;
+}
+
+CSUDI_Error_Code CSUDISCREENSetBrightness(int nBrightness)
+{
+	CNXT_STATUS Retcode = CNXT_STATUS_OK;       
+	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	PIPE_STATUS Status;            
+	int     chain=0;  
+	int8 nBright;
+    
+	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"ERROR_LEVEL start Function :%s line[%d]Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+	Cnxt_Retcode = cnxt_kal_sem_get(gScreenSem, CNXT_KAL_WAIT_FOREVER);
+	do
+	{
+		if((gTmVpDeviceObj.pHDDevice == NULL) ||(gTmVpDeviceObj.pSDDevice == NULL))
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line: %d error\n",__FUNCTION__,__LINE__);
+			Retcode = CSUDI_FAILURE;
+			break;
+		}
+		gTmPipeObject.TridCoshipSetup[chain].nBrightness = nBrightness;
+		nBright = ( 127 *(nBrightness - 50)) / 50;
+		Status = gTmVpDeviceObj.pHDDevice->picture_control(gTmVpDeviceObj.pHDDevice,PIPE_VP_DEVICE_PICTURE_CTRL_BRIGHTNESS,nBright);
+		if(Status != PIPE_STATUS_OK)                
+		{
+			Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+			break;            
+		}
+		Status = gTmVpDeviceObj.pSDDevice->picture_control(gTmVpDeviceObj.pSDDevice,PIPE_VP_DEVICE_PICTURE_CTRL_BRIGHTNESS,nBright);
+		if(Status != PIPE_STATUS_OK)                
+		{
+			Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+			break;            
+		}
+	}while(0);
+	Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Exit Function :%s line[%d] Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+	return Retcode;
+}
+
+CSUDI_Error_Code CSUDISCREENSetContrast(int nContrast)
+{
+	CNXT_STATUS Retcode = CNXT_STATUS_OK;       
+	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	PIPE_STATUS Status;    
+	int8    nVidContrast;
+	int     chain=0;    
+    
+	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"ERROR_LEVEL start Function :%s line[%d]Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+	Cnxt_Retcode = cnxt_kal_sem_get(gScreenSem, CNXT_KAL_WAIT_FOREVER);
+	do
+	{
+		if((gTmVpDeviceObj.pHDDevice == NULL) ||(gTmVpDeviceObj.pSDDevice == NULL))
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line: %d error\n",__FUNCTION__,__LINE__);
+			Retcode = CSUDI_FAILURE;
+			break;
+		}
+		gTmPipeObject.TridCoshipSetup[chain].nContrast = nContrast;
+		
+		/*converting from 0 to 100 range to -128 to 127*/
+		nVidContrast = ( 127 *(nContrast - 50)) / 50;
+		Status = gTmVpDeviceObj.pHDDevice->picture_control(gTmVpDeviceObj.pHDDevice,PIPE_VP_DEVICE_PICTURE_CTRL_CONTRAST,nVidContrast);
+		if(Status != PIPE_STATUS_OK)                
+		{
+			Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+			break;            
+		}
+		Status = gTmVpDeviceObj.pSDDevice->picture_control(gTmVpDeviceObj.pSDDevice,PIPE_VP_DEVICE_PICTURE_CTRL_CONTRAST,nVidContrast);
+		if(Status != PIPE_STATUS_OK)                
+		{
+			Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+			break;            
+		}
+		
+	}while(0);
+	Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Exit Function :%s line[%d] Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+	return Retcode;
+}
+
+CSUDI_Error_Code CSUDISCREENSetSaturation(int nSaturation)
+{
+	CNXT_STATUS Retcode = CNXT_STATUS_OK;       
+	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	PIPE_STATUS Status;            
+	int     chain=0;   
+	
+	int8    nVidSaturation;
+    
+	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"ERROR_LEVEL start Function :%s line[%d]Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+	Cnxt_Retcode = cnxt_kal_sem_get(gScreenSem, CNXT_KAL_WAIT_FOREVER);
+	do
+	{
+		if((gTmVpDeviceObj.pHDDevice == NULL) ||(gTmVpDeviceObj.pSDDevice == NULL))
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Into Function :%s line: %d error\n",__FUNCTION__,__LINE__);
+			Retcode = CSUDI_FAILURE;
+			break;
+		}
+		
+		gTmPipeObject.TridCoshipSetup[chain].nSaturation= nSaturation;
+		
+		/*converting from 0 to 100 range to -128 to 127*/
+		nVidSaturation = ( 127 *(nSaturation - 50)) / 50;
+		Status = gTmVpDeviceObj.pHDDevice->picture_control(gTmVpDeviceObj.pHDDevice,PIPE_VP_DEVICE_PICTURE_CTRL_SATURATION,nVidSaturation);
+		if(Status != PIPE_STATUS_OK)                
+		{
+			Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+			break;            
+		}
+		Status = gTmVpDeviceObj.pSDDevice->picture_control(gTmVpDeviceObj.pSDDevice,PIPE_VP_DEVICE_PICTURE_CTRL_SATURATION,nVidSaturation);
+		if(Status != PIPE_STATUS_OK)                
+		{
+			Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+			break;            
+		}
+	}while(0);
+	Cnxt_Retcode = cnxt_kal_sem_put(gScreenSem);
+	CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Exit Function :%s line[%d] Cnxt_Retcode[%d]\n",__FUNCTION__,__LINE__,Cnxt_Retcode);
+	return Retcode;
+}
+
+extern CNXT_SEM_ID gOsg_sem[2];
+/*lichanghua:这个是个临时接口,主要是满足泰山游戏的需求,后续正式
+确定后再考虑是否添加UDI接口*/
+CSUDI_Error_Code CSUDISCREENSetVideoOSGZOrder(BOOL bVideoTopOnOSG)
+{
+	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;       
+	PIPE_STATUS Status;            
+	CNXT_STATUS Cnxt_Retcode = CNXT_STATUS_OK;
+	PIPE_VP_SURFACE_TYPE Zlist[ PIPE_VP_ZLIST_MAX ];
+    
+	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"start Function :%s line[%d] set:%d\n",__FUNCTION__,__LINE__,bVideoTopOnOSG);
+
+	if (bVideoTopOnOSG)
+	{
+		Zlist[0] = PIPE_VP_OSD_SURFACE;
+		Zlist[1] = PIPE_VP_GRAPHICS_SURFACE;
+		Zlist[2] = PIPE_VP_VIDEO_SECONDARY_SURFACE;
+		Zlist[3] = PIPE_VP_VIDEO_PRIMARY_SURFACE;
+		Zlist[4] = PIPE_VP_VBI_SURFACE;
+	}
+	else
+	{
+		Zlist[0] = PIPE_VP_VIDEO_PRIMARY_SURFACE;
+		Zlist[1] = PIPE_VP_VIDEO_SECONDARY_SURFACE;
+		Zlist[2] = PIPE_VP_OSD_SURFACE;
+		Zlist[3] = PIPE_VP_GRAPHICS_SURFACE;
+		Zlist[4] = PIPE_VP_VBI_SURFACE;
+	}
+
+	do
+	{
+		Retcode = cnxt_kal_sem_get(gOsg_sem[0], CNXT_KAL_WAIT_FOREVER);
+		Status = gTmVpDeviceObj.pSDDevice->set_z_order(gTmVpDeviceObj.pSDDevice,Zlist);
+		if(Status != PIPE_STATUS_OK)
+		{
+		    CSDEBUG(MODULE_NAME, ERROR_LEVEL,"error Function :%s line[%d] Status[%d]\n",__FUNCTION__,__LINE__,Status);
+			Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+			Retcode = cnxt_kal_sem_put(gOsg_sem[0]);
+			break;            
+		}
+		Retcode = cnxt_kal_sem_put(gOsg_sem[0]);
+		Retcode = cnxt_kal_sem_get(gOsg_sem[1], CNXT_KAL_WAIT_FOREVER);
+		Status = gTmVpDeviceObj.pHDDevice->set_z_order(gTmVpDeviceObj.pHDDevice,Zlist);
+		if(Status != PIPE_STATUS_OK)
+		{
+		    		CSDEBUG(MODULE_NAME, ERROR_LEVEL,"error Function :%s line[%d] Status[%d]\n",__FUNCTION__,__LINE__,Status);
+			Retcode = CSUDIVIDEO_ERROR_UNKNOWN_ERROR;
+			Retcode = cnxt_kal_sem_put(gOsg_sem[1]);
+			break;            
+		}
+		Retcode = cnxt_kal_sem_put(gOsg_sem[1]);
+	}while(0);
+
+	return Retcode;
+}

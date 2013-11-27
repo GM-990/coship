@@ -1,0 +1,426 @@
+
+#include "cs_clocktimer.h"
+#include "cs_assert.h"
+
+#include <time.h>
+
+typedef enum  TimeFormatChangeType
+{
+	CS_TM_CSTIME_TO_STDTIME,
+	CS_TM_STDTIME_TO_CSTIME
+}E_TimeFormatChangeType;
+
+/************************************************************************/
+/* 
+功能：转换日期和时间为ASCII码。
+
+语法：
+char      * CSasctime(const struct tm *  pstTime)
+
+参数：
+pstTime [in]           年月日时分秒
+返回值：
+转换后的ASICC字符串
+备注：
+无
+ */
+/************************************************************************/
+
+static BOOL CheckStructTM(struct tm* pstTime)
+{
+	CSASSERT( pstTime != NULL);
+	if (pstTime == NULL)
+	{
+		return FALSE;
+	}
+
+	CSASSERT((pstTime->tm_sec>=0)&&(pstTime->tm_sec<=59));     /* seconds after the minute - [0,59] */
+	if ((pstTime->tm_sec<0)||(pstTime->tm_sec>59))
+	{
+		return FALSE;
+	}
+
+	CSASSERT((pstTime->tm_min>=0)&&(pstTime->tm_min<=59));     /* minutes after the hour - [0,59] */
+	if ((pstTime->tm_min<0)||(pstTime->tm_min>59))
+	{
+		return FALSE;
+	}
+
+	CSASSERT((pstTime->tm_hour>=0)&&(pstTime->tm_hour<=23));    /* hours since midnight - [0,23] */
+	if ((pstTime->tm_hour < 0)||(pstTime->tm_hour > 23))
+	{
+		return FALSE;
+	}
+
+	CSASSERT((pstTime->tm_mday>=1)&&(pstTime->tm_mday<=31));    /* day of the month - [1,31] */
+	if ((pstTime->tm_mday<1)||(pstTime->tm_mday>31))
+	{
+		return FALSE;
+	}
+
+	CSASSERT((pstTime->tm_mon>=0)&&(pstTime->tm_mon<=11));     /* months since January - [0,11] */
+	if ((pstTime->tm_mon<0)||(pstTime->tm_mon>11))
+	{
+		return FALSE;	
+	}
+
+	CSASSERT(pstTime->tm_year>=0);    /* years since 1900 */
+	if (pstTime->tm_year<0)
+	{
+		return FALSE;
+	}
+
+	CSASSERT((pstTime->tm_wday>=0)&&(pstTime->tm_wday<=6));    /* days since Sunday - [0,6] */
+	if ((pstTime->tm_wday < 0)||(pstTime->tm_wday > 6))
+	{
+		return FALSE;
+	}
+
+	CSASSERT((pstTime->tm_yday>=0)&&(pstTime->tm_yday<=365));    /* days since January 1 - [0,365] */
+	if ((pstTime->tm_yday < 0)||(pstTime->tm_yday > 365))
+	{
+		return FALSE;
+	}
+
+	CSASSERT((pstTime->tm_isdst>=-1)&&(pstTime->tm_isdst<=1));    /* days since January 1 - [0,365] */
+	if ((pstTime->tm_isdst < -1)||(pstTime->tm_isdst > 1))
+	{
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+static int ChangeTimeFormat(cs_tm_s * pcsTime, struct tm * pTime ,E_TimeFormatChangeType eType)
+{
+	CSASSERT((pcsTime != NULL) &&(pTime != NULL));
+	if ((pcsTime == NULL) ||(pTime == NULL))
+	{
+		return FAILURE;
+	}
+
+	if (eType == CS_TM_CSTIME_TO_STDTIME) //Chnage coship format to std format
+	{
+		pTime->tm_sec	=  pcsTime->m_tm_sec;	
+		pTime->tm_min	=  pcsTime->m_tm_min;	
+		pTime->tm_hour	=  pcsTime->m_tm_hour;	
+		pTime->tm_mday	=  pcsTime->m_tm_mday;	
+		pTime->tm_mon	=  pcsTime->m_tm_mon;	
+		pTime->tm_year	=  pcsTime->m_tm_year;	
+		pTime->tm_wday	=  pcsTime->m_tm_wday;	
+		pTime->tm_yday	=  pcsTime->m_tm_yday;	
+		pTime->tm_isdst =  pcsTime->m_tm_isdst;
+	}
+	else if (eType == CS_TM_STDTIME_TO_CSTIME) //Chnage std format to coship format
+	{
+		pcsTime->m_tm_sec	=	pTime->tm_sec  ;	
+		pcsTime->m_tm_min	=	pTime->tm_min  ;	
+		pcsTime->m_tm_hour	=	pTime->tm_hour	;	
+		pcsTime->m_tm_mday	=	pTime->tm_mday	;	
+		pcsTime->m_tm_mon	=	pTime->tm_mon  ;	
+		pcsTime->m_tm_year	=	pTime->tm_year	;	
+		pcsTime->m_tm_wday	=	pTime->tm_wday	;	
+		pcsTime->m_tm_yday	=	pTime->tm_yday	;	
+		pcsTime->m_tm_isdst =	pTime->tm_isdst ;
+	}
+	else
+	{
+		CSASSERT(FALSE);
+		return FAILURE;
+	}
+	
+	return SUCCESS;
+}
+/*
+in:  	pTime
+out: pcsTime
+*/
+
+char *	CSAsctime(const cs_tm_s *  pstTime)
+{
+	struct tm  pTime;
+	
+	if (ChangeTimeFormat((cs_tm_s *)pstTime,&pTime,CS_TM_CSTIME_TO_STDTIME) != SUCCESS)
+	{
+		CSASSERT(FALSE);
+		return NULL;
+	}
+	
+	if (CheckStructTM(&pTime) == FALSE)
+	{
+		CSASSERT(FALSE);
+		return NULL;
+	}
+	
+	return asctime(&pTime);
+}
+/************************************************************************/
+/*
+功能：把日期和时间转换为字符串
+
+语法：
+char      * CSctime(const cstime_t * npTime)
+
+参数：
+npTime [in]          cstime_t 格式的时间
+返回值：
+转换后的字符串
+备注：
+无
+*/
+/************************************************************************/
+char *	CSCtime(const cstime_t * npTime)
+{
+	CSASSERT(npTime != NULL);
+	if (npTime == NULL)
+	{
+		return NULL;
+	}
+
+	return ctime(npTime);
+}
+
+/************************************************************************/
+/*
+功能：计算两个时刻之间的时间差
+
+语法：
+double      CSdifftime(cstime_t nTime2, cstime_t nTime1)
+
+参数：
+nTime2 [in]          时刻2（被减的）
+nTime1 [in]          时刻1（减的时刻）
+
+返回值：
+	两个时刻时间差,单位 秒	
+备注：
+无
+*/
+/************************************************************************/
+
+double  CSDifftime(cstime_t nTime2, cstime_t nTime1)
+{
+	return difftime(nTime2,nTime1);
+}
+
+/************************************************************************/
+/* 
+功能：把日期和时间转换为格林尼治标准时间
+
+语法：
+struct tm * CSgmtime(const cstime_t * npTime)
+
+
+参数：
+npTime [in]          要转换的时刻
+
+返回值：
+得到的格林尼治标准时间指针
+备注：无
+*/
+/************************************************************************/
+cs_tm_s * CSGmtime(const cstime_t * npTime)
+{
+	static cs_tm_s stTime;
+
+	CSASSERT(npTime != NULL);
+	if (npTime == NULL)
+	{
+		return NULL;
+	}
+
+	ChangeTimeFormat(&stTime,(struct tm*)gmtime(npTime),CS_TM_STDTIME_TO_CSTIME) ;
+
+	return &stTime;
+}
+/************************************************************************/
+/* 
+功能：把日期和时间转变为结构
+
+语法：
+struct tm * CSlocaltime(const cstime_t * npTime)
+
+
+参数：
+npTime [in]          要转换的时刻
+
+返回值：
+得到的时间结构
+备注：无
+*/
+/************************************************************************/
+
+cs_tm_s * CSLocaltime(const cstime_t * npTime)
+{
+	static cs_tm_s stTime;
+
+	CSASSERT(npTime != NULL);
+	if (npTime == NULL)
+	{
+		return NULL;
+	}
+
+	ChangeTimeFormat(&stTime,localtime(npTime),CS_TM_STDTIME_TO_CSTIME) ;
+	
+	return &stTime;
+}
+/************************************************************************/
+/* 
+功能：mktime converts the local time in the structure *tp into calendar time in the same representation used by time.
+语法：
+cstime_t      CSmktime(struct tm * pstTime)
+
+参数：
+pstTime [in]  按tm结构定义的本地时间。
+
+返回值：	  得到的按time_t定义的时间。 
+*/
+/************************************************************************/
+cstime_t  CSMktime(cs_tm_s * pstTime)
+{
+	struct tm stTime;
+	
+	if (ChangeTimeFormat(pstTime,&stTime,CS_TM_CSTIME_TO_STDTIME) != SUCCESS)
+	{
+		CSASSERT(FALSE);
+		return 0;
+	}
+
+	if (CheckStructTM(&stTime) == FALSE)
+	{
+		CSASSERT(FALSE);
+		return 0;
+	}
+	
+	return mktime(&stTime);
+}
+
+/************************************************************************/
+/* 
+功能：
+语法：
+size_t      CSstrftime(char * DesStr, size_t MaxSize, const char * fmt, const struct tm * nstTime )
+
+参数：
+DesStr [OUT ]     按fmt定义输出时间格式的字符串。
+MaxSize[in]       指定输出的最大字节数
+Fmt{in}           指定输出格式，如下表所示。
+nstTime[in]       输入的时间格式。
+返回值：
+得到实际的字符串个数。 
+*/
+/************************************************************************/
+size_t  CSStrftime(char * DesStr, size_t  MaxSize, const char * fmt, const cs_tm_s * nstTime )
+{
+	struct tm  stTime;
+
+	CSASSERT(DesStr!= NULL 
+			&& (fmt != NULL)
+			&& (nstTime != NULL));
+	if ((DesStr == NULL)||(fmt == NULL)||(nstTime == NULL))
+	{
+		return 0;
+	}
+
+	if (ChangeTimeFormat((cs_tm_s * )nstTime,&stTime,CS_TM_CSTIME_TO_STDTIME) != SUCCESS)
+	{
+		CSASSERT(FALSE);
+		return 0;
+	}
+
+		
+	if (CheckStructTM(&stTime) == FALSE)
+	{
+		return 0;
+	}
+
+	return strftime(DesStr,MaxSize,fmt,&stTime);
+}
+/************************************************************************/
+/* 
+功能：将将npTime所指的时间(例如由time所返回的时间)写入系统中.
+语法：
+cstime_t      CStime(cstime_t * npTime)
+
+参数：
+npTime [in]          欲写入的系统时间。
+
+返回值：
+返回的time_t .
+备注：无
+*/
+/************************************************************************/
+cstime_t  CSTime(cstime_t * npTime)
+{
+	CSASSERT(npTime != NULL);
+	if (npTime == NULL)
+	{
+		return 0;
+	}
+
+	return time(npTime);
+}
+
+/************************************************************************/
+/* 
+功能：UNIX时间兼容函数
+语法：
+void        CStzset(void)
+
+参数：
+无
+返回值：
+无
+备注：
+*/
+/************************************************************************/
+void  CSTzset(void)
+{
+	tzset();
+}
+
+#if 1
+int  CSClockSettime(cs_clockid_t clock_id,cs_timespec_s * pTime)
+{  
+	struct timespec stPec;
+
+	if(clock_id!=CLOCK_REALTIME) 
+		return FAILURE;	
+	if(pTime==NULL) 
+		return FAILURE;  /*if(tp->tv_sec<=0 || tp->tv_nsec<=0) return EINVAL;*/  
+
+	stPec.tv_sec = pTime->m_tv_sec;
+	stPec.tv_nsec = pTime->m_tv_nsec;
+	
+	return clock_settime(clock_id, &stPec);
+}
+
+int CSClockGettime(cs_clockid_t clock_id,cs_timespec_s *tp)
+{	
+	struct timespec stPec;
+
+	if(clock_id!=CLOCK_REALTIME) 
+		return FAILURE;	
+	if(tp==NULL) 
+		return FAILURE;  
+	
+	stPec.tv_sec = tp->m_tv_sec;
+	stPec.tv_nsec = tp->m_tv_nsec;
+
+	return clock_gettime(clock_id, &stPec);
+}
+int  CSClockGetres(cs_clockid_t clock_id,cs_timespec_s *tp)
+{  
+	struct timespec stPec;
+
+	if(clock_id!=CLOCK_REALTIME)	
+			return FAILURE; 
+	if( tp==NULL)	
+		return FAILURE;	
+	
+	stPec.tv_sec = tp->m_tv_sec;
+	stPec.tv_nsec = tp->m_tv_nsec;
+	
+	return clock_getres(clock_id,&stPec);
+}
+#endif

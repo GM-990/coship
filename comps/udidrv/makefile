@@ -47,11 +47,13 @@ UDIDRVLIBS_DIR=$(_TMROOT)/sd/apps/coship/comps/udilib
 #endif
 #LOCAL_CFLAGS = -fPIC
 #EXPORTS=yes
-LOCAL_DLLFLAGS = --sysroot=$(_TMSYSROOT)
+LOCAL_CFLAGS  += -mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=softfp
+LOCAL_CFLAGS  += -Wall -Wcomment -mno-sched-prolog -fno-common -fno-builtin -fdollars-in-identifiers -fno-strict-aliasing
+LOCAL_CFLAGS  += -O0 -g
 
-LOCAL_LDFLAGS   += $(UDIDRVLIBS_DIR)/lib/libostest.a
-LOCAL_LDFLAGS   += $(UDIDRVLIBS_DIR)/lib/libtestkittest.a
-LOCAL_LDFLAGS   += $(UDIDRVLIBS_DIR)/lib/libmaintest.a
+LOCAL_DLLFLAGS = --sysroot=$(_TMSYSROOT)
+LOCAL_LDFLAGS   += -L$(UDIDRVLIBS_DIR)/lib  -lmaintest -lostest -lplayertest -ltestkittest -ludiplus -ldemuxtest
+
 
 
 #-----------------------------------------------------------------------
@@ -62,7 +64,7 @@ LOCAL_CXXFLAGS	=
 #***********************************************************************
 # Do not change this
 #***********************************************************************
-all: configuration target
+all: configuration target install
 
 #***********************************************************************
 # Do not change the following include

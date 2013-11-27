@@ -1,30 +1,10 @@
-/****************************************************************************/
-/*                   Entropic (Shanghai) Co, LTD                            */
-/*                        SOFTWARE FILE/MODULE HEADER                       */
-/*                 Copyright Entropic Co, LTD                               */
-/*                            All Rights Reserved                           */
-/****************************************************************************/
-/*
- * Filename:        udi2_inject.c
- *
- *
- * Description:     API implementation for COSHIP interface layer .
- *
- *
- *-------------------------------------------------------------------------------
- *ENTROPIC COMMENTS ON COSHIP HEADER FILE:
-	 2013/11/06
-		 The APIs in this header file are NOT required for Android DVB-S2 plus OTT project.
-		 Because there is no EEPROM device in the STB system.
- *-------------------------------------------------------------------------------
- ****************************************************************************/
-#include "udi2_error.h"
-#include "udi2_public.h"
-#include "udi2_typedef.h"
-#include "udidrv_log.h"
-
+#include <string.h>
 #include "udi2_inject.h"
 #include "generic_include.h"
+#include "tm_inject.h"
+#include "playback.h"
+#include "speed.h"
+static    u_int32 tempsuccesscounter = 10;
 
 #define MODULE_NAME              ("CS_INJECT")
 
@@ -33,8 +13,21 @@
 #define IS_VALID_VIDEO(vid) (((vid < -1)||(vid >= MAX_VIDEO_OBJECTS))?FALSE:TRUE)
 
 #define MAX_TS_BUF_LEN 512*188
+//#define MAX_TS_BUF_LEN 1024*10
+
+//#define EXTERNAL_IMAGE_ATTACH
 static CNXT_SEM_ID gInjecterSem;
 
+extern CNXT_SEM_ID gPlayerSem;
+
+CNXT_QUEUE_ID injectDataQueue=0x0ffff;
+u_int8 *pInternalBuffer;
+
+u_int32 gTotalsize;
+u_int32 gFreeSize = 1;
+
+static UDI_INJECT_HNDL s_aInjectHndl[MAX_INJECT_HANDLES];
+CS_CNXT_Inject_Config g_sCSInjectConfig;
 #ifdef DUAL_VIDEO_SURFACE
 CNXT_IMAGE_HANDLE gStillImageHandle=NULL;
 bool bInjectPlayIframe = FALSE;
@@ -42,6 +35,12 @@ bool bFinishedIframeDec = FALSE;
 #else
 CNXT_IMAGE_HANDLE gStillImageHandle;
 #endif
+
+bool bPlayerStarted = FALSE;
+bool bPlayerStatus = FALSE;
+bool bInjectIframe = FALSE;
+u_int8 *pIframeBuff = NULL;
+u_int32 uIframeLen=0;
 
 #ifdef DUAL_VIDEO_SURFACE
 void cs_tm_display_update(void);
@@ -54,7 +53,8 @@ static bool cs_tm_iframe_start(CS_TM_Player_SubSystem *pPlayerSubsystem);
 static bool cs_tm_iframe_stop(CS_TM_Player_SubSystem *pPlayerSubsystem);
 #endif
 #endif
-
+extern u_int32 cntDmxFilterInInjectMode;
+extern PIPE_STATUS cs_pipe_vpm_attach(PIPE_VP_SURFACE_INPUT Input,PIPE_VP_SURFACE_TYPE uSurfaceNum, int PipeIndx);
 #define IS_VALID_INJECTER(phndl)  \
 	do                                                   \
 	{                                                      \
@@ -64,44 +64,6 @@ static bool cs_tm_iframe_stop(CS_TM_Player_SubSystem *pPlayerSubsystem);
 			return CSUDIINJECTER_ERROR_INVALID_HANDLE; \
 		}                                                       \
 	} while( 0 )
-
-
-bool bPlayerStarted = FALSE;
-bool bPlayerStatus = FALSE;
-bool bInjectIframe = FALSE;
-u_int8 *pIframeBuff = NULL;
-u_int32 uIframeLen=0;
-
-CNXT_QUEUE_ID injectDataQueue=0x0ffff;
-u_int8 *pInternalBuffer;
-
-
-CS_CNXT_Inject_Config g_sCSInjectConfig;
-static UDI_INJECT_HNDL s_aInjectHndl[MAX_INJECT_HANDLES];
-static u_int32 tempsuccesscounter = 10;
-static int gMinSendSize;
-
-extern u_int32 cntDmxFilterInInjectMode;
-extern PIPE_STATUS cs_pipe_vpm_attach(PIPE_VP_SURFACE_INPUT Input,PIPE_VP_SURFACE_TYPE uSurfaceNum, int PipeIndx);
-extern CNXT_SEM_ID gPlayerSem;
-
-#if 1
-#define IPVOD_FZ_SIZE (1316*100)
-#define IPVOD_BUF_SIZE (IPVOD_FZ_SIZE*50)
-#define IPVOD_DECBUF_SIZE_FOR_PLAY (IPVOD_FZ_SIZE*30)
-
-#define MAX_SEND_SIZE (IPVOD_FZ_SIZE)
-#define MIN_SEND_SIZE (IPVOD_FZ_SIZE/10)
-static int gMinSendSize;
-u_int32 total_size;
-bool gFristFlag = 1;
-
-static char IPVOD_buf[IPVOD_BUF_SIZE];
-static int IPVOD_buf_rpos=0,IPVOD_buf_wpos=0,IPVOD_buf_used=0,IPVOD_buf_count=0;
-
-
-
-
 
 int cs_tm_get_free_inject_handle(void)
 {
@@ -115,6 +77,19 @@ int cs_tm_get_free_inject_handle(void)
 	}
 	return i;
 }
+#if 1
+#define IPVOD_FZ_SIZE (1316*100)
+#define IPVOD_BUF_SIZE (IPVOD_FZ_SIZE*50)
+#define IPVOD_DECBUF_SIZE_FOR_PLAY (IPVOD_FZ_SIZE*30)
+
+#define MAX_SEND_SIZE (IPVOD_FZ_SIZE)
+#define MIN_SEND_SIZE (IPVOD_FZ_SIZE/10)
+static int gMinSendSize;
+u_int32 total_size;
+bool gFristFlag = 1;
+
+static char IPVOD_buf[IPVOD_BUF_SIZE];
+static int IPVOD_buf_rpos=0,IPVOD_buf_wpos=0,IPVOD_buf_used=0,IPVOD_buf_count=0;
 
 void IPVOD_buf_reset(void)
 {
@@ -200,7 +175,218 @@ static int check_es_buf( CSUDI_HANDLE hINJECTER )
 	}
 	
 }
+
+
+
 #endif
+		
+CNXT_STATUS cs_tm_inject_init(void)
+{
+	CNXT_STATUS Retcode = CNXT_STATUS_OK;
+	char sem_name[20];
+	int count;
+	CNXT_IMAGE_CAPS          imageCaps;
+#ifdef DUAL_VIDEO_SURFACE
+	PIPE_VP_SURFACE_INPUT Input;
+    
+	PIPE_STATUS PmStatus = PIPE_STATUS_OK;	
+#endif
+
+	sprintf(sem_name,"UDIInjectSem");
+	Retcode=cnxt_kal_sem_create(1, sem_name, &gInjecterSem);
+	if(CNXT_STATUS_OK!=Retcode)
+	{
+		return Retcode;
+	}
+#if 0	
+	Retcode = cnxt_kal_qu_create(100, NULL, &injectDataQueue);
+	if(Retcode != CNXT_STATUS_OK)
+	{
+	   printf(" Queue creation failed...\n\r" );
+	}
+#endif
+	for(count =0;count<MAX_INJECT_HANDLES;count++)
+	{
+		s_aInjectHndl[count].uIndx = 0xFF;
+		s_aInjectHndl[count].bInjecterOpen = FALSE;
+	}
+
+    if(FALSE== CSPcmClip_Init(0))
+    {
+        return CNXT_STATUS_INTERNAL_ERROR;
+    }
+#ifdef EXTERNAL_IMAGE_ATTACH    
+    {
+        imageCaps.PalTable.ColorType      = YCC;
+        imageCaps.PalTable.uNumPalEntries = 0;
+        imageCaps.PalTable.pPalEntry      = NULL;
+        imageCaps.PoolId[0]     = CNXT_POOL_ID_DEFAULT_UNCACHED; //;
+        imageCaps.PoolId[1]     = CNXT_POOL_ID_DEFAULT_UNCACHED; //;
+        imageCaps.pPage         = NULL;
+        imageCaps.uOrgW         = 2048;
+        imageCaps.uOrgH         = 1088;
+        imageCaps.PixelMode     = PIXEL_FORMAT_NV12;
+        imageCaps.uNumPages     = 1;
+        imageCaps.uMaxNumPages  = imageCaps.uNumPages;
+        imageCaps.ColorSpace    = YCC_HD_BT709;
+        imageCaps.bCached       = FALSE;
+        imageCaps.bIsContiguous = TRUE;
+        imageCaps.ImageType     = CNXT_IMAGE_STILL_GRAPHICS;
+        Retcode = cnxt_image_open(&gStillImageHandle, &imageCaps, NULL, NULL);
+        if ( Retcode != CNXT_STATUS_OK )
+        {
+           CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to open image, err = %d\n", Retcode);
+           return PIPE_STATUS_DRIVER_ERROR;
+        }
+     }
+#endif        
+#ifdef DUAL_VIDEO_SURFACE
+	if(gStillImageHandle==NULL)
+	{
+		cnxt_kal_memset(&imageCaps,0,sizeof(imageCaps));
+
+		imageCaps.PalTable.ColorType      = YCC;
+		imageCaps.PalTable.uNumPalEntries = 0;
+		imageCaps.PalTable.pPalEntry      = NULL;
+		imageCaps.PoolId[0]     = CNXT_POOL_ID_DEFAULT_UNCACHED; //;
+		imageCaps.PoolId[1]     = CNXT_POOL_ID_DEFAULT_UNCACHED; //;
+		imageCaps.pPage         = NULL;
+		imageCaps.uOrgW         = 2048;
+		imageCaps.uOrgH         = 1088;
+		imageCaps.PixelMode     = PIXEL_FORMAT_NV12;
+		imageCaps.uNumPages     = 1;
+		imageCaps.uMaxNumPages  = imageCaps.uNumPages;
+		imageCaps.ColorSpace    = YCC_HD_BT709;
+		imageCaps.bCached       = FALSE;
+		imageCaps.bIsContiguous = TRUE;
+		imageCaps.ImageType     = CNXT_IMAGE_STILL_GRAPHICS;
+		Retcode = cnxt_image_open(&gStillImageHandle, &imageCaps, NULL, NULL);
+		if ( Retcode != CNXT_STATUS_OK )
+		{
+			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to open image, err = %d\n", Retcode);
+			return CNXT_STATUS_INTERNAL_ERROR;
+		}
+	}
+
+	cnxt_kal_memset(&Input,0,sizeof(Input));
+
+	Input.Type = PIPE_VP_SURFACE_INPUT_TYPE_IMAGE;
+	Input.pPipe = NULL;
+	Input.hImageHandle = gStillImageHandle;
+
+	PmStatus = cs_pipe_vpm_attach(Input, PIPE_VP_VIDEO_SECONDARY_SURFACE, NULL);
+	if (PmStatus != PIPE_STATUS_OK)
+	{
+		CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to ATTACH image,err=%d\n", PmStatus);
+		return CNXT_STATUS_INTERNAL_ERROR;
+	}
+#endif
+
+    
+    return Retcode;
+}
+
+BOOL CSUDIINJECTERTerm()
+{
+	int count = 0;
+
+	//printf("start %s\n",__FUNCTION__);
+	
+	for(count =0;count<MAX_INJECT_HANDLES;count++)
+	{
+		if (s_aInjectHndl[count].bInjecterOpen)
+		{
+			if (CSUDI_SUCCESS != CSUDIINJECTERClose(&s_aInjectHndl[count]))
+			{
+				CSDEBUG(MODULE_NAME,ERROR_LEVEL,"fail to close injecter\n");
+				break;
+			}
+		}
+	}
+
+	//printf("exit %s\n",__FUNCTION__);
+
+	return (count == MAX_INJECT_HANDLES);
+}
+
+bool cssys_map_UDIspeed(CSUDIPlayerSpeed_E eSpeed, CNXT_PLAYBACK_MODE *Mode, int32 *nSpeed)
+{
+	switch(eSpeed)
+	{
+	case EM_UDIPLAYER_SPEED_NORMAL:
+		*Mode = CNXT_PLAYBACK_CONTINUOUS_MODE;
+		*nSpeed = CNXT_SPEED_1X_FWD;
+		break;
+	case EM_UDIPLAYER_SPEED_FASTREWIND_32:
+		*Mode = CNXT_PLAYBACK_ANCHOR_FRAME_PUSH_MODE;
+		*nSpeed = CNXT_SPEED_32X_REV;
+		break;
+	case EM_UDIPLAYER_SPEED_FASTREWIND_16:
+		*Mode = CNXT_PLAYBACK_ANCHOR_FRAME_PUSH_MODE;
+		*nSpeed = CNXT_SPEED_16X_REV;
+		break;
+	case EM_UDIPLAYER_SPEED_FASTREWIND_8:
+		*Mode = CNXT_PLAYBACK_ANCHOR_FRAME_PUSH_MODE;
+		*nSpeed = CNXT_SPEED_8X_REV;
+		break;
+	case EM_UDIPLAYER_SPEED_FASTREWIND_4:
+		*Mode = CNXT_PLAYBACK_ANCHOR_FRAME_PUSH_MODE;
+		*nSpeed = CNXT_SPEED_4X_REV;
+		break;
+	case EM_UDIPLAYER_SPEED_FASTREWIND_2:
+		*Mode = CNXT_PLAYBACK_ANCHOR_FRAME_PUSH_MODE;
+		*nSpeed = CNXT_SPEED_2X_REV;
+		break;
+	case EM_UDIPLAYER_SPEED_SLOWREWIND_2:
+		*Mode = CNXT_PLAYBACK_SUB_GOP_PULL_MODE;
+		*nSpeed = CNXT_SPEED_1_2_REV;
+		break;
+	case EM_UDIPLAYER_SPEED_SLOWREWIND_4:
+		*Mode = CNXT_PLAYBACK_SUB_GOP_PULL_MODE;
+		*nSpeed = CNXT_SPEED_1_4_REV;
+		break;
+	case EM_UDIPLAYER_SPEED_SLOWREWIND_8:
+		*Mode = CNXT_PLAYBACK_SUB_GOP_PULL_MODE;
+		*nSpeed = CNXT_SPEED_1_8_REV;
+		break;
+	case EM_UDIPLAYER_SPEED_SLOWFORWARD_2:
+		*Mode = CNXT_PLAYBACK_CONTINUOUS_MODE;
+		*nSpeed = CNXT_SPEED_1_2_FWD;
+		break;
+	case EM_UDIPLAYER_SPEED_SLOWFORWARD_4:
+		*Mode = CNXT_PLAYBACK_CONTINUOUS_MODE;
+		*nSpeed = CNXT_SPEED_1_4_FWD;
+		break;
+	case EM_UDIPLAYER_SPEED_SLOWFORWARD_8:
+		*Mode = CNXT_PLAYBACK_CONTINUOUS_MODE;
+		*nSpeed = CNXT_SPEED_1_8_FWD;
+		break;
+	case EM_UDIPLAYER_SPEED_FASTFORWARD_2:
+		*Mode = CNXT_PLAYBACK_CONTINUOUS_MODE;
+		*nSpeed = CNXT_SPEED_2X_FWD;
+		break;
+	case EM_UDIPLAYER_SPEED_FASTFORWARD_4:
+		*Mode = CNXT_PLAYBACK_ANCHOR_FRAME_PUSH_MODE;
+		*nSpeed = CNXT_SPEED_4X_FWD;
+		break;
+	case EM_UDIPLAYER_SPEED_FASTFORWARD_8:
+		*Mode = CNXT_PLAYBACK_ANCHOR_FRAME_PUSH_MODE;
+		*nSpeed = CNXT_SPEED_8X_FWD;
+		break;
+	case EM_UDIPLAYER_SPEED_FASTFORWARD_16:
+		*Mode = CNXT_PLAYBACK_ANCHOR_FRAME_PUSH_MODE;
+		*nSpeed = CNXT_SPEED_16X_FWD;
+		break;
+	case EM_UDIPLAYER_SPEED_FASTFORWARD_32:
+		*Mode = CNXT_PLAYBACK_ANCHOR_FRAME_PUSH_MODE;
+		*nSpeed = CNXT_SPEED_32X_FWD;
+		break;
+	default:
+		return FALSE;
+	}
+	return TRUE;
+}
+
 
 #ifdef DUAL_VIDEO_SURFACE
 extern void cs_tm_notify_player(CSUDIPlayerEventType_E UDIEvent);
@@ -276,7 +462,130 @@ void cs_tm_playback_notify( PIPE_PIPELINE_OBJECT *pPipeline,
 			break;
 	}
 }
+#else
+void cs_tm_playback_notify( PIPE_PIPELINE_OBJECT *pPipeline,
+							void                     *pUserData,
+							PIPE_NOTIFY_EVENT         Event,
+							void                     *pData,
+							void                     *pTag )
 
+{
+    CSUDIPlayerEventType_E UDIEvent;
+	u_int32 uMsg[4];
+	//CS_CNXT_Inject_SubSystem *pInjectHandle = (CS_CNXT_Inject_SubSystem *)pUserData;
+
+	printf("\n---NO --DUAL_VIDEO_SURFACE----[%lx]----------\n\n",Event);
+
+	switch(Event)
+	{
+	
+	case PIPE_EVENT_PIPELINE_REQ_CONT_BLK_FROM_T:
+	case PIPE_EVENT_PIPELINE_REQ_NEXT_CONT_BLK:
+		cnxt_kal_qu_send(injectDataQueue, uMsg);
+		break;
+	case PIPE_EVENT_PIPELINE_MEDIA_DATA_CONSUMED:
+		break;
+	case PIPE_EVENT_VIDEO_DECODE_COMPLETE:
+		// 2011-01-13 TerenceZhang begin:removed here to let the application know that the decoding complete.
+		//CSDEBUG(MODULE_NAME, DEBUG_LEVEL," PIPE_EVENT_VIDEO_DECODE_COMPLETE \n");	   
+		UDIEvent = EM_UDIPLAYER_VIDEO_FRAME_COMING;
+		cs_tm_notify_player(UDIEvent);	
+		// 2011-01-13 TerenceZhang end		
+		break;
+	case PIPE_EVENT_PIPELINE_STATE_CHANGED:
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL," PIPE_EVENT_PIPELINE_STATE_CHANGED \n");
+		break;
+
+	case PIPE_EVENT_VIDEO_STARTED :
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_VIDEO_STARTED \n");       
+        UDIEvent = EM_UDIPLAYER_VIDEO_FRAME_COMING;
+		//printf("notify user msg:%d from playback\n",UDIEvent);
+		/*lichanghua cancel :去掉解决IPTV TS注入闪上一帧问题*/
+		//cs_tm_notify_player(UDIEvent);
+		break;
+	case PIPE_EVENT_VIDEO_DISPLAY_UPDATE :
+		//CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_VIDEO_DISPLAY_UPDATE \n"); 
+		cs_tm_notify_player(UDIEvent);	
+		break;
+	case PIPE_EVENT_VIDEO_PLAYING :
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_VIDEO_PLAYING \n");
+		break;
+	case PIPE_EVENT_VIDEO_BUFFER_EMPTY:
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_VIDEO_BUFFER_EMPTY \n");
+		break;
+	case PIPE_EVENT_AUDIO_STOPPED :
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_AUDIO_STOPPED \n");
+		break;
+	case PIPE_EVENT_AUDIO_STARTED :
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_AUDIO_STARTED \n");
+		break;
+	case PIPE_EVENT_AUDIO_STREAM_LOST :
+		//CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_AUDIO_STREAM_LOST \n");
+		break;
+	case PIPE_EVENT_AUDIO_SYNC_ACQ :
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_AUDIO_SYNC_ACQ \n");
+		break;
+	case PIPE_EVENT_AUDIO_SYNC_LOST :
+		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_AUDIO_SYNC_LOST \n");
+		break;
+	case PIPE_EVENT_AUDIO_BUFFER_EMPTY :
+		//CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_AUDIO_BUFFER_EMPTY \n");
+		break;
+	case PIPE_EVENT_VIDEO_STREAM_CHANGE:
+		{
+#if 0            
+			PIPE_VIDEO_ATTRIB   Attrib;
+			printf("PIPE_EVENT_VIDEO_STREAM_CHANGE");
+			gTridPipeObject.hVideoObj[i]->get_attrib(gTridPipeObject.hVideoObj[i],&Attrib);               
+			printf("Attrib[0].PicInfo.AspectRatio=%d\r\n", Attrib.PicInfo.AspectRatio );
+			gTridPipeObject.TridVideoSubSystem[i].PictureInfo.AspectRatio = Attrib.PicInfo.AspectRatio;
+#endif
+		}
+		break;
+#if 0        
+	case PIPE_EVENT_DEMUX_SYNC_ACQUIRED:
+	case PIPE_EVENT_DEMUX_SYNC_LOST:
+	case PIPE_EVENT_DEMUX_HDR_ERROR:
+	case PIPE_EVENT_DEMUX_FILTER_DATA:
+	case PIPE_EVENT_DEMUX_FILTER_BUF_OVERFLOW:
+	case PIPE_EVENT_DEMUX_FILTER_ERROR:
+		
+            //printf("PIPE_EVENT_DEMUX_FILTER \n");
+		Section_filter_event_notifier(pPipe,pUserData,Event,pData,pTag);
+#endif            
+	case PIPE_EVENT_DEMUX_FILTER_DATA:
+		Section_filter_event_notifier(pPipeline,pUserData,Event,pData,pTag);
+		break;
+
+
+	default:
+		break;
+	}
+        //cs_tm_notify_player(UDIEvent);
+}
+#endif
+
+void cs_tm_es_playback_notify( PIPE_PIPELINE_OBJECT *pPipeline,
+void                     *pUserData,
+PIPE_NOTIFY_EVENT         Event,
+void                     *pData,
+void                     *pTag )
+{
+	CS_CNXT_Inject_SubSystem *pInjectHandle = (CS_CNXT_Inject_SubSystem *)pUserData;
+	//printf("%s %d Event %d \n", __FUNCTION__, __LINE__, Event);
+	switch(Event)
+	{
+	case PIPE_EVENT_PIPELINE_REQ_CONT_BLK_FROM_T:
+	case PIPE_EVENT_PIPELINE_REQ_NEXT_CONT_BLK:
+		pInjectHandle->bTsBuffInUse = FALSE;
+		break;
+	case PIPE_EVENT_VIDEO_DECODE_COMPLETE:
+		break;
+	default:
+		break;
+	}
+}     
+#ifdef DUAL_VIDEO_SURFACE
 
 void cs_tm_display_update()
 {
@@ -453,216 +762,7 @@ void cs_tm_display_update()
 	//cs_tm_notify_player(EM_UDIPLAYER_VIDEO_FRAME_COMING);	
 	
 }
-
-#else
-void cs_tm_playback_notify( PIPE_PIPELINE_OBJECT *pPipeline,
-							void                     *pUserData,
-							PIPE_NOTIFY_EVENT         Event,
-							void                     *pData,
-							void                     *pTag )
-
-{
-    CSUDIPlayerEventType_E UDIEvent;
-	u_int32 uMsg[4];
-	//CS_CNXT_Inject_SubSystem *pInjectHandle = (CS_CNXT_Inject_SubSystem *)pUserData;
-
-	printf("\n---NO --DUAL_VIDEO_SURFACE----[%lx]----------\n\n",Event);
-
-	switch(Event)
-	{
-	
-	case PIPE_EVENT_PIPELINE_REQ_CONT_BLK_FROM_T:
-	case PIPE_EVENT_PIPELINE_REQ_NEXT_CONT_BLK:
-		cnxt_kal_qu_send(injectDataQueue, uMsg);
-		break;
-	case PIPE_EVENT_PIPELINE_MEDIA_DATA_CONSUMED:
-		break;
-	case PIPE_EVENT_VIDEO_DECODE_COMPLETE:
-		// 2011-01-13 TerenceZhang begin:removed here to let the application know that the decoding complete.
-		//CSDEBUG(MODULE_NAME, DEBUG_LEVEL," PIPE_EVENT_VIDEO_DECODE_COMPLETE \n");	   
-		UDIEvent = EM_UDIPLAYER_VIDEO_FRAME_COMING;
-		cs_tm_notify_player(UDIEvent);	
-		// 2011-01-13 TerenceZhang end		
-		break;
-	case PIPE_EVENT_PIPELINE_STATE_CHANGED:
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL," PIPE_EVENT_PIPELINE_STATE_CHANGED \n");
-		break;
-
-	case PIPE_EVENT_VIDEO_STARTED :
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_VIDEO_STARTED \n");       
-        UDIEvent = EM_UDIPLAYER_VIDEO_FRAME_COMING;
-		//printf("notify user msg:%d from playback\n",UDIEvent);
-		/*lichanghua cancel :去掉解决IPTV TS注入闪上一帧问题*/
-		//cs_tm_notify_player(UDIEvent);
-		break;
-	case PIPE_EVENT_VIDEO_DISPLAY_UPDATE :
-		//CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_VIDEO_DISPLAY_UPDATE \n"); 
-		cs_tm_notify_player(UDIEvent);	
-		break;
-	case PIPE_EVENT_VIDEO_PLAYING :
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_VIDEO_PLAYING \n");
-		break;
-	case PIPE_EVENT_VIDEO_BUFFER_EMPTY:
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_VIDEO_BUFFER_EMPTY \n");
-		break;
-	case PIPE_EVENT_AUDIO_STOPPED :
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_AUDIO_STOPPED \n");
-		break;
-	case PIPE_EVENT_AUDIO_STARTED :
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_AUDIO_STARTED \n");
-		break;
-	case PIPE_EVENT_AUDIO_STREAM_LOST :
-		//CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_AUDIO_STREAM_LOST \n");
-		break;
-	case PIPE_EVENT_AUDIO_SYNC_ACQ :
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_AUDIO_SYNC_ACQ \n");
-		break;
-	case PIPE_EVENT_AUDIO_SYNC_LOST :
-		CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_AUDIO_SYNC_LOST \n");
-		break;
-	case PIPE_EVENT_AUDIO_BUFFER_EMPTY :
-		//CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"PIPE_EVENT_AUDIO_BUFFER_EMPTY \n");
-		break;
-	case PIPE_EVENT_VIDEO_STREAM_CHANGE:
-		{
-#if 0            
-			PIPE_VIDEO_ATTRIB   Attrib;
-			printf("PIPE_EVENT_VIDEO_STREAM_CHANGE");
-			gTridPipeObject.hVideoObj[i]->get_attrib(gTridPipeObject.hVideoObj[i],&Attrib);               
-			printf("Attrib[0].PicInfo.AspectRatio=%d\r\n", Attrib.PicInfo.AspectRatio );
-			gTridPipeObject.TridVideoSubSystem[i].PictureInfo.AspectRatio = Attrib.PicInfo.AspectRatio;
 #endif
-		}
-		break;
-#if 0        
-	case PIPE_EVENT_DEMUX_SYNC_ACQUIRED:
-	case PIPE_EVENT_DEMUX_SYNC_LOST:
-	case PIPE_EVENT_DEMUX_HDR_ERROR:
-	case PIPE_EVENT_DEMUX_FILTER_DATA:
-	case PIPE_EVENT_DEMUX_FILTER_BUF_OVERFLOW:
-	case PIPE_EVENT_DEMUX_FILTER_ERROR:
-		
-            //printf("PIPE_EVENT_DEMUX_FILTER \n");
-		Section_filter_event_notifier(pPipe,pUserData,Event,pData,pTag);
-#endif            
-	case PIPE_EVENT_DEMUX_FILTER_DATA:
-		Section_filter_event_notifier(pPipeline,pUserData,Event,pData,pTag);
-		break;
-
-
-	default:
-		break;
-	}
-        //cs_tm_notify_player(UDIEvent);
-}
-#endif
-
-CNXT_STATUS cs_tm_inject_init(void)
-{
-	CNXT_STATUS Retcode = CNXT_STATUS_OK;
-	char sem_name[20];
-	int count;
-	CNXT_IMAGE_CAPS          imageCaps;
-#ifdef DUAL_VIDEO_SURFACE
-	PIPE_VP_SURFACE_INPUT Input;
-    
-	PIPE_STATUS PmStatus = PIPE_STATUS_OK;	
-#endif
-
-	sprintf(sem_name,"UDIInjectSem");
-	Retcode=cnxt_kal_sem_create(1, sem_name, &gInjecterSem);
-	if(CNXT_STATUS_OK!=Retcode)
-	{
-		return Retcode;
-	}
-#if 0	
-	Retcode = cnxt_kal_qu_create(100, NULL, &injectDataQueue);
-	if(Retcode != CNXT_STATUS_OK)
-	{
-	   printf(" Queue creation failed...\n\r" );
-	}
-#endif
-	for(count =0;count<MAX_INJECT_HANDLES;count++)
-	{
-		s_aInjectHndl[count].uIndx = 0xFF;
-		s_aInjectHndl[count].bInjecterOpen = FALSE;
-	}
-
-    if(FALSE== CSPcmClip_Init(0))
-    {
-        return CNXT_STATUS_INTERNAL_ERROR;
-    }
-#ifdef EXTERNAL_IMAGE_ATTACH    
-    {
-        imageCaps.PalTable.ColorType      = YCC;
-        imageCaps.PalTable.uNumPalEntries = 0;
-        imageCaps.PalTable.pPalEntry      = NULL;
-        imageCaps.PoolId[0]     = CNXT_POOL_ID_DEFAULT_UNCACHED; //;
-        imageCaps.PoolId[1]     = CNXT_POOL_ID_DEFAULT_UNCACHED; //;
-        imageCaps.pPage         = NULL;
-        imageCaps.uOrgW         = 2048;
-        imageCaps.uOrgH         = 1088;
-        imageCaps.PixelMode     = PIXEL_FORMAT_NV12;
-        imageCaps.uNumPages     = 1;
-        imageCaps.uMaxNumPages  = imageCaps.uNumPages;
-        imageCaps.ColorSpace    = YCC_HD_BT709;
-        imageCaps.bCached       = FALSE;
-        imageCaps.bIsContiguous = TRUE;
-        imageCaps.ImageType     = CNXT_IMAGE_STILL_GRAPHICS;
-        Retcode = cnxt_image_open(&gStillImageHandle, &imageCaps, NULL, NULL);
-        if ( Retcode != CNXT_STATUS_OK )
-        {
-           CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to open image, err = %d\n", Retcode);
-           return PIPE_STATUS_DRIVER_ERROR;
-        }
-     }
-#endif        
-#ifdef DUAL_VIDEO_SURFACE
-	if(gStillImageHandle==NULL)
-	{
-		cnxt_kal_memset(&imageCaps,0,sizeof(imageCaps));
-
-		imageCaps.PalTable.ColorType      = YCC;
-		imageCaps.PalTable.uNumPalEntries = 0;
-		imageCaps.PalTable.pPalEntry      = NULL;
-		imageCaps.PoolId[0]     = CNXT_POOL_ID_DEFAULT_UNCACHED; //;
-		imageCaps.PoolId[1]     = CNXT_POOL_ID_DEFAULT_UNCACHED; //;
-		imageCaps.pPage         = NULL;
-		imageCaps.uOrgW         = 2048;
-		imageCaps.uOrgH         = 1088;
-		imageCaps.PixelMode     = PIXEL_FORMAT_NV12;
-		imageCaps.uNumPages     = 1;
-		imageCaps.uMaxNumPages  = imageCaps.uNumPages;
-		imageCaps.ColorSpace    = YCC_HD_BT709;
-		imageCaps.bCached       = FALSE;
-		imageCaps.bIsContiguous = TRUE;
-		imageCaps.ImageType     = CNXT_IMAGE_STILL_GRAPHICS;
-		Retcode = cnxt_image_open(&gStillImageHandle, &imageCaps, NULL, NULL);
-		if ( Retcode != CNXT_STATUS_OK )
-		{
-			CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to open image, err = %d\n", Retcode);
-			return CNXT_STATUS_INTERNAL_ERROR;
-		}
-	}
-
-	cnxt_kal_memset(&Input,0,sizeof(Input));
-
-	Input.Type = PIPE_VP_SURFACE_INPUT_TYPE_IMAGE;
-	Input.pPipe = NULL;
-	Input.hImageHandle = gStillImageHandle;
-
-	PmStatus = cs_pipe_vpm_attach(Input, PIPE_VP_VIDEO_SECONDARY_SURFACE, NULL);
-	if (PmStatus != PIPE_STATUS_OK)
-	{
-		CSDEBUG(MODULE_NAME, ERROR_LEVEL,"Still decode: Failed to ATTACH image,err=%d\n", PmStatus);
-		return CNXT_STATUS_INTERNAL_ERROR;
-	}
-#endif
-
-    
-    return Retcode;
-}
-
 int get_inject_handle_indx(int nAudIndx)
 {
     int InjectIndx=0;
@@ -675,7 +775,6 @@ int get_inject_handle_indx(int nAudIndx)
     }   
     return InjectIndx;
 }
-
 bool bIsInjecteropen(u_int32 hInjecter, const CSUDIINJECTERChnl_S * psInjecterChnl, 
                             const CSUDIINJECTEROpenParam_S * psOpenParams)
 {
@@ -709,30 +808,6 @@ bool bIsInjecteropen(u_int32 hInjecter, const CSUDIINJECTERChnl_S * psInjecterCh
 	}
 	return FALSE;
 }
-
-BOOL CSUDIINJECTERTerm()
-{
-	int count = 0;
-
-	//printf("start %s\n",__FUNCTION__);
-	
-	for(count =0;count<MAX_INJECT_HANDLES;count++)
-	{
-		if (s_aInjectHndl[count].bInjecterOpen)
-		{
-			if (CSUDI_SUCCESS != CSUDIINJECTERClose(&s_aInjectHndl[count]))
-			{
-				CSDEBUG(MODULE_NAME,ERROR_LEVEL,"fail to close injecter\n");
-				break;
-			}
-		}
-	}
-
-	//printf("exit %s\n",__FUNCTION__);
-
-	return (count == MAX_INJECT_HANDLES);
-}
-
 #ifdef DUAL_VIDEO_SURFACE
 #ifdef STATIC_IFRAME_DECODE
 bool cs_tm_iframe_release(void)
@@ -972,7 +1047,7 @@ bool cs_tm_iframe_start(void)
 		VideoConfig.bHwAccelerate   = TRUE;
 		VideoConfig.bPrimaryDecoder = TRUE;
 		VideoConfig.uUserDataEnableMap = 0;
-		//VideoConfig.StillImageHandle = gStillImageHandle; //commented by frank.zhou
+		//VideoConfig.StillImageHandle = gStillImageHandle;
 		PmStatus = pVidObject->config(pVidObject, &VideoConfig);
 		if (PmStatus != PIPE_STATUS_OK)
 		{
@@ -1408,7 +1483,7 @@ static bool cs_tm_iframe_start(CS_TM_Player_SubSystem *pPlayerSubsystem)
 		VideoConfig.bHwAccelerate   = TRUE;
 		VideoConfig.bPrimaryDecoder = TRUE;
 		VideoConfig.uUserDataEnableMap = 0;
-		VideoConfig.StillImageHandle = gStillImageHandle;
+		//VideoConfig.StillImageHandle = gStillImageHandle;
 		PmStatus = pVidObject->config(pVidObject, &VideoConfig);
 		if (PmStatus != PIPE_STATUS_OK)
 		{
@@ -1836,7 +1911,7 @@ bool CS_start_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem)
           VideoConfig.bPrimaryDecoder = TRUE;
           VideoConfig.uUserDataEnableMap = 0;
 #ifdef EXTERNAL_IMAGE_ATTACH          
-          VideoConfig.StillImageHandle = gStillImageHandle;
+          //VideoConfig.StillImageHandle = gStillImageHandle;
 #else
           VideoConfig.StillImageHandle =NULL;
 #endif
@@ -2010,36 +2085,17 @@ bool CS_stop_Iframe_decode(CS_TM_Player_SubSystem *pPlayerSubsystem)
 
 }
 #endif
-
-//frank.zhou---------------------------------------------------------------------------------------------------
-/**
-@brief 创建一个INJECTER注入实例,为INJECTER注入做好准备
-@param[in] psInjecterChnl 数据注入通道数据结构指针。
-@param[in] psOpenParams 将要创建的INJECTER实例的类型，主要包括PCM,TS,PES,ES等，详情请参见CSUDIINJECTERType_E
-@param[out] phINJECTER 本次打开的INJECTER注入实例句柄
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note psInjecterChnl结构体中的设备索引可以为无效值(-1),代表该设备不需要或不存在
-@note Demux必须先于Tuner断开连接，才能用于创建Inject，即一个Demux不能同时拥有两个源设备
-@note 创建Inject须尽量使用最少的设备，如：
-- 注入TS流的时候，注入内容只能是EM_UDIINJECTER_CONTENT_DEFAULT，否则返回CSUDIINJECTER_ERROR_STREAMTYPE_NOT_MATCH_INJECTERTYPE
-- 注入PCM的时候，注入内容只能是EM_UDIINJECTER_CONTENT_AUDIO，否则返回CSUDIINJECTER_ERROR_STREAMTYPE_NOT_MATCH_INJECTERTYPE
-- 注入TS流的时候，注入通道只能选DemuxID，音视频ID都为-1，否则返回CSUDIINJECTER_ERROR_DEVICE_DISORDER
-- 注入PCM的时候，注入通道只能选AudioID，视频ID与DemuxID都为-1，否则返回CSUDIINJECTER_ERROR_DEVICE_DISORDER
-- 注入I帧的时候，注入通道只能选VideoID,音频ID与DemuxID都为-1，否则返回CSUDIINJECTER_ERROR_DEVICE_DISORDER
-- AVI,RM,RMVB, 等涉及播放多媒体文件播放的注入可不支持。如果芯片驱动对多媒体文件播放有更好的API，请告知同洲，
-	同洲可对此API进行评估，如果合适，则封装上层接口直接调用其API.就不用再实现底层的注入支持。
-*/
-CSUDI_Error_Code  CSUDIINJECTEROpen(const CSUDIINJECTERChnl_S * psInjecterChnl, const CSUDIINJECTEROpenParam_S * psOpenParams, CSUDI_HANDLE * phINJECTER)
+CSUDI_Error_Code  CSUDIINJECTEROpen(const CSUDIINJECTERChnl_S * psInjecterChnl, 
+											const CSUDIINJECTEROpenParam_S * psOpenParams, 
+											CSUDI_HANDLE * phINJECTER)
 {
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);
 	CSUDI_Error_Code eErrCode = CSUDI_SUCCESS;	
 	int FreeInjectIndx;
 	CSUDIINJECTERType_E  InputDataType; 
 	CSUDIINJECTERContentType_E  InputContentType;   	
 	int nDmxIndex=-1, nVidIndex=-1, nAudIndex=-1;	
 	CS_CNXT_Inject_SubSystem *pInjectHandle = NULL;
-	CNXT_STATUS Status = CNXT_STATUS_OK; 
+	CNXT_STATUS Retcode = CNXT_STATUS_OK; 
 	PIPE_DEMUX_OBJECT        *pDmxObject=NULL;
 	PIPE_AUDIO_OBJECT        *pAudObject=NULL;
 	PIPE_VIDEO_OBJECT        *pVidObject=NULL;
@@ -2051,8 +2107,8 @@ CSUDI_Error_Code  CSUDIINJECTEROpen(const CSUDIINJECTERChnl_S * psInjecterChnl, 
 	}
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"In: %s %d \n", __FUNCTION__, __LINE__);
 
-	Status =  cnxt_kal_sem_get(gInjecterSem, CNXT_KAL_WAIT_FOREVER);
-	if(Status != CNXT_STATUS_OK)
+	Retcode =  cnxt_kal_sem_get(gInjecterSem, CNXT_KAL_WAIT_FOREVER);
+	if(Retcode != CNXT_STATUS_OK)
 	{
 		return CSUDIINJECTER_ERROR_UNKNOWN_ERROR;
 	}
@@ -2312,29 +2368,21 @@ CSUDI_Error_Code  CSUDIINJECTEROpen(const CSUDIINJECTERChnl_S * psInjecterChnl, 
 		*phINJECTER = &s_aInjectHndl[FreeInjectIndx];
 	}while(0);
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"Exit:%s %d eErrCode 0x%x \n ",__FUNCTION__, __LINE__, eErrCode);
-	Status =  cnxt_kal_sem_put(gInjecterSem);
-	if(Status != CNXT_STATUS_OK)
+	Retcode =  cnxt_kal_sem_put(gInjecterSem);
+	if(Retcode != CNXT_STATUS_OK)
 	{
 		return CSUDIINJECTER_ERROR_UNKNOWN_ERROR;
 	}
 	return (CSUDI_Error_Code )(eErrCode);
-	return Retcode;
 }
 
-/**
-@brief 关闭一个INJECTER注入实例,释放相关资源
-@param[in] hINJECTER INJECTER注入实例句柄
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-*/
 CSUDI_Error_Code  CSUDIINJECTERClose(CSUDI_HANDLE hINJECTER)
-{
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);
+{	
 	UDI_INJECT_HNDL *phInjectHndl = (UDI_INJECT_HNDL *)hINJECTER;
 	CSUDI_Error_Code eErrCode = CSUDI_SUCCESS;     
 	int nInjectIndx, nAudIndx, nVidIndx=0,nDmxIndex;
 	CS_CNXT_Inject_SubSystem *pInjectHandle;
-	CNXT_STATUS Status = CNXT_STATUS_OK;
+	CNXT_STATUS Retcode = CNXT_STATUS_OK;
 	PIPE_DEMUX_OBJECT        *pDmxObject=NULL;
 	PIPE_AUDIO_OBJECT        *pAudObject=NULL;
 	PIPE_VIDEO_OBJECT        *pVidObject=NULL;
@@ -2358,8 +2406,8 @@ CSUDI_Error_Code  CSUDIINJECTERClose(CSUDI_HANDLE hINJECTER)
 			return CSUDIINJECTER_ERROR_UNKNOWN_ERROR;
 		}
 	}   
-	Status =  cnxt_kal_sem_get(gInjecterSem, CNXT_KAL_WAIT_FOREVER);
-	if(Status != CNXT_STATUS_OK)
+	Retcode =  cnxt_kal_sem_get(gInjecterSem, CNXT_KAL_WAIT_FOREVER);
+	if(Retcode != CNXT_STATUS_OK)
 	{
         CSDEBUG(MODULE_NAME, ERROR_LEVEL, "FAIL: cnxt_kal_sem_get at %d\n",__LINE__);
 		return CSUDIINJECTER_ERROR_UNKNOWN_ERROR;
@@ -2406,35 +2454,23 @@ CSUDI_Error_Code  CSUDIINJECTERClose(CSUDI_HANDLE hINJECTER)
         s_aInjectHndl[nInjectIndx].bInjecterOpen = FALSE;
         pInjectHandle->eInjecterState = E_INJECT_CLOSE;
     }while(0);
-    Status =  cnxt_kal_sem_put(gInjecterSem);
-    if(Status != CNXT_STATUS_OK)
+    Retcode =  cnxt_kal_sem_put(gInjecterSem);
+    if(Retcode != CNXT_STATUS_OK)
     {
         return CSUDIINJECTER_ERROR_UNKNOWN_ERROR;
     }
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL, "End: %s eErrCode %d \n", __FUNCTION__, eErrCode);
 
 	return (CSUDI_Error_Code )(eErrCode);
-	return Retcode;
 }
 
-/**
-@brief 设置INJECTER注入实例的属性信息，本函数调整INJECTER实例的属性、相关参数、数据源等信息。
-@param[in] hINJECTER 注入实例句柄，由CSUDIINJECTEROpen返回
-@param[in] eAttrType ，将要调整的属性类型，请参见CSUDIINJECTERAttributeType_E的详细说明
-@param[in] pvData 具体的属性数据结构指针，内容请参见CSUDIINJECTERAttributeType_E的详细说明。
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 如果已经调用CSUDIINJECTERStart启动数据注入，不允许再调用此接口对回调函数进行设置。
-@note 如果不支持设置回调函数，调用此接口将返回不支持操作
-*/
 CSUDI_Error_Code CSUDIINJECTERSetAttribute(CSUDI_HANDLE hINJECTER, CSUDIINJECTERAttributeType_E eAttrType, const void * pvData)
 {
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);
 	UDI_INJECT_HNDL *phInjectHndl = (UDI_INJECT_HNDL *)hINJECTER;
 	int nInjectIndx;
 	CSUDI_Error_Code eErrCode = CSUDI_SUCCESS;
 	CS_CNXT_Inject_SubSystem *pInjectHandle;
-	CNXT_STATUS Status = CNXT_STATUS_OK;
+	CNXT_STATUS Retcode = CNXT_STATUS_OK;
 	CSUDIINJECTERPcmStartParam_S *psPcmStartParams;
 	CSUDIINJECTERIFrameParam_S* piFrameParams;
 	CSUDIPESSYNCMode_S *psSyncmode;
@@ -2450,8 +2486,8 @@ CSUDI_Error_Code CSUDIINJECTERSetAttribute(CSUDI_HANDLE hINJECTER, CSUDIINJECTER
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"%s %d \n", __FUNCTION__, __LINE__);
 	do
 	{
-		Status =  cnxt_kal_sem_get(gInjecterSem, CNXT_KAL_WAIT_FOREVER);
-		if(Status != CNXT_STATUS_OK)
+		Retcode =  cnxt_kal_sem_get(gInjecterSem, CNXT_KAL_WAIT_FOREVER);
+		if(Retcode != CNXT_STATUS_OK)
 		{
 			return CSUDIINJECTER_ERROR_UNKNOWN_ERROR;
 		}
@@ -2465,7 +2501,7 @@ CSUDI_Error_Code CSUDIINJECTERSetAttribute(CSUDI_HANDLE hINJECTER, CSUDIINJECTER
 		case EM_UDIINJECTER_STATUS:
 			if(pInjectHandle->eInjecterState != E_INJECT_START)
 			{
-				Status =  cnxt_kal_sem_put(gInjecterSem);
+				Retcode =  cnxt_kal_sem_put(gInjecterSem);
 				return CSUDIINJECTER_ERROR_INVALID_STATUS;
 			}
 			psStatus = (CSUDIINJECTERStatus_S *)pvData;
@@ -2475,7 +2511,7 @@ CSUDI_Error_Code CSUDIINJECTERSetAttribute(CSUDI_HANDLE hINJECTER, CSUDIINJECTER
 		case EM_UDIINJECTER_BUFFER:
 			if(pInjectHandle->eInjecterState != E_INJECT_START)
 			{
-				Status =  cnxt_kal_sem_put(gInjecterSem);
+				Retcode =  cnxt_kal_sem_put(gInjecterSem);
 				return CSUDIINJECTER_ERROR_INVALID_STATUS;
 			}
 			psBuffer = (CSUDIINJECTERBuffer_S*)pvData;
@@ -2578,29 +2614,18 @@ CSUDI_Error_Code CSUDIINJECTERSetAttribute(CSUDI_HANDLE hINJECTER, CSUDIINJECTER
 			}
 		}
 	}while(0);
-	Status =  cnxt_kal_sem_put(gInjecterSem);
-	if(Status != CNXT_STATUS_OK)
+	Retcode =  cnxt_kal_sem_put(gInjecterSem);
+	if(Retcode != CNXT_STATUS_OK)
 	{
 		return CSUDIINJECTER_ERROR_UNKNOWN_ERROR;
 	}
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL, "End: %s \n", __FUNCTION__);
 	
 	return (CSUDI_Error_Code)(eErrCode);
-	return Retcode;
 }
 
-
-/**
-@brief 获取INJECTER注入实例的各属性信息。
-@param[in] hINJECTER 注入实例句柄，由CSUDIINJECTEROpen返回
-@param[in] eAttrType ，将要调整的属性类型，请参见CSUDIINJECTERAttributeType_E的详细说明
-@param[out] pvData 具体的属性数据结构指针，内容请参见CSUDIINJECTERAttributeType_E的详细说明。
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-*/
 CSUDI_Error_Code CSUDIINJECTERGetAttribute(CSUDI_HANDLE hINJECTER, CSUDIINJECTERAttributeType_E eAttrType, void * pvData)
 {
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);
 	UDI_INJECT_HNDL *phInjectHndl = (UDI_INJECT_HNDL *)hINJECTER;
 	int nInjectIndx;
 	CSUDI_Error_Code eErrCode=CSUDI_SUCCESS;
@@ -2610,7 +2635,7 @@ CSUDI_Error_Code CSUDIINJECTERGetAttribute(CSUDI_HANDLE hINJECTER, CSUDIINJECTER
 	CSUDIINJECTERStatus_S *psStatus;
 	CSUDIINJECTERIFrameParam_S* piFrameParams;
 	
-	CNXT_STATUS Status = CNXT_STATUS_OK;
+	CNXT_STATUS Retcode = CNXT_STATUS_OK;
 
 	IS_VALID_INJECTER(hINJECTER);
 	
@@ -2622,8 +2647,8 @@ CSUDI_Error_Code CSUDIINJECTERGetAttribute(CSUDI_HANDLE hINJECTER, CSUDIINJECTER
 		return CSUDIINJECTER_ERROR_BAD_PARAMETER;
 	}
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"%s %d \n", __FUNCTION__, __LINE__);
-	Status =  cnxt_kal_sem_get(gInjecterSem, CNXT_KAL_WAIT_FOREVER);
-	if(Status != CNXT_STATUS_OK)
+	Retcode =  cnxt_kal_sem_get(gInjecterSem, CNXT_KAL_WAIT_FOREVER);
+	if(Retcode != CNXT_STATUS_OK)
 	{
 		return CSUDIINJECTER_ERROR_UNKNOWN_ERROR;
 	}
@@ -2668,7 +2693,7 @@ CSUDI_Error_Code CSUDIINJECTERGetAttribute(CSUDI_HANDLE hINJECTER, CSUDIINJECTER
 				CSDEBUG(MODULE_NAME, DEBUG_LEVEL, "EM_UDIINJECTER_PCM_PARAMS  \n");
                     if( TRUE!= CSPcmPlayGetPCMParams(pInjectHandle, (CSUDIINJECTERPcmStartParam_S*)pvData))
                     {
-                      Status =  cnxt_kal_sem_put(gInjecterSem);
+                      Retcode =  cnxt_kal_sem_put(gInjecterSem);
                       return CSUDI_FAILURE;
                     }
 			}
@@ -2677,7 +2702,7 @@ CSUDI_Error_Code CSUDIINJECTERGetAttribute(CSUDI_HANDLE hINJECTER, CSUDIINJECTER
 				CSDEBUG(MODULE_NAME, DEBUG_LEVEL, "EM_UDIINJECTER_PCM_ENDIAN  \n");
                     if( TRUE!=CSPcmPlayGetEndian(pInjectHandle, (CSUDIINJECTERPcmEndian_E*)pvData))
                     {
-                      Status =  cnxt_kal_sem_put(gInjecterSem);
+                      Retcode =  cnxt_kal_sem_put(gInjecterSem);
                       return CSUDI_FAILURE;
                     }
 			}
@@ -2716,37 +2741,28 @@ CSUDI_Error_Code CSUDIINJECTERGetAttribute(CSUDI_HANDLE hINJECTER, CSUDIINJECTER
 			}   
 		}
 	}while(0);
-	Status =  cnxt_kal_sem_put(gInjecterSem);
-	if(Status != CNXT_STATUS_OK)
+	Retcode =  cnxt_kal_sem_put(gInjecterSem);
+	if(Retcode != CNXT_STATUS_OK)
 	{
 		return CSUDIINJECTER_ERROR_UNKNOWN_ERROR;
 	}
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL, "End: %s \n", __FUNCTION__);
 
 	return (eErrCode);
-	return Retcode;
 }
 
-/**
-@brief  开始一个INJECTER 数据 注入
-@param[in] hINJECTER INJECTER注入实例句柄
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note  如果注入实例已经开始，则返回CSUDIREC_ERROR_ALREADY_STARTED
-*/
 CSUDI_Error_Code CSUDIINJECTERStart(CSUDI_HANDLE hINJECTER)
 {
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);
-	int nInjectIndx;
+    int nInjectIndx;
     UDI_INJECT_HNDL *phInjHndl = (UDI_INJECT_HNDL *)hINJECTER;
     CS_CNXT_Inject_SubSystem *pInjectHandle;
-    CNXT_STATUS Status = CNXT_STATUS_OK;
+    CNXT_STATUS Retcode = CNXT_STATUS_OK;
     CSUDI_Error_Code eErrCode = CSUDI_SUCCESS;
 	
     IS_VALID_INJECTER(hINJECTER);
 
-    Status =  cnxt_kal_sem_get(gInjecterSem, CNXT_KAL_WAIT_FOREVER);
-    if(Status != CNXT_STATUS_OK)
+    Retcode =  cnxt_kal_sem_get(gInjecterSem, CNXT_KAL_WAIT_FOREVER);
+    if(Retcode != CNXT_STATUS_OK)
     {
     	return CSUDIINJECTER_ERROR_UNKNOWN_ERROR;
     }
@@ -2768,20 +2784,20 @@ CSUDI_Error_Code CSUDIINJECTERStart(CSUDI_HANDLE hINJECTER)
         {
             if( TRUE!=CSPcmInject_Start(pInjectHandle) )
             {
-                Status =  cnxt_kal_sem_put(gInjecterSem);
+                Retcode =  cnxt_kal_sem_put(gInjecterSem);
                 return CSUDI_FAILURE;
             }
         }
         else if(pInjectHandle->eContentType != EM_UDIINJECTER_CONTENT_IFRAME)
         {		
             /*Nothing to do in Inject start */
-            Status =  cnxt_kal_mem_malloc(CNXT_POOL_ID_DEFAULT_BANK1_UNCACHED,
+            Retcode =  cnxt_kal_mem_malloc(CNXT_POOL_ID_DEFAULT_BANK1_UNCACHED,
                                 			512*188,
                                 			CNXT_MEM_ALIGN_DEFAULT,
                                 			(void **)&pInjectHandle->pTsBuff); 
 
 #if 1			
-			Status =  cnxt_kal_mem_malloc(CNXT_POOL_ID_DEFAULT_BANK1_UNCACHED,
+			Retcode =  cnxt_kal_mem_malloc(CNXT_POOL_ID_DEFAULT_BANK1_UNCACHED,
                     			188*1024,
                     			CNXT_MEM_ALIGN_DEFAULT,
                     			(void **)&pInternalBuffer); 
@@ -2809,7 +2825,7 @@ CSUDI_Error_Code CSUDIINJECTERStart(CSUDI_HANDLE hINJECTER)
             #endif
             /*Inject data*/
             /* receiving a data buffer */
-            Status =  cnxt_kal_mem_malloc(CNXT_POOL_ID_DEFAULT_BANK1_UNCACHED,
+            Retcode =  cnxt_kal_mem_malloc(CNXT_POOL_ID_DEFAULT_BANK1_UNCACHED,
                                              uIframeLen+1/*pInjectHandle->iFrameParams.m_nDataLen*/,
                                              CNXT_MEM_ALIGN_DEFAULT,
                                              (void **)&pIframeBuff);   
@@ -2822,12 +2838,12 @@ CSUDI_Error_Code CSUDIINJECTERStart(CSUDI_HANDLE hINJECTER)
 			
             /*Inject data*/
             /* receiving a data buffer */
-            Status =  cnxt_kal_mem_malloc(CNXT_POOL_ID_DEFAULT_BANK1_UNCACHED,
+            Retcode =  cnxt_kal_mem_malloc(CNXT_POOL_ID_DEFAULT_BANK1_UNCACHED,
                                              uIframeLen/*pInjectHandle->iFrameParams.m_nDataLen*/,
                                              0,
                                              (void **)&pIframeBuff);
 #endif
-            if(Status!= CNXT_STATUS_OK)
+            if(Retcode!= CNXT_STATUS_OK)
             {
                 Retcode =  CSUDIINJECTER_ERROR_NO_MEMORY;
                 CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"\n ERR: %s %d \n", __FUNCTION__, __LINE__);
@@ -2847,29 +2863,19 @@ CSUDI_Error_Code CSUDIINJECTERStart(CSUDI_HANDLE hINJECTER)
     }while(0);
     
     CSDEBUG(MODULE_NAME, DEBUG_LEVEL, "End: %s eErrCode 0x%x \n", __FUNCTION__, eErrCode);
-    Status =  cnxt_kal_sem_put(gInjecterSem);
-    if(Status != CNXT_STATUS_OK)
+    Retcode =  cnxt_kal_sem_put(gInjecterSem);
+    if(Retcode != CNXT_STATUS_OK)
     {
         return CSUDIINJECTER_ERROR_UNKNOWN_ERROR;
     }
 
     return (CSUDI_Error_Code)(eErrCode);
-	return Retcode;
+
 }
 
-
-/**
-@brief 停止一个INJECTER 数据注入
-@param[in] hINJECTER INJECTER注入实例句柄
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note  如果注入实例已经被停止，则返回CSUDIREC_ERROR_ALREADY_STOPPED
-@note  如果注入实例没有启动，则返回CSUDIREC_ERROR_NOT_STARTED
-*/
 CSUDI_Error_Code CSUDIINJECTERStop(CSUDI_HANDLE hINJECTER)
 {
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);
-	UDI_INJECT_HNDL *phInjectHndl = (UDI_INJECT_HNDL *)hINJECTER;
+    UDI_INJECT_HNDL *phInjectHndl = (UDI_INJECT_HNDL *)hINJECTER;
     int nInjectIndx;
     CS_CNXT_Inject_SubSystem *pInjectHandle;
     CNXT_STATUS RetCode = CNXT_STATUS_OK;
@@ -2950,22 +2956,10 @@ CSUDI_Error_Code CSUDIINJECTERStop(CSUDI_HANDLE hINJECTER)
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL, "End: %s eErrCode 0x%x \n", __FUNCTION__, eErrCode);
 
 	return (CSUDI_Error_Code)(eErrCode);
-	return Retcode;
 }
 
-/**
-@brief等待Inecter已经注入到目标缓存区中的数据播放完成
-
-本函数会堵塞，一直等到缓存中的数据播放完成了才返回CSUDI_SUCCESS，或下层驱动超时返回CSUDI_FAILURE
-一般用于待播放数据全部注入完毕后，等待播放结束
-@param[in] hINJECTER INJECTER数据注入实例句柄
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note  
-*/
 CSUDI_Error_Code CSUDIINJECTERFlush(CSUDI_HANDLE hINJECTER)
 {
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);
 	UDI_INJECT_HNDL *phInjectHndl = (UDI_INJECT_HNDL *)hINJECTER;
 	int nInjectIndx, nAudIndx=0, nVidIndx=0;
 	CS_CNXT_Inject_SubSystem *pInjectHandle;
@@ -3046,21 +3040,10 @@ CSUDI_Error_Code CSUDIINJECTERFlush(CSUDI_HANDLE hINJECTER)
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL, "End: %s  \n", __FUNCTION__);
 	
 	return (CSUDI_Error_Code)(eErrCode);
-	return Retcode;
 }
 
-/**
-@brief 清除Inecter已经注入到目标缓存区中的，尚没有播放完的全部数据
-
-主要用于快进、快退、定位等操作时清空已注入的数据，已防止这些操作的延迟
-@param[in] hINJECTER INJECTER数据注入实例句柄
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note  
-*/
 CSUDI_Error_Code CSUDIINJECTERClear(CSUDI_HANDLE hINJECTER)
 {
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);
 	UDI_INJECT_HNDL *phInjectHndl = (UDI_INJECT_HNDL *)hINJECTER;
 	int nInjectIndx;
 	CS_CNXT_Inject_SubSystem *pInjectHandle;
@@ -3112,34 +3095,10 @@ CSUDI_Error_Code CSUDIINJECTERClear(CSUDI_HANDLE hINJECTER)
 	CSDEBUG(MODULE_NAME, DEBUG_LEVEL, "End: %s  \n", __FUNCTION__);
 
 	return (CSUDI_Error_Code)(eErrCode);
-	return Retcode;
 }
 
-/**
-@brief 获取下次注入到Injecter目标缓冲区中的空闲Buffer地址指针和连续空闲Buffer的大小。
-@param[in] hINJECTER INJECTER数据注入实例句柄
-@param[out] ppvBuffer 返回获取到的内存地址指针
-@param[out] puLength 返回获取到的内存长度
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note  如果buffer已经满，再去调用此接口应该返回失败，且puLength长度为0
-@note  该函数必须与CSUDIINJECTERWriteComplete配对使用，对该函数的调用要考虑线程安全
-@code 
-	char  	*pcBuf = NULL; 
-	unsigned int unBufSize = 0;
-	...
-	if( (CSUDIINJECTERGetFreeBuffer(hInject, (void *)&pcBuf, &unBufSize) == CSUDI_SUCCESS) && (unBufSize > 0))
-	{
-		//往buffer中写入内容,  此处假设unWriteLen <= unBufSize
-		memcpy(pcBuf, pcDataTobeWrite, unWriteLen );		
-		CSUDIINJECTERWriteComplete(hInject, unWriteLen);
-	}
-	...
-@endcode
-*/
 CSUDI_Error_Code CSUDIINJECTERGetFreeBuffer(CSUDI_HANDLE hINJECTER, void ** ppvBuffer, unsigned  int * puLength )
 {
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);
 	UDI_INJECT_HNDL *phInjectHndl = (UDI_INJECT_HNDL *)hINJECTER;
 	int nInjectIndx;
 	CS_CNXT_Inject_SubSystem *pInjectHandle;
@@ -3255,21 +3214,10 @@ CSUDI_Error_Code CSUDIINJECTERGetFreeBuffer(CSUDI_HANDLE hINJECTER, void ** ppvB
 	}
 	//CSDEBUG(MODULE_NAME, DEBUG_LEVEL, "End: %s  eErrCode 0x%x len %d \n", __FUNCTION__, eErrCode, *puLength);
 	return (CSUDI_Error_Code)(eErrCode);
-	return Retcode;
 }
 
-/**
-@brief 通知本次注入的数据
-@param[in] hINJECTER INJECTER数据注入实例句柄
-@param[in] uWrittenSize 已拷贝数据的大小
-@return 成功返回CSUDI_SUCCESS；失败则返回错误代码值
-@note 如果buffer长度为nLength, 注入长度大于nLength,则该接口返回CSUDIINJECTER_ERROR_NO_MEMORY
-@note  该函数必须与CSUDIINJECTERGetFreeBuffer配对使用，对该函数的调用要考虑线程安全
-*/
 CSUDI_Error_Code CSUDIINJECTERWriteComplete(CSUDI_HANDLE hINJECTER, unsigned int uWrittenSize)
 {
-	CSUDI_Error_Code Retcode = CSUDI_SUCCESS;	
-	UDIDRV_LOGI("%s %s (Retcode =%d)\n", __FUNCTION__, UDIDRV_NOT_REQUIRED, Retcode);
 	UDI_INJECT_HNDL *phInjectHndl = (UDI_INJECT_HNDL *)hINJECTER;
 	int nInjectIndx;
 	CS_CNXT_Inject_SubSystem *pInjectHandle;
@@ -3537,6 +3485,6 @@ CSUDI_Error_Code CSUDIINJECTERWriteComplete(CSUDI_HANDLE hINJECTER, unsigned int
     }
     //CSDEBUG(MODULE_NAME, DEBUG_LEVEL,"%s %d end  \n", __FUNCTION__, __LINE__);
 	return (CSUDI_Error_Code)(eErrCode);
-	return Retcode;
 }
+
 

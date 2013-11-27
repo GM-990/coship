@@ -1,0 +1,52 @@
+#include "udi2_record.h"
+
+CSUDI_Error_Code CSUDIRECAddCallback(CSUDI_HANDLE hRecHandle,CSUDIRECCallback_F fnRecordCallback, void * pvUserData)
+{
+    return (CSUDI_Error_Code)(0);
+}
+CSUDI_Error_Code CSUDIRECDelCallback(CSUDI_HANDLE hRecHandle,CSUDIRECCallback_F fnRecordCallback,void * pvUserData)
+{
+    return (CSUDI_Error_Code)(0);
+}
+
+
+CSUDI_Error_Code CSUDIRECOpen(const CSUDIRecChnl_S * psChnl, CSUDI_HANDLE * phRecHandle)
+{
+    return (CSUDI_Error_Code)(0);
+}
+
+
+CSUDI_Error_Code CSUDIRECGetSupportEncryptTypes(CSUDI_HANDLE hRecHandle,CSUDIStreamEncryptType_E* peOutTypeArray,int nArraySize,int* pnActualCnt)
+{
+    return (CSUDI_Error_Code)(0);
+}
+CSUDI_Error_Code CSUDIRECClose(CSUDI_HANDLE hRecHandle)
+{
+    return (CSUDI_Error_Code)(0);
+}
+
+CSUDI_Error_Code CSUDIRECStart(CSUDI_HANDLE  hRecHandle,const CSUDIRecStartParam_S * psStartParam)
+{
+    return (CSUDI_Error_Code)(0);
+}
+CSUDI_Error_Code CSUDIRECStop(CSUDI_HANDLE  hRecHandle)    
+{
+    return (CSUDI_Error_Code)(0);
+}
+CSUDI_Error_Code CSUDIRECStopTshift(CSUDI_HANDLE  hRecHandle,CSUDI_BOOL bSwitchToFile)
+{
+    return (CSUDI_Error_Code)(0);
+}
+CSUDI_Error_Code CSUDIRECGetRecInfo(CSUDIRecStatusInfo_S * psStatInfo, int nSize,int * pnActualSize)   
+{
+    return (CSUDI_Error_Code)(0);
+}
+CSUDI_Error_Code CSUDIRECGetRecTime(CSUDI_HANDLE  hRecHandle, CSUDIRecTimeInfo_S * psTimeInfo)   
+{
+    return (CSUDI_Error_Code)(0);
+}
+CSUDI_Error_Code CSUDIRECFileCut(const char* szFileName,unsigned int unStartPos,unsigned int unEndPos)    
+{
+    return (CSUDI_Error_Code)(0);
+}
+
